@@ -3,6 +3,7 @@
 import React, { useMemo, useEffect, useState } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { toast } from "sonner";
 
 import { ServiceNode } from "../ServiceNode";
 import { FlowCanvas } from "./FlowCanvas";
@@ -15,6 +16,7 @@ import { ExecutionHistory } from "../ExecutionHistory";
 import { useWorkflowGraph } from "../../hooks/useWorkflowGraph";
 import { useWorkflowExecution } from "../../hooks/useWorkflowExecution";
 import { useRealtimeLogs } from "../../hooks/useRealtimeLogs";
+import { useRealtimeTestResults } from "../../hooks/useRealTimeTestReults";
 import { useTestOrderManager } from "../../hooks/useTestOrderManager";
 import { useUIStore } from "../../stores/ui.store";
 import { useExecutionStore } from "../../stores/execution.store.sync";
@@ -104,6 +106,70 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
     onComplete: onWorkComplete,
     onError,
   });
+
+  // Real-time test results with enhanced tracking
+  const {
+    activeSessionTestResults,
+    summary,
+    hasTests,
+    allComplete,
+    hasFailures,
+  } = useRealtimeTestResults({
+    onTestComplete: (testResult) => {
+      console.log(
+        `[FlowBuilder] Test completed: ${testResult.testName} - ${testResult.status}`,
+      );
+
+      // Show toast for test completion (only for final states)
+      if (testResult.status === "passed") {
+        toast.success(`✓ ${testResult.testName}`, {
+          description: `Completed in ${testResult.durationMs}ms`,
+          duration: 3000,
+        });
+      } else if (testResult.status === "failed") {
+        toast.error(`✗ ${testResult.testName}`, {
+          description: testResult.resultData?.message || "Test failed",
+          duration: 5000,
+        });
+      }
+    },
+    onAllTestsComplete: (sessionId, testSummary) => {
+      console.log(
+        `[FlowBuilder] All tests complete for session ${sessionId}:`,
+        testSummary,
+      );
+
+      // Show completion toast
+      if (testSummary.failed === 0) {
+        toast.success("All tests passed! 🎉", {
+          description: `${testSummary.passed}/${testSummary.total} tests completed successfully`,
+          duration: 5000,
+        });
+      } else {
+        toast.warning("Tests completed with failures", {
+          description: `${testSummary.passed} passed, ${testSummary.failed} failed`,
+          duration: 5000,
+        });
+      }
+
+      onWorkComplete?.(testSummary);
+    },
+    onError: (error) => {
+      console.error("[FlowBuilder] Test execution error:", error);
+      toast.error("Test execution error", {
+        description: error,
+        duration: 5000,
+      });
+      onError?.(error);
+    },
+  });
+
+  // Log test summary changes for debugging
+  useEffect(() => {
+    if (hasTests) {
+      console.log("[FlowBuilder] Test Summary:", summary);
+    }
+  }, [summary, hasTests]);
 
   // Inject delete handler into nodes
   useEffect(() => {

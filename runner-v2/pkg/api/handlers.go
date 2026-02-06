@@ -26,6 +26,8 @@ func NewHandler() *Handler {
 	providers.Register("mysql", &predefined.MysqlProvider{})
 	providers.Register("mariadb", &predefined.MariaDbProvider{})
 	providers.Register("redis", &predefined.RedisProvider{})
+	providers.Register("memcached", &predefined.MemcachedProvider{})
+	providers.Register("kafka", &predefined.KafkaProvider{})
 
 	return &Handler{
 		sessionManager: session.NewManager(),

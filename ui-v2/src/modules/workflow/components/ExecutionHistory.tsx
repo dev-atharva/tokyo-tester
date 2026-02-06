@@ -5,6 +5,7 @@ import {
   useExecutionStore,
   WorkflowExecution,
 } from "../stores/execution.store.sync";
+import { useTestResultStore } from "@/modules/workflow/stores/test-result.store";
 import { Badge } from "@/components/ui/badge";
 import {
   IconCheck,
@@ -45,25 +46,76 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   const executionsMap = useExecutionStore((s) => s.executions);
   const clearExecution = useExecutionStore((s) => s.clearExecution);
 
+  const getTestResultsBySession = useTestResultStore(
+    (s) => s.getTestResultsBySession,
+  );
+
+  /* ----------------------------- Executions ----------------------------- */
+
   const executions = useMemo(() => {
     return Object.values(executionsMap).filter(
-      (e) => e.workflowId === workflowId,
+      (e) => e.workflowId === workflowId && !e.is_deleted,
     );
   }, [executionsMap, workflowId]);
 
   const sortedExecutions = useMemo(() => {
     return [...executions].sort((a, b) => b.startedAt - a.startedAt);
   }, [executions]);
+  /* ---------------------- Derived Execution Status ----------------------- */
 
-  const formatDuration = (start: number, end?: number) => {
-    if (!end) return "Running...";
-    const duration = end - start;
-    const seconds = Math.floor(duration / 1000);
+  const getExecutionStatusFromTests = (
+    execution: WorkflowExecution,
+  ): WorkflowExecution["status"] => {
+    const tests = getTestResultsBySession(execution.sessionId);
+
+    if (!tests || tests.length === 0) {
+      return execution.status;
+    }
+
+    if (tests.some((t) => t.status === "failed")) {
+      return "failed";
+    }
+
+    if (tests.some((t) => t.status === "running")) {
+      return "running";
+    }
+
+    if (tests.every((t) => t.status === "passed")) {
+      return "completed";
+    }
+
+    return execution.status;
+  };
+
+  const selectedExecutionStatus = useMemo(() => {
+    if (!selectedExecution) return null;
+    return getExecutionStatusFromTests(selectedExecution);
+  }, [selectedExecution, getTestResultsBySession]);
+
+  /* ---------------------------- Test Results ----------------------------- */
+
+  const testResults = useMemo(() => {
+    if (!selectedExecution) return [];
+    return getTestResultsBySession(selectedExecution.sessionId);
+  }, [selectedExecution, getTestResultsBySession]);
+
+  /* ----------------------------- Utilities ------------------------------ */
+
+  const formatExecutionDuration = (startedAt: number, updatedAt?: string) => {
+    if (!updatedAt) return "Running...";
+
+    const end = new Date(updatedAt).getTime();
+    const durationMs = end - startedAt;
+
+    if (durationMs <= 0) return "0s";
+
+    const seconds = Math.floor(durationMs / 1000);
     const minutes = Math.floor(seconds / 60);
 
     if (minutes > 0) {
       return `${minutes}m ${seconds % 60}s`;
     }
+
     return `${seconds}s`;
   };
 
@@ -75,7 +127,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
     switch (status) {
       case "completed":
         return (
-          <Badge variant="default" className="bg-primary">
+          <Badge className="bg-primary">
             <IconCheck className="mr-1 size-3" />
             Completed
           </Badge>
@@ -99,10 +151,39 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
     }
   };
 
+  const getTestStatusBadge = (status: string) => {
+    switch (status) {
+      case "passed":
+        return (
+          <Badge className="bg-green-500">
+            <IconCheck className="mr-1 size-3" />
+            Passed
+          </Badge>
+        );
+      case "failed":
+        return (
+          <Badge variant="destructive">
+            <IconX className="mr-1 size-3" />
+            Failed
+          </Badge>
+        );
+      case "running":
+        return (
+          <Badge variant="secondary">
+            <IconClock className="mr-1 size-3" />
+            Running
+          </Badge>
+        );
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  /* ------------------------------ Render ------------------------------- */
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!max-w-[95vw] !w-[95vw] sm:!max-w-[95vw] md:!max-w-[95vw] lg:!max-w-[95vw] h-[90vh] p-0 gap-0">
-        {/* Header */}
+      <DialogContent className="!max-w-[95vw] h-[90vh] p-0 gap-0">
         <DialogHeader className="p-6 border-b">
           <DialogTitle className="flex items-center gap-2">
             <IconHistory className="size-5" />
@@ -113,23 +194,18 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Main Content */}
         <div className="flex h-[calc(90vh-5rem)] overflow-hidden">
-          {/* Execution List - Collapsible */}
+          {/* ----------------------- Execution List ----------------------- */}
           <div
             className={cn(
               "relative transition-all duration-300 border-r bg-muted/30",
               isListCollapsed ? "w-0" : "w-80",
             )}
           >
-            {/* Toggle Button */}
             <Button
               variant="outline"
               size="icon"
-              className={cn(
-                "absolute -right-3 top-1/2 -translate-y-1/2 z-10 h-12 w-6 rounded-lg",
-                isListCollapsed && "right-0 translate-x-full",
-              )}
+              className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 h-12 w-6"
               onClick={() => setIsListCollapsed(!isListCollapsed)}
             >
               {isListCollapsed ? (
@@ -139,194 +215,162 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
               )}
             </Button>
 
-            {/* Execution List Content */}
             {!isListCollapsed && (
-              <ScrollArea className="h-full px-4 py-4">
-                {sortedExecutions.length === 0 ? (
-                  <div className="py-8 text-center text-sm text-muted-foreground">
-                    No executions yet
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {sortedExecutions.map((execution) => (
+              <ScrollArea className="h-full p-4">
+                <div className="space-y-2">
+                  {sortedExecutions.map((execution) => {
+                    const status = getExecutionStatusFromTests(execution);
+                    const tests = getTestResultsBySession(execution.sessionId);
+
+                    return (
                       <button
                         key={execution.sessionId}
                         onClick={() => setSelectedExecution(execution)}
                         className={cn(
-                          "w-full rounded-lg border p-3 text-left transition-colors",
+                          "w-full rounded-lg border p-3 text-left",
                           selectedExecution?.sessionId === execution.sessionId
-                            ? "border-primary bg-primary/10 shadow-sm"
-                            : "hover:bg-muted/50 hover:border-muted-foreground/20",
+                            ? "border-primary bg-primary/10"
+                            : "hover:bg-muted/50",
                         )}
                       >
-                        <div className="flex items-center justify-between mb-2">
-                          {getStatusBadge(execution.status)}
+                        <div className="flex justify-between mb-2">
+                          {getStatusBadge(status)}
                           <span className="text-xs text-muted-foreground">
-                            {formatDuration(
+                            {formatExecutionDuration(
                               execution.startedAt,
-                              execution.finishedAt,
+                              execution.updated_at,
                             )}
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground">
                           {formatTimestamp(execution.startedAt)}
                         </p>
-                        <p className="mt-1 font-mono text-xs text-muted-foreground truncate">
-                          {execution.sessionId}
-                        </p>
+                        {tests.length > 0 && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {tests.length} test
+                            {tests.length !== 1 ? "s" : ""}
+                          </p>
+                        )}
                       </button>
-                    ))}
-                  </div>
-                )}
+                    );
+                  })}
+                </div>
               </ScrollArea>
             )}
           </div>
 
-          {/* Execution Details */}
-          <div className="flex-1 flex flex-col min-w-0">
-            {/* Details Header */}
-            <div className="p-6 border-b bg-background flex-shrink-0">
+          {/* ---------------------- Execution Details ---------------------- */}
+          <div className="flex-1 flex flex-col">
+            <ScrollArea className="flex-1 p-6">
               {selectedExecution ? (
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold text-lg">Execution Details</h3>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {formatTimestamp(selectedExecution.startedAt)}
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      if (selectedExecution) {
+                <>
+                  <div className="flex justify-between mb-6">
+                    <div>
+                      <h3 className="font-semibold text-lg">
+                        Execution Details
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        {formatTimestamp(selectedExecution.startedAt)}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
                         clearExecution(selectedExecution.sessionId);
                         setSelectedExecution(null);
-                      }
-                    }}
-                  >
-                    <IconTrash className="mr-2 size-4" />
-                    Delete
-                  </Button>
-                </div>
-              ) : (
-                <h3 className="font-semibold text-lg">Select an execution</h3>
-              )}
-            </div>
-
-            {/* Details Content */}
-            <ScrollArea className="flex-1 overflow-y-auto">
-              {selectedExecution ? (
-                <div className="p-6 space-y-6 pb-12">
-                  {/* Status Overview */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <div className="text-sm font-medium text-muted-foreground">
-                        Status
-                      </div>
-                      <div>{getStatusBadge(selectedExecution.status)}</div>
-                    </div>
-                    <div className="space-y-2">
-                      <div className="text-sm font-medium text-muted-foreground">
-                        Duration
-                      </div>
-                      <div className="text-sm">
-                        {formatDuration(
-                          selectedExecution.startedAt,
-                          selectedExecution.finishedAt,
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Session Info */}
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium text-muted-foreground">
-                      Session ID
-                    </div>
-                    <code className="block w-full rounded bg-muted px-3 py-2 font-mono text-xs break-all">
-                      {selectedExecution.sessionId}
-                    </code>
+                      }}
+                    >
+                      <IconTrash className="mr-2 size-4" />
+                      Delete
+                    </Button>
                   </div>
 
                   <Separator />
 
-                  {/* Logs */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-semibold">Logs</h4>
-                      <Badge variant="outline">
-                        {selectedExecution.logs.length} entries
-                      </Badge>
+                  <div className="mt-6 space-y-6">
+                    <div>
+                      <h4 className="font-medium mb-2">Status</h4>
+                      {selectedExecutionStatus &&
+                        getStatusBadge(selectedExecutionStatus)}
                     </div>
-                    <div className="h-96 rounded-lg border bg-muted p-4 overflow-auto">
-                      {selectedExecution.logs.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">
-                          No logs available
-                        </p>
-                      ) : (
-                        <div className="space-y-1">
-                          {selectedExecution.logs.map((log, i) => (
-                            <div
-                              key={i}
-                              className="font-mono text-xs leading-relaxed"
-                            >
-                              <span className="text-muted-foreground mr-2 inline-block min-w-[3ch]">
-                                [{String(i + 1).padStart(3, "0")}]
-                              </span>
-                              <span className="text-foreground whitespace-pre-wrap break-words">
-                                {log}
-                              </span>
-                            </div>
-                          ))}
+
+                    {testResults.length > 0 && (
+                      <>
+                        <Separator />
+                        <div>
+                          <h4 className="font-medium mb-2">Test Results</h4>
+                          <div className="space-y-2">
+                            {testResults.map((test) => (
+                              <div
+                                key={test.id}
+                                className="rounded-lg border p-4 space-y-3"
+                              >
+                                {/* Header */}
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <h5 className="font-medium">
+                                      {test.testName}
+                                    </h5>
+                                    <Badge
+                                      variant="outline"
+                                      className="text-xs"
+                                    >
+                                      {test.testType}
+                                    </Badge>
+                                  </div>
+                                  {getTestStatusBadge(test.status)}
+                                </div>
+
+                                {/* Meta */}
+                                <div className="text-xs text-muted-foreground">
+                                  Duration: {test.durationMs}ms
+                                </div>
+
+                                {/* Result Data */}
+                                {test.resultData && (
+                                  <details className="group">
+                                    <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                                      View result data
+                                    </summary>
+                                    <pre className="mt-2 max-h-40 overflow-auto rounded bg-muted p-2 text-xs font-mono">
+                                      {JSON.stringify(test.resultData, null, 2)}
+                                    </pre>
+                                  </details>
+                                )}
+
+                                {/* Logs */}
+                                {test.logs && test.logs.length > 0 && (
+                                  <details className="group">
+                                    <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                                      View logs ({test.logs.length})
+                                    </summary>
+                                    <div className="mt-2 max-h-48 overflow-auto rounded bg-muted p-2 space-y-1">
+                                      {test.logs.map((log, i) => (
+                                        <div
+                                          key={i}
+                                          className="font-mono text-xs whitespace-pre-wrap break-words"
+                                        >
+                                          <span className="text-muted-foreground mr-2">
+                                            [{String(i + 1).padStart(3, "0")}]
+                                          </span>
+                                          {log}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </details>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      )}
-                    </div>
+                      </>
+                    )}
                   </div>
-
-                  {/* Error */}
-                  {selectedExecution.error && (
-                    <>
-                      <Separator />
-                      <div className="space-y-3">
-                        <h4 className="font-semibold text-destructive flex items-center gap-2">
-                          <IconX className="size-4" />
-                          Error
-                        </h4>
-                        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
-                          <p className="text-sm text-destructive font-mono whitespace-pre-wrap break-words">
-                            {selectedExecution.error}
-                          </p>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  {/* Result */}
-                  {selectedExecution.result && (
-                    <>
-                      <Separator />
-                      <div className="space-y-3">
-                        <h4 className="font-semibold flex items-center gap-2">
-                          <IconCheck className="size-4" />
-                          Result
-                        </h4>
-                        <div className="h-64 rounded-lg border bg-muted/50 p-4 overflow-auto">
-                          <pre className="text-xs font-mono whitespace-pre-wrap break-words">
-                            {JSON.stringify(selectedExecution.result, null, 2)}
-                          </pre>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
+                </>
               ) : (
-                <div className="flex h-full items-center justify-center p-8">
-                  <div className="text-center space-y-2">
-                    <IconHistory className="size-12 mx-auto text-muted-foreground/50" />
-                    <p className="text-sm text-muted-foreground">
-                      Select an execution from the list to view details
-                    </p>
-                  </div>
+                <div className="h-full flex items-center justify-center text-muted-foreground">
+                  Select an execution to view details
                 </div>
               )}
             </ScrollArea>

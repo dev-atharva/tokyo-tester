@@ -25,6 +25,8 @@ func NewRegistory() *Registry {
 	r.Register("database", &DatabaseExecutor{})
 	r.Register("http", &HTTPExecutor{})
 	r.Register("shell", &ShellExecutor{})
+	r.Register("cache", &CacheExecutor{})
+	r.Register("queue", &QueueExecutor{})
 
 	return r
 }

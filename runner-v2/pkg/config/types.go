@@ -15,6 +15,7 @@ type ServiceConfig struct {
 	DependsOn     []string            `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
 	WaitStratergy WaitStratergyConfig `yaml:"wait_stratergy" json:"wait_stratergy"`
 	InitScripts   []string            `yaml:"init_scripts,omitempty" json:"init_scripts,omitempty"`
+	Registry      *RegistryConfig     `yaml:"registry" json:"registry"`
 }
 
 type TestConfig struct {
@@ -28,4 +29,12 @@ type WaitStratergyConfig struct {
 	Type    string `yaml:"type" json:"type"`                           // "log","port","exec"
 	Target  string `yaml:"target,omitempty" json:"target,omitempty"`   // log message , port number , exec command
 	Timeout int    `yaml:"timeout,omitempty" json:"timeout,omitempty"` // seconds
+}
+
+type RegistryConfig struct {
+	URL      string `yaml:"url" json:"url"`
+	AuthType string `yaml:"auth_type,omitempty" json:"auth_type,omitempty"`
+	Username string `yaml:"username,omitempty" json:"username,omitempty"`
+	Password string `yaml:"password,omitempty" json:"password,omitempty"`
+	Token    string `yaml:"token,omitempty" json:"token,omitempty"`
 }

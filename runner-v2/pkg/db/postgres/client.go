@@ -289,6 +289,52 @@ func (c *Client) InsertTestResult(ctx context.Context, tr *db.TestResult) error 
 	return err
 }
 
+func (c *Client) UpsertTestResult(ctx context.Context, result *db.TestResult) error {
+	query := `
+		INSERT INTO test_results (
+			id,
+			session_id,
+			workflow_id,
+			test_name,
+			test_type,
+			status,
+			result_data,
+			duration_ms,
+			executed_at,
+			created_at,
+			client_id,
+			user_id,
+			is_deleted
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		ON CONFLICT(id) DO UPDATE SET
+			status = excluded.status,
+			result_data = excluded.result_data,
+			duration_ms = excluded.duration_ms,
+			executed_at = excluded.executed_at,
+			client_id = excluded.client_id,
+			user_id = excluded.user_id,
+			is_deleted = excluded.is_deleted
+	`
+
+	_, err := c.conn.ExecContext(ctx, query,
+		result.ID,
+		result.SessionID,
+		result.WorkflowID,
+		result.TestName,
+		result.TestType,
+		result.Status,
+		result.ResultData,
+		result.DurationMs,
+		result.ExecutedAt,
+		result.CreatedAt,
+		result.ClientID,
+		result.UserID,
+		result.IsDeleted,
+	)
+	return err
+}
+
 func (c *Client) GetTestResult(ctx context.Context, id string) (*db.TestResult, error) {
 	query := `
 		SELECT id, session_id, workflow_id, test_name, test_type,
@@ -369,6 +415,16 @@ func (c *Client) ListTestResultsByUserId(ctx context.Context, userId string) ([]
 		results = append(results, &tr)
 	}
 	return results, nil
+}
+
+func (c *Client) DeleteTestResult(ctx context.Context, id string) error {
+	query := `
+		UPDATE test_results
+		SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND is_deleted = 0
+	`
+	_, err := c.conn.ExecContext(ctx, query, id)
+	return err
 }
 
 func (c *Client) UpsertSyncMetaData(ctx context.Context, meta *db.SyncMetadata) error {

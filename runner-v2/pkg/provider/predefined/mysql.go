@@ -3,8 +3,10 @@ package predefined
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/dev-atharva/cots/pkg/config"
+	"github.com/dev-atharva/cots/pkg/registry"
 	"github.com/dev-atharva/cots/pkg/types"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mysql"
@@ -29,30 +31,7 @@ func (p *MysqlProvider) Provision(ctx context.Context, cfg config.ServiceConfig,
 	}
 	defer cleanupInitFiles()
 
-	container, err := mysql.Run(ctx,
-		image,
-		mysql.WithDatabase(database),
-		mysql.WithUsername(username),
-		mysql.WithPassword(password),
-		mysql.WithScripts(initFiles...),
-		testcontainers.WithWaitStrategy(
-			testcontainerswait.
-				ForLog("database system is ready to accept connections").
-				WithOccurrence(2),
-		),
-		testcontainers.CustomizeRequest(
-			testcontainers.GenericContainerRequest{
-				ContainerRequest: testcontainers.ContainerRequest{
-					Name:     cfg.Name,
-					Networks: []string{network.Name},
-					NetworkAliases: map[string][]string{
-						network.Name: {cfg.Name},
-					},
-				},
-			},
-		),
-	)
-
+	container, err := p.createContainerWithFallback(ctx, cfg, image, database, username, password, initFiles, network)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to start the mysql container: %w", err)
 	}
@@ -83,6 +62,62 @@ func (p *MysqlProvider) Provision(ctx context.Context, cfg config.ServiceConfig,
 		},
 	}
 	return container, runtime, nil
+}
+
+func (p *MysqlProvider) createContainerWithFallback(ctx context.Context, cfg config.ServiceConfig, image, database, username, password string, initFiles []string, network *testcontainers.DockerNetwork) (*mysql.MySQLContainer, error) {
+	originalImage := image
+
+	if cfg.Registry != nil && cfg.Registry.URL != "" {
+		customImage := registry.ResolveImageName(originalImage, cfg.Registry)
+
+		container, err := mysql.Run(ctx,
+			customImage,
+			mysql.WithDatabase(database),
+			mysql.WithUsername(username),
+			mysql.WithPassword(password),
+			mysql.WithScripts(initFiles...),
+			testcontainers.WithWaitStrategy(testcontainerswait.ForLog("database system is ready to accept connections").WithOccurrence(2)),
+			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
+				ContainerRequest: testcontainers.ContainerRequest{
+					Name:     cfg.Name,
+					Networks: []string{network.Name},
+					NetworkAliases: map[string][]string{
+						network.Name: {cfg.Name},
+					},
+				},
+			}),
+		)
+
+		if err == nil {
+			return container, nil
+		}
+		log.Printf("Falling back to Docker hub for Image: %s", originalImage)
+	}
+
+	container, err := mysql.Run(ctx,
+		originalImage,
+		mysql.WithDatabase(database),
+		mysql.WithUsername(username),
+		mysql.WithPassword(password),
+		mysql.WithScripts(initFiles...),
+		testcontainers.WithWaitStrategy(
+			testcontainerswait.ForLog("database system is ready to accept connections").WithOccurrence(2),
+		),
+		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
+			ContainerRequest: testcontainers.ContainerRequest{
+				Name:     cfg.Name,
+				Networks: []string{network.Name},
+				NetworkAliases: map[string][]string{
+					network.Name: {cfg.Name},
+				},
+			},
+		}),
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to pull image from both custom registry and docker hub : %w", err)
+	}
+	return container, nil
 }
 
 func (p *MysqlProvider) Cleanup(ctx context.Context, container testcontainers.Container) error {

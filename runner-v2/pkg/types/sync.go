@@ -9,7 +9,7 @@ import (
 
 type SyncBatchRequest struct {
 	ClientID  string       `json:"client_id"`
-	UserID    string       `json:"user_id"` // ✅ added
+	UserID    string       `json:"user_id"`
 	TimeStamp time.Time    `json:"timestamp"`
 	Changes   []SyncChange `json:"changes"`
 }
@@ -17,7 +17,7 @@ type SyncBatchRequest struct {
 type SyncBatchResponse struct {
 	Success        bool           `json:"success"`
 	ProcessedCount int            `json:"processed_count"`
-	Conflicts      []ConflictInfo `json:"conflicts"` // fixed JSON tag
+	Conflicts      []ConflictInfo `json:"conflicts"`
 	Errors         []SyncError    `json:"errors,omitempty"`
 	ServerVersion  int            `json:"server_version"`
 }
@@ -64,7 +64,7 @@ type SyncChange struct {
 
 type WorkflowData struct {
 	ID          string          `json:"id"`
-	UserID      string          `json:"user_id"` // ✅ added
+	UserID      string          `json:"user_id"`
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	NodesConfig json.RawMessage `json:"nodes_config"`
@@ -81,7 +81,7 @@ type WorkflowData struct {
 
 type SessionData struct {
 	ID           string          `json:"id"`
-	UserID       string          `json:"user_id"` // ✅ added
+	UserID       string          `json:"user_id"`
 	WorkflowID   string          `json:"workflow_id,omitempty"`
 	Status       string          `json:"status"`                  // pending,running,completed,failed
 	Result       json.RawMessage `json:"result,omitempty"`        // JSON
@@ -100,7 +100,7 @@ type SessionData struct {
 
 type TestResultData struct {
 	ID         string    `json:"id"`
-	UserID     string    `json:"user_id"` // ✅ added
+	UserID     string    `json:"user_id"`
 	SessionID  string    `json:"session_id"`
 	WorkflowID string    `json:"workflow_id"`
 	TestName   string    `json:"test_name"`
@@ -110,6 +110,7 @@ type TestResultData struct {
 	DurationMs int       `json:"duration_ms,omitempty"`
 	ExecutedAt time.Time `json:"executed_at"`
 	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 	ClientID   string    `json:"client_id"`
 	IsDeleted  bool      `json:"is_deleted"`
 }

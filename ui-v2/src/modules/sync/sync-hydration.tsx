@@ -10,7 +10,11 @@ import {
   useExecutionStore,
   WorkflowExecution,
 } from "../workflow/stores/execution.store.sync";
-import { SessionData, WorkflowData } from "./sync-types";
+import {
+  useTestResultStore,
+  TestResult,
+} from "@/modules/workflow/stores/test-result.store";
+import { SessionData, WorkflowData, TestResultData } from "./sync-types";
 
 interface HydrationResult {
   success: boolean;
@@ -23,9 +27,9 @@ interface HydrationResult {
 interface HydrationStats {
   workflows: Map<string, WorkflowData>;
   sessions: Map<string, SessionData>;
-  testResults: Map<string, any>;
+  testResults: Map<string, TestResultData>;
   sessionsByWorkflow: Map<string, SessionData[]>;
-  testResultsBySession: Map<string, any[]>;
+  testResultsBySession: Map<string, TestResultData[]>;
 }
 
 /**
@@ -51,13 +55,13 @@ export async function hydrateFromServer(): Promise<HydrationResult> {
     // Hydrate workflows first
     const workflowCount = hydrateWorkflows(stats);
 
-    // Hydrate sessions with their test results
+    // Hydrate sessions
     const sessionCount = hydrateSessions(stats);
 
-    // Summary
-    const testResultCount = stats.testResults.size;
+    // Hydrate test results
+    const testResultCount = hydrateTestResults(stats);
 
-    if (workflowCount === 0 && sessionCount === 0) {
+    if (workflowCount === 0 && sessionCount === 0 && testResultCount === 0) {
       console.log("[SyncHydration] No server data to hydrate");
     } else {
       console.log(
@@ -174,7 +178,7 @@ function hydrateWorkflows(stats: HydrationStats): number {
 }
 
 /**
- * Hydrate sessions and their test results into store
+ * Hydrate sessions into store (without embedded test results)
  */
 function hydrateSessions(stats: HydrationStats): number {
   let count = 0;
@@ -187,21 +191,57 @@ function hydrateSessions(stats: HydrationStats): number {
         continue;
       }
 
-      // Get test results for this session
-      const testResults = stats.testResultsBySession.get(sessionId) || [];
+      // Get test result count for logging
+      const testResultCount =
+        stats.testResultsBySession.get(sessionId)?.length || 0;
 
-      // Deserialize session with its test results
-      const execution = deserializeSession(sessionData, testResults);
+      // Deserialize session WITHOUT embedded test results
+      const execution = deserializeSession(sessionData);
       useExecutionStore.getState().upsertExecutionFromSync(execution);
 
       console.log(
-        `[SyncHydration] ✓ Session: ${sessionId} (${execution.status}) - workflow: ${execution.workflowId}, ${testResults.length} test results`,
+        `[SyncHydration] ✓ Session: ${sessionId} (${execution.status}) - workflow: ${execution.workflowId}, ${testResultCount} test results`,
       );
 
       count++;
     } catch (error) {
       console.error(
         `[SyncHydration] Failed to hydrate session ${sessionId}:`,
+        error,
+      );
+    }
+  }
+
+  return count;
+}
+
+/**
+ * Hydrate test results into their own store
+ */
+function hydrateTestResults(stats: HydrationStats): number {
+  let count = 0;
+
+  for (const [testResultId, testResultData] of stats.testResults) {
+    try {
+      // Skip deleted test results
+      if (testResultData.is_deleted) {
+        console.log(
+          `[SyncHydration] Skipping deleted test result: ${testResultId}`,
+        );
+        continue;
+      }
+
+      const testResult = deserializeTestResult(testResultData);
+      useTestResultStore.getState().upsertTestResultFromSync(testResult);
+
+      console.log(
+        `[SyncHydration] ✓ Test Result: ${testResult.testName} (${testResultId}) - session: ${testResult.sessionId}, status: ${testResult.status}`,
+      );
+
+      count++;
+    } catch (error) {
+      console.error(
+        `[SyncHydration] Failed to hydrate test result ${testResultId}:`,
         error,
       );
     }
@@ -236,34 +276,17 @@ function deserializeWorkflow(data: WorkflowData): Workflow {
 
 /**
  * Deserialize session from API format to store format
- * Includes test results in the session data
  */
-function deserializeSession(
-  data: SessionData,
-  testResults: any[],
-): WorkflowExecution {
+function deserializeSession(data: SessionData): WorkflowExecution {
   const logs = parseJSON<string[]>(data.logs, []);
   const result = parseJSON<any>(data.result, null);
-
-  // Process test results if any
-  const processedTestResults = testResults.map((tr) => ({
-    id: tr.id,
-    testName: tr.test_name,
-    testType: tr.test_type,
-    status: tr.status,
-    resultData: parseJSON<any>(tr.result_data, null),
-    durationMs: tr.duration_ms,
-    executedAt: tr.executed_at,
-  }));
 
   return {
     sessionId: data.id,
     workflowId: data.workflow_id ?? "",
     status: (data.status as ExecutionStatus) ?? "idle",
     logs,
-    result: result || {
-      testResults: processedTestResults,
-    },
+    result: result || undefined,
     error: data.error ?? undefined,
     startedAt: data.started_at
       ? new Date(data.started_at).getTime()
@@ -281,14 +304,43 @@ function deserializeSession(
 }
 
 /**
+ * Deserialize test result from API format to store format
+ * FIXED: Now uses data.updated_at instead of data.created_at
+ */
+function deserializeTestResult(data: TestResultData): TestResult {
+  const resultData = parseJSON<any>(data.result_data, null);
+
+  return {
+    id: data.id,
+    sessionId: data.session_id,
+    workflowId: data.workflow_id,
+    testName: data.test_name,
+    testType: data.test_type,
+    status: data.status as TestResult["status"],
+    resultData,
+    durationMs: data.duration_ms,
+    executedAt: data.executed_at,
+    version: 1,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
+    user_id: data.user_id,
+    client_id: data.client_id,
+    is_deleted: data.is_deleted,
+  };
+}
+
+/**
  * Check if hydration is needed (stores are empty)
  */
 export function needsHydration(): boolean {
   const workflows = useWorkflowStore.getState().workflows;
   const executions = useExecutionStore.getState().executions;
+  const testResults = useTestResultStore.getState().testResults;
 
   const isEmpty =
-    Object.keys(workflows).length === 0 && Object.keys(executions).length === 0;
+    Object.keys(workflows).length === 0 &&
+    Object.keys(executions).length === 0 &&
+    Object.keys(testResults).length === 0;
 
   return isEmpty;
 }
@@ -301,7 +353,6 @@ export async function initializeSyncWithHydration(): Promise<void> {
 
   try {
     // Always hydrate from server to get latest data
-    // The upsertFromSync methods will handle merging with local data
     console.log("[SyncHydration] Hydrating from server...");
     const result = await hydrateFromServer();
 
@@ -333,17 +384,28 @@ export async function rehydrateFromServer(): Promise<HydrationResult> {
 export function getHydrationStats(): {
   workflows: number;
   sessions: number;
+  testResults: number;
   sessionsByWorkflow: Map<string, number>;
+  testResultsBySession: Map<string, number>;
 } {
   const workflowStore = useWorkflowStore.getState();
   const executionStore = useExecutionStore.getState();
+  const testResultStore = useTestResultStore.getState();
 
   const sessionsByWorkflow = new Map<string, number>();
+  const testResultsBySession = new Map<string, number>();
 
   Object.values(executionStore.executions).forEach((execution) => {
     if (!execution.is_deleted && execution.workflowId) {
       const count = sessionsByWorkflow.get(execution.workflowId) || 0;
       sessionsByWorkflow.set(execution.workflowId, count + 1);
+    }
+  });
+
+  Object.values(testResultStore.testResults).forEach((testResult) => {
+    if (!testResult.is_deleted && testResult.sessionId) {
+      const count = testResultsBySession.get(testResult.sessionId) || 0;
+      testResultsBySession.set(testResult.sessionId, count + 1);
     }
   });
 
@@ -354,7 +416,11 @@ export function getHydrationStats(): {
     sessions: Object.keys(executionStore.executions).filter(
       (id) => !executionStore.executions[id].is_deleted,
     ).length,
+    testResults: Object.keys(testResultStore.testResults).filter(
+      (id) => !testResultStore.testResults[id].is_deleted,
+    ).length,
     sessionsByWorkflow,
+    testResultsBySession,
   };
 }
 

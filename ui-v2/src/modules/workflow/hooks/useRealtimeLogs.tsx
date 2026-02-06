@@ -1,7 +1,14 @@
+"use client";
 import { useEffect, useRef } from "react";
 import { useInngestSubscription } from "@inngest/realtime/hooks";
-import { fetchRealtimeSubscriptionToken } from "@/modules/utils/get-subscribe-token";
+import {
+  fetchLogsRealtimeSubscriptionToken,
+  fetchTestResultRealtimeSubscriptionToken,
+} from "@/modules/utils/get-subscribe-token";
 import { useExecutionStore } from "../stores/execution.store.sync";
+import { useTestResultStore } from "../stores/test-result.store";
+
+type TestStatus = "pending" | "running" | "passed" | "failed";
 
 interface UseRealtimeLogsProps {
   onComplete?: (result: any) => void;
@@ -12,50 +19,54 @@ export function useRealtimeLogs({
   onComplete,
   onError,
 }: UseRealtimeLogsProps = {}) {
-  const { latestData } = useInngestSubscription({
-    refreshToken: fetchRealtimeSubscriptionToken,
+  const { latestData: latestLogData } = useInngestSubscription({
+    refreshToken: fetchLogsRealtimeSubscriptionToken,
+  });
+
+  const { latestData: latestResultData } = useInngestSubscription({
+    refreshToken: fetchTestResultRealtimeSubscriptionToken,
   });
 
   const appendLog = useExecutionStore((s) => s.appendLog);
   const completeExecution = useExecutionStore((s) => s.completeExecution);
   const failExecution = useExecutionStore((s) => s.failExecution);
 
-  const processedMessageIds = useRef(new Set<string>());
+  const addTestResult = useTestResultStore((s) => s.addTestResult);
+  const updateTestResult = useTestResultStore((s) => s.updateTestResult);
+  const hasTestResult = useTestResultStore((s) => s.hasTestResult);
 
+  const processedEventIds = useRef(new Set<string>());
+
+  /* ---------------- Workflow Logs ---------------- */
   useEffect(() => {
-    if (!latestData || latestData.topic !== "workflowlog") return;
+    if (!latestLogData) return;
 
-    const { sessionId, message, status, result, error } = latestData.data;
+    if (latestLogData.topic === "workflowlog") {
+      const { sessionId, message, status, result, error } = latestLogData.data;
+      const eventId = `workflowlog:${sessionId}:${status}:${message}`;
 
-    // Deduplication
-    const messageId = `${sessionId}-${status}-${message}-${Date.now()}`;
-    if (processedMessageIds.current.has(messageId)) {
-      return;
+      if (processedEventIds.current.has(eventId)) return;
+      processedEventIds.current.add(eventId);
+
+      appendLog(sessionId, message);
+
+      if (status === "completed") {
+        completeExecution(sessionId, result);
+        onComplete?.(result);
+      }
+
+      if (status === "failed") {
+        failExecution(sessionId, error ?? "Workflow execution failed");
+        onError?.(error ?? "Workflow execution failed");
+      }
     }
 
-    processedMessageIds.current.add(messageId);
-
-    // Clear old message IDs periodically to prevent memory leak
-    if (processedMessageIds.current.size > 1000) {
-      processedMessageIds.current.clear();
-    }
-
-    // Append log
-    appendLog(sessionId, message);
-
-    // Handle completion
-    if (status === "completed") {
-      completeExecution(sessionId, result);
-      onComplete?.(result);
-    }
-
-    // Handle failure
-    if (status === "failed") {
-      failExecution(sessionId, error ?? "Workflow execution failed");
-      onError?.(error ?? "Workflow execution failed");
+    // prevent unbounded growth
+    if (processedEventIds.current.size > 2000) {
+      processedEventIds.current.clear();
     }
   }, [
-    latestData,
+    latestLogData,
     appendLog,
     completeExecution,
     failExecution,
@@ -63,7 +74,88 @@ export function useRealtimeLogs({
     onError,
   ]);
 
+  /* ---------------- Bulk Test Results ---------------- */
+  useEffect(() => {
+    if (!latestResultData) return;
+
+    if (latestResultData.topic === "testresult") {
+      const { sessionId, workflowId, results } = latestResultData.data;
+
+      console.log(
+        `📥 Received bulk update with ${results.length} test results`,
+      );
+
+      // Create a unique ID for this bulk emission
+      const bulkEventId = `bulk:${sessionId}:${Date.now()}`;
+
+      if (processedEventIds.current.has(bulkEventId)) {
+        console.warn("⚠️ Duplicate bulk event detected, skipping");
+        return;
+      }
+      processedEventIds.current.add(bulkEventId);
+
+      // Process each result in the bulk payload
+      results.forEach((result) => {
+        const {
+          testResultId,
+          testName,
+          testType,
+          status,
+          resultData,
+          durationMs,
+          executedAt,
+          action,
+        } = result;
+
+        const normalizedStatus = status as TestStatus;
+
+        const basePayload = {
+          id: testResultId,
+          sessionId,
+          workflowId,
+          testName,
+          testType: testType || "database", // 👈 Ensure testType is always a string
+          status: normalizedStatus,
+          resultData: resultData ?? null,
+          durationMs: durationMs ?? 0,
+          executedAt: executedAt ?? new Date().toISOString(),
+        };
+
+        console.log(
+          `📥 Processing test result: ${testName} (${action})`,
+          basePayload,
+        );
+
+        if (action === "create") {
+          addTestResult(basePayload);
+        } else if (action === "update") {
+          // action === "update"
+          if (!hasTestResult(testResultId)) {
+            // Out-of-order safety: create if it doesn't exist
+            console.log(
+              `⚠️ Test result ${testResultId} not found, creating instead of updating`,
+            );
+            addTestResult(basePayload);
+          } else {
+            updateTestResult(testResultId, {
+              status: normalizedStatus,
+              resultData,
+              durationMs,
+            });
+          }
+        }
+      });
+
+      console.log(`✅ Processed ${results.length} test results`);
+    }
+
+    // prevent unbounded growth
+    if (processedEventIds.current.size > 2000) {
+      processedEventIds.current.clear();
+    }
+  }, [addTestResult, updateTestResult, hasTestResult, latestResultData]);
+
   return {
-    isConnected: !!latestData,
+    isConnected: !!(latestLogData && latestResultData),
   };
 }

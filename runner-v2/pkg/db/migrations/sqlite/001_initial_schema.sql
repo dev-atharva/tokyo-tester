@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS test_results (
     duration_ms INTEGER,
     executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     client_id TEXT,
     user_id VARCHAR(255) NOT NULL,
     is_deleted INTEGER DEFAULT 0 CHECK (is_deleted IN (0,1)),

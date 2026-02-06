@@ -3,13 +3,14 @@ package predefined
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/dev-atharva/cots/pkg/config"
+	"github.com/dev-atharva/cots/pkg/registry"
 	"github.com/dev-atharva/cots/pkg/types"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/redis"
-	testcontainerswait "github.com/testcontainers/testcontainers-go/wait"
 )
 
 type RedisProvider struct{}
@@ -26,21 +27,7 @@ func (p *RedisProvider) Provision(ctx context.Context, cfg config.ServiceConfig,
 	}
 	defer cleanupInit()
 
-	container, err := redis.Run(ctx,
-		image,
-		testcontainers.WithWaitStrategy(testcontainerswait.ForLog("Ready to accept connections")),
-		testcontainers.CustomizeRequest(
-			testcontainers.GenericContainerRequest{
-				ContainerRequest: testcontainers.ContainerRequest{
-					Name:     cfg.Name,
-					Networks: []string{network.Name},
-					NetworkAliases: map[string][]string{
-						network.Name: {cfg.Name},
-					},
-				},
-			},
-		),
-	)
+	container, err := p.createContainerWithFallback(ctx, cfg, image, network)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -93,6 +80,54 @@ func (P *RedisProvider) Cleanup(ctx context.Context, container testcontainers.Co
 		return nil
 	}
 	return container.Terminate(ctx)
+}
+
+func (P *RedisProvider) createContainerWithFallback(ctx context.Context, cfg config.ServiceConfig, image string, network *testcontainers.DockerNetwork) (*redis.RedisContainer, error) {
+	originalImage := image
+
+	if cfg.Registry != nil && cfg.Registry.URL != "" {
+		customImage := registry.ResolveImageName(originalImage, cfg.Registry)
+
+		container, err := redis.Run(ctx,
+			customImage,
+			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
+				ContainerRequest: testcontainers.ContainerRequest{
+					Name:     cfg.Name,
+					Networks: []string{network.Name},
+					NetworkAliases: map[string][]string{
+						network.Name: {cfg.Name},
+					},
+					Env: cfg.Env,
+				},
+			}),
+		)
+
+		if err == nil {
+			return container, nil
+		}
+
+		log.Printf("Falling back to Docker hub for image : %s", originalImage)
+	}
+
+	container, err := redis.Run(ctx,
+		originalImage,
+		testcontainers.CustomizeRequest(
+			testcontainers.GenericContainerRequest{
+				ContainerRequest: testcontainers.ContainerRequest{
+					Name:     cfg.Name,
+					Networks: []string{network.Name},
+					NetworkAliases: map[string][]string{
+						network.Name: {cfg.Name},
+					},
+					Env: cfg.Env,
+				},
+			},
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pull image from custom registry and docker hub : %w", err)
+	}
+	return container, nil
 }
 
 func writeRedisInitFile(scripts []string) (string, func(), error) {

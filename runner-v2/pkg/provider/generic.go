@@ -3,10 +3,12 @@ package provider
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	"github.com/dev-atharva/cots/pkg/config"
+	"github.com/dev-atharva/cots/pkg/registry"
 	"github.com/dev-atharva/cots/pkg/types"
 	"github.com/dev-atharva/cots/pkg/wait"
 	"github.com/docker/go-connections/nat"
@@ -65,10 +67,7 @@ func (g *GenericProvider) Provision(ctx context.Context, cfg config.ServiceConfi
 		req.WaitingFor = testcontainerswait.ForLog("").WithStartupTimeout(timeout)
 	}
 
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
+	container, err := g.createContainerWithFallback(ctx, cfg, req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to start the container: %w", err)
 	}
@@ -133,4 +132,36 @@ func (g *GenericProvider) Cleanup(ctx context.Context, container testcontainers.
 		return nil
 	}
 	return container.Terminate(ctx)
+}
+
+func (g *GenericProvider) createContainerWithFallback(ctx context.Context, cfg config.ServiceConfig, req testcontainers.ContainerRequest) (testcontainers.Container, error) {
+	originalImage := req.Image
+
+	if cfg.Registry != nil && cfg.Registry.URL != "" {
+		customImage := registry.ResolveImageName(originalImage, cfg.Registry)
+		req.Image = customImage
+
+		log.Printf("Attempting to pull image from custom registry: %s", customImage)
+		container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: req,
+			Started:          true,
+		})
+
+		if err == nil {
+			return container, nil
+		}
+
+		log.Printf("Failed to pull from custom regsitry %s : %v", customImage, err)
+	}
+
+	req.Image = originalImage
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to pull image from both custom registry and docker hub : %w", err)
+	}
+	return container, nil
 }

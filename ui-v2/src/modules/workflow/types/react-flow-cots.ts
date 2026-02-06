@@ -49,7 +49,8 @@ export interface RunTestsResponse {
 
 export interface TestResult {
   name: string;
-  status: "passed" | "failed";
+  passed: boolean;
+  type: string;
   message?: string;
   duration?: number;
   output?: any;

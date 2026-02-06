@@ -20,8 +20,9 @@ type Database interface {
 	ListSessionsByUserId(ctx context.Context, userID string) ([]*Session, error)
 
 	// Test results
-	InsertTestResult(ctx context.Context, result *TestResult) error
+	UpsertTestResult(ctx context.Context, result *TestResult) error
 	GetTestResult(ctx context.Context, id string) (*TestResult, error)
+	DeleteTestResult(ctx context.Context, id string) error
 	ListTestResults(ctx context.Context, sessionID string) ([]*TestResult, error)
 	ListTestResultsByUserId(ctx context.Context, userID string) ([]*TestResult, error)
 
@@ -73,10 +74,11 @@ type TestResult struct {
 	TestName   string    `json:"test_name"`
 	TestType   string    `json:"test_type"` //database/http/shell/cache/kafka
 	Status     string    `json:"status"`
-	ResultData string    `json:"result_data,omitempty"` //strigified json
+	ResultData string    `json:"result_data,omitempty"` //stringified json
 	DurationMs int       `json:"duration_ms,omitempty"`
 	ExecutedAt time.Time `json:"executed_at"`
 	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 	ClientID   string    `json:"client_id"`
 	UserID     string    `json:"user_id"`
 	IsDeleted  bool      `json:"is_deleted"`

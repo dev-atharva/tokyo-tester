@@ -76,6 +76,23 @@ export interface SessionData {
   is_deleted: boolean;
 }
 
+export interface TestResultData {
+  id: string;
+  session_id: string;
+  workflow_id: string;
+  test_name: string;
+  test_type: string;
+  status: string;
+  result_data?: any; // JSON stringified
+  duration_ms: number;
+  executed_at: string;
+  created_at: string;
+  updated_at: string;
+  client_id: string;
+  user_id: string;
+  is_deleted: boolean;
+}
+
 export interface SyncPullResponse {
   workflows?: WorkflowData[];
   sessions?: SessionData[];

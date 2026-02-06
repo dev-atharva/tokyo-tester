@@ -51,7 +51,7 @@ func (h *Handler) HandleBatch(w http.ResponseWriter, r *http.Request) {
 	if response.Success {
 		w.WriteHeader(http.StatusOK)
 	} else {
-		w.WriteHeader(http.StatusMultiStatus) // 207 Partial Content
+		w.WriteHeader(http.StatusMultiStatus)
 	}
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -87,13 +87,14 @@ func (h *Handler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	clientID := chi.URLParam(r, "clientId")
-	userID := r.URL.Query().Get("userId") // get userId as query param
+	userID := r.URL.Query().Get("userId")
+
 	if clientID == "" || userID == "" {
 		http.Error(w, "clientId and userId are required", http.StatusBadRequest)
 		return
 	}
 
-	response, err := h.service.PullChanges(ctx, userID) // service now expects userID
+	response, err := h.service.PullChanges(ctx, userID)
 	if err != nil {
 		log.Printf("Failed to pull changes: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -112,6 +113,7 @@ func (h *Handler) HandlePull(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleClear(w http.ResponseWriter, r *http.Request) {
 	clientID := chi.URLParam(r, "clientId")
 	userID := r.URL.Query().Get("userId") // get userId as query param
+
 	if clientID == "" || userID == "" {
 		http.Error(w, "clientId and userId are required", http.StatusBadRequest)
 		return

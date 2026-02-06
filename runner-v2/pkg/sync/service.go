@@ -184,14 +184,43 @@ func (s *Service) processSessionChange(ctx context.Context, change *types.SyncCh
 }
 
 // --- TestResult Changes ---
-func (s *Service) processTestResultChange(ctx context.Context, change *types.SyncChange, response *types.SyncBatchResponse, userID string) error {
-	if change.ChangeType != "insert" {
-		return fmt.Errorf("test results only support 'insert' change type")
+// --- TestResult Changes ---
+func (s *Service) processTestResultChange(
+	ctx context.Context,
+	change *types.SyncChange,
+	response *types.SyncBatchResponse,
+	userID string,
+) error {
+	// Handle delete consistently with other entities
+	if change.ChangeType == "delete" {
+		return s.db.DeleteTestResult(ctx, change.EntityID)
+	}
+
+	// Handle insert & update
+	if change.ChangeType != "insert" && change.ChangeType != "update" {
+		return fmt.Errorf(
+			"unsupported test_result change type: %s",
+			change.ChangeType,
+		)
 	}
 
 	var testData types.TestResultData
 	if err := json.Unmarshal(change.Data, &testData); err != nil {
 		return fmt.Errorf("failed to unmarshal test result data: %w", err)
+	}
+
+	// Check if this is an update to an existing test result
+	existing, err := s.db.GetTestResult(ctx, testData.ID)
+
+	if err == nil && existing != nil {
+		// Test result exists - always accept updates from client
+		// This is important for test re-runs with the same test IDs
+		log.Printf("Test result %s: updating existing result (old status: %s, new status: %s)",
+			testData.ID, existing.Status, testData.Status)
+	} else {
+		// New test result
+		log.Printf("Test result %s: new test result for session %s (status: %s)",
+			testData.ID, testData.SessionID, testData.Status)
 	}
 
 	result := &db.TestResult{
@@ -201,56 +230,102 @@ func (s *Service) processTestResultChange(ctx context.Context, change *types.Syn
 		TestName:   testData.TestName,
 		TestType:   testData.TestType,
 		Status:     testData.Status,
-		ResultData: string(testData.ResultData),
+		ResultData: testData.ResultData,
 		DurationMs: testData.DurationMs,
 		ExecutedAt: testData.ExecutedAt,
 		CreatedAt:  testData.CreatedAt,
+		UpdatedAt:  testData.UpdatedAt,
 		ClientID:   testData.ClientID,
 		UserID:     userID,
 		IsDeleted:  testData.IsDeleted,
 	}
 
-	existing, err := s.db.GetTestResult(ctx, testData.ID)
-	if err != nil {
-		return fmt.Errorf("failed to query existing test result: %w", err)
+	// Upsert the test result - always accept the client's version
+	if err := s.db.UpsertTestResult(ctx, result); err != nil {
+		return fmt.Errorf("failed to upsert test result: %w", err)
 	}
 
-	if existing == nil {
-		if err := s.db.InsertTestResult(ctx, result); err != nil {
-			return fmt.Errorf("failed to insert test result: %w", err)
-		}
-	} else {
-		// Already exists, optionally log or ignore
-		// Could add UpdateTestResult later if needed
-	}
+	log.Printf("Test result %s saved successfully", testData.ID)
 
-	// Optional: mark session as completed if all test results are finished
+	// Check if all tests for this session are complete
 	testResults, err := s.db.ListTestResults(ctx, testData.SessionID)
 	if err != nil {
-		return fmt.Errorf("failed to list test results for session: %w", err)
+		log.Printf("Warning: failed to list test results for session %s: %v", testData.SessionID, err)
+		return nil
 	}
 
+	log.Printf("Session %s has %d test results", testData.SessionID, len(testResults))
+
+	// Count completed tests (passed or failed)
 	allCompleted := true
+	totalTests := 0
+	passedTests := 0
+	failedTests := 0
+
 	for _, tr := range testResults {
-		if tr.Status != "passed" && tr.Status != "failed" {
+		if tr.IsDeleted {
+			continue
+		}
+		totalTests++
+
+		log.Printf("  - Test %s: status=%s, name=%s", tr.ID, tr.Status, tr.TestName)
+
+		switch tr.Status {
+		case "passed":
+			passedTests++
+		case "failed":
+			failedTests++
+		default:
 			allCompleted = false
-			break
 		}
 	}
 
-	if allCompleted {
+	log.Printf("Session %s test summary: total=%d, passed=%d, failed=%d, allCompleted=%v",
+		testData.SessionID, totalTests, passedTests, failedTests, allCompleted)
+
+	// Only update session if all tests are complete
+	if allCompleted && totalTests > 0 {
 		session, err := s.db.GetSession(ctx, testData.SessionID)
 		if err != nil {
-			return fmt.Errorf("failed to get session: %w", err)
+			log.Printf("Warning: failed to get session %s: %v", testData.SessionID, err)
+			return nil
 		}
 
-		if session != nil && session.Status != "completed" {
-			session.Status = "completed"
+		// Only update if session is not already finalized
+		if session != nil && session.Status != "completed" && session.Status != "failed" {
+			finalStatus := "completed"
+			if failedTests > 0 {
+				finalStatus = "failed"
+			}
+
+			session.Status = finalStatus
 			now := time.Now()
 			session.CompletedAt = &now
-			if err := s.db.UpsertSession(ctx, session); err != nil {
-				return fmt.Errorf("failed to update session status: %w", err)
+			session.UpdatedAt = now
+
+			// Update the result with test summary
+			summary := map[string]any{
+				"total":  totalTests,
+				"passed": passedTests,
+				"failed": failedTests,
 			}
+			summaryJSON, _ := json.Marshal(summary)
+			session.Result = string(summaryJSON)
+
+			if err := s.db.UpsertSession(ctx, session); err != nil {
+				log.Printf("Warning: failed to update session status: %v", err)
+				// Don't fail the sync for this
+			} else {
+				log.Printf(
+					"Session %s marked as %s (%d/%d tests passed)",
+					testData.SessionID,
+					finalStatus,
+					passedTests,
+					totalTests,
+				)
+			}
+		} else if session != nil {
+			log.Printf("Session %s already finalized with status %s, skipping update", session.ID, session.Status)
 		}
 	}
 
@@ -291,6 +366,7 @@ func (s *Service) PullChanges(ctx context.Context, userID string) (*types.SyncPu
 	if err != nil {
 		return nil, fmt.Errorf("failed to list sessions: %w", err)
 	}
+
 	testResults, err := s.db.ListTestResultsByUserId(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list the test results: %w", err)
@@ -343,6 +419,7 @@ func (s *Service) PullChanges(ctx context.Context, userID string) (*types.SyncPu
 			DurationMs: testres.DurationMs,
 			ExecutedAt: testres.ExecutedAt,
 			CreatedAt:  testres.CreatedAt,
+			UpdatedAt:  testres.UpdatedAt,
 			ClientID:   testres.ClientID,
 			IsDeleted:  testres.IsDeleted,
 		})

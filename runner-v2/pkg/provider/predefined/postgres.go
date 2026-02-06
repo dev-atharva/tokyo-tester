@@ -3,10 +3,12 @@ package predefined
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
 	"github.com/dev-atharva/cots/pkg/config"
+	"github.com/dev-atharva/cots/pkg/registry"
 	"github.com/dev-atharva/cots/pkg/types"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -32,30 +34,7 @@ func (p *PostgresProvider) Provision(ctx context.Context, cfg config.ServiceConf
 	}
 	defer cleanupInitFiles()
 
-	container, err := postgres.Run(
-		ctx,
-		image,
-		postgres.WithDatabase(database),
-		postgres.WithUsername(username),
-		postgres.WithPassword(password),
-		postgres.WithInitScripts(initFiles...),
-		testcontainers.WithWaitStrategy(
-			testcontainerswait.
-				ForLog("database system is ready to accept connections").
-				WithOccurrence(2),
-		),
-		testcontainers.CustomizeRequest(
-			testcontainers.GenericContainerRequest{
-				ContainerRequest: testcontainers.ContainerRequest{
-					Name:     cfg.Name,
-					Networks: []string{network.Name},
-					NetworkAliases: map[string][]string{
-						network.Name: {cfg.Name},
-					},
-				},
-			},
-		),
-	)
+	container, err := p.createContainerWithFallback(ctx, cfg, image, database, username, password, initFiles, network)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to start the postgres container: %w", err)
 	}
@@ -94,6 +73,62 @@ func (p *PostgresProvider) Cleanup(ctx context.Context, container testcontainers
 		return nil
 	}
 	return container.Terminate(ctx)
+}
+
+func (p *PostgresProvider) createContainerWithFallback(ctx context.Context, cfg config.ServiceConfig, image, database, username, password string, initFiles []string, network *testcontainers.DockerNetwork) (*postgres.PostgresContainer, error) {
+	originalImage := image
+
+	if cfg.Registry != nil && cfg.Registry.URL != "" {
+		customImage := registry.ResolveImageName(originalImage, cfg.Registry)
+
+		container, err := postgres.Run(ctx,
+			customImage,
+			postgres.WithDatabase(database),
+			postgres.WithUsername(username),
+			postgres.WithPassword(password),
+			postgres.WithInitScripts(initFiles...),
+			testcontainers.WithWaitStrategy(testcontainerswait.ForLog("database system is ready to accept connections").WithOccurrence(2)),
+			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
+				ContainerRequest: testcontainers.ContainerRequest{
+					Name:     cfg.Name,
+					Networks: []string{network.Name},
+					NetworkAliases: map[string][]string{
+						network.Name: {cfg.Name},
+					},
+				},
+			}),
+		)
+
+		if err == nil {
+			return container, nil
+		}
+		log.Printf("Falling back to Docker hub for Image: %s", originalImage)
+	}
+
+	container, err := postgres.Run(ctx,
+		originalImage,
+		postgres.WithDatabase(database),
+		postgres.WithUsername(username),
+		postgres.WithPassword(password),
+		postgres.WithInitScripts(initFiles...),
+		testcontainers.WithWaitStrategy(
+			testcontainerswait.ForLog("database system is ready to accept connections").WithOccurrence(2),
+		),
+		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
+			ContainerRequest: testcontainers.ContainerRequest{
+				Name:     cfg.Name,
+				Networks: []string{network.Name},
+				NetworkAliases: map[string][]string{
+					network.Name: {cfg.Name},
+				},
+			},
+		}),
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to pull image from both custom registry and docker hub : %w", err)
+	}
+	return container, nil
 }
 
 func getEnvOrDefault(env map[string]string, key, defaultValue string) string {

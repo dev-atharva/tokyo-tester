@@ -7,6 +7,8 @@ import (
 
 	"github.com/dev-atharva/cots/pkg/config"
 	"github.com/dev-atharva/cots/pkg/provider"
+	"github.com/dev-atharva/cots/pkg/registry"
+	"github.com/docker/docker/client"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
 )
@@ -30,6 +32,10 @@ func NewOrchestrator(providers *provider.Registry) *Orchestrator {
 
 // Provisions the services by respecting teh dependencies
 func (o *Orchestrator) ProvisionServices(ctx context.Context, services []config.ServiceConfig) error {
+	if err := o.authenticateRegisteries(ctx, services); err != nil {
+		return fmt.Errorf("registry authentication failed : %w", err)
+	}
+
 	fmt.Println("Creating shared Docker network...")
 	dockerNetwork, err := network.New(ctx)
 	if err != nil {
@@ -115,6 +121,36 @@ func (o *Orchestrator) ProvisionServices(ctx context.Context, services []config.
 // 	}
 // 	return nil
 // }
+
+func (o *Orchestrator) authenticateRegisteries(ctx context.Context, services []config.ServiceConfig) error {
+	uniqueRegisteries := make(map[string]*config.RegistryConfig)
+	for _, svc := range services {
+		if svc.Registry != nil && svc.Registry.URL != "" {
+			uniqueRegisteries[svc.Registry.URL] = svc.Registry
+		}
+	}
+
+	if len(uniqueRegisteries) == 0 {
+		return nil
+	}
+
+	fmt.Println("Authenticating with custom container registeries...")
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return fmt.Errorf("failed to create Docker client: %w", err)
+	}
+	defer dockerClient.Close()
+
+	for url, reg := range uniqueRegisteries {
+		fmt.Printf("  Authenticating with regsitry: %s\n", url)
+		if err := registry.AuthenticateRegistry(ctx, dockerClient, reg); err != nil {
+			fmt.Printf("  Failed to authenticate with registry with %s: %v. Falling back to docker hub", url, err)
+		} else {
+			fmt.Printf("  Successfully authenticated with %s\n", url)
+		}
+	}
+	return nil
+}
 
 func (o *Orchestrator) provisionlevel(ctx context.Context, serviceNames []string, serviceMap map[string]config.ServiceConfig) error {
 	readyChans := make(map[string]chan struct{})
