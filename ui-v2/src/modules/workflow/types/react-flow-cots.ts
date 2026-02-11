@@ -2,7 +2,7 @@ import { type Node, Edge } from "reactflow";
 
 export interface ServiceConfig {
   name: string;
-  type: "postgres" | "mysql" | "generic" | "mariadb";
+  type: "postgres" | "mysql" | "generic" | "mariadb" | "redis" | "kafka";
   image?: string;
   command?: string[];
   env?: Record<string, string>;
@@ -10,6 +10,15 @@ export interface ServiceConfig {
   depends_on?: string[];
   wait_stratergy?: WaitStratergyConfig;
   init_scripts?: string[];
+  registry?: RegistryConfig;
+}
+
+export interface RegistryConfig {
+  url: string;
+  auth_type?: "basic" | "token";
+  username?: string;
+  password?: string;
+  token?: string;
 }
 
 export interface WaitStratergyConfig {
@@ -20,7 +29,7 @@ export interface WaitStratergyConfig {
 
 export interface TestConfig {
   name: string;
-  type: "database" | "http" | "shell";
+  type: "database" | "http" | "shell" | "cache" | "queue";
   depends_on: string[];
   config: Record<string, any>;
 }
@@ -63,7 +72,7 @@ export interface ServiceNodeData {
   description?: string;
 
   service: {
-    type: "postgres" | "mysql" | "mariadb" | "generic";
+    type: "postgres" | "mysql" | "mariadb" | "generic" | "redis" | "kafka";
 
     // generic service fields
     image?: string;
@@ -92,7 +101,7 @@ export interface ServiceNodeData {
 export interface TestDefination {
   id: string;
   name: string;
-  type: "database" | "http" | "shell";
+  type: "database" | "http" | "shell" | "cache" | "queue";
 
   databaseConfig?: {
     driver: "postgres" | "mysql" | "mariadb";
@@ -110,12 +119,49 @@ export interface TestDefination {
     headers?: Record<string, string>;
     body?: string;
     expectedStatus?: number;
+    expectedBody?: {
+      mode: "contains" | "json_partial";
+      value: string | Record<string, any>;
+    };
   };
 
   shellConfig?: {
     command: string;
     expectedOutput?: string;
     workdir?: string;
+  };
+
+  cacheConfig?: {
+    service: string;
+    cacheType: "redis" | "memcached";
+    operation: "ping" | "set" | "get" | "exists" | "delete" | "del";
+    key?: string;
+    value?: string | number;
+    expectedValue?: string | number;
+    expectedExists?: boolean;
+    ttl?: number;
+    db?: number;
+    password?: string;
+  };
+
+  queueConfig?: {
+    service: string;
+    brokerType: "kafka" | "rabbitmq" | "nats";
+    operation:
+      | "produce"
+      | "consume"
+      | "produce_and_consume"
+      | "check_topic"
+      | "list_topics";
+    topic?: string;
+    message?: string | number;
+    key?: string;
+    partition?: number;
+    timeout?: number;
+    fromBeginning?: boolean;
+    expectedCount?: number;
+    expectedMessage?: string | number;
+    expectedExists?: boolean;
   };
 }
 
@@ -200,6 +246,17 @@ export interface WorkflowInput {
   workflowName: string;
   userId?: string;
   customTestOrder?: [string, string[]][];
+
+  registrySecrets?: Record<
+    string,
+    {
+      url?: string;
+      auth_type: "basic" | "token";
+      username?: string;
+      password?: string;
+      token?: string;
+    }
+  >;
 }
 
 export interface WorkflowState {

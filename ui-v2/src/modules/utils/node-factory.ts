@@ -170,6 +170,169 @@ export function createMariaDbNode(
   };
 }
 
+export function createRedisNode(
+  id: string,
+  position: { x: number; y: number },
+  options: {
+    label?: string;
+    password?: string;
+    database?: number;
+    initScripts?: string[];
+    tests?: Array<{
+      name: string;
+      type: "cache";
+      cacheConfig?: {
+        operation: "ping" | "set" | "get" | "exists" | "delete" | "del";
+        key?: string;
+        value?: string | number;
+        expectedValue?: string | number;
+        expectedExists?: boolean;
+        ttl?: number;
+        db?: number;
+      };
+    }>;
+  } = {},
+): FlowNode {
+  const env: Array<{ id: string; key: string; value: string }> = [];
+
+  if (options.password) {
+    env.push({
+      id: "1",
+      key: "REDIS_PASSWORD",
+      value: options.password,
+    });
+  }
+
+  const data: ServiceNodeData = {
+    label: options.label || "Redis",
+    service: {
+      type: "redis",
+      image: "redis:7",
+      env,
+      initScripts: options.initScripts?.map((script, idx) => ({
+        id: `${idx}`,
+        order: idx,
+        script,
+      })),
+    },
+    tests: options.tests?.map((test, idx) => {
+      const testDef: TestDefination = {
+        id: `test-${idx}`,
+        name: test.name,
+        type: test.type,
+      };
+
+      if (test.type === "cache" && test.cacheConfig) {
+        testDef.cacheConfig = {
+          service: id,
+          cacheType: "redis",
+          operation: test.cacheConfig.operation,
+          key: test.cacheConfig.key,
+          value: test.cacheConfig.value,
+          expectedValue: test.cacheConfig.expectedValue,
+          expectedExists: test.cacheConfig.expectedExists,
+          ttl: test.cacheConfig.ttl,
+          db: test.cacheConfig.db ?? options.database ?? 0,
+          password: options.password,
+        };
+      }
+
+      return testDef;
+    }),
+  };
+
+  return {
+    id,
+    type: "serviceNode",
+    position,
+    data,
+  };
+}
+
+export function createKafkaNode(
+  id: string,
+  position: { x: number; y: number },
+  options: {
+    label?: string;
+    clusterId?: string;
+    initScripts?: string[];
+    tests?: Array<{
+      name: string;
+      type: "queue";
+      queueConfig?: {
+        operation:
+          | "produce"
+          | "consume"
+          | "produce_and_consume"
+          | "check_topic"
+          | "list_topics";
+        topic?: string;
+        message?: string | number;
+        key?: string;
+        partition?: number;
+        timeout?: number;
+        fromBeginning?: boolean;
+        expectedCount?: number;
+        expectedMessage?: string | number;
+        expectedExists?: boolean;
+      };
+    }>;
+  } = {},
+): FlowNode {
+  const env: Array<{ id: string; key: string; value: string }> = [];
+
+  env.push({
+    id: "1",
+    key: "CLUSTER_ID",
+    value: options.clusterId || "test-cluster",
+  });
+
+  const data: ServiceNodeData = {
+    label: options.label || "Kafka",
+    service: {
+      type: "kafka",
+      image: "confluentinc/confluent-local:7.5.0",
+      env,
+      initScripts: options.initScripts?.map((script, idx) => ({
+        id: `${idx}`,
+        order: idx,
+        script,
+      })),
+    },
+    tests: options.tests?.map((test, idx) => {
+      const testDef: TestDefination = {
+        id: `test-${idx}`,
+        name: test.name,
+        type: test.type,
+      };
+      if (test.type === "queue" && test.queueConfig) {
+        testDef.queueConfig = {
+          service: id,
+          brokerType: "kafka",
+          operation: test.queueConfig.operation,
+          topic: test.queueConfig.topic,
+          message: test.queueConfig.message,
+          key: test.queueConfig.key,
+          partition: test.queueConfig.partition,
+          timeout: test.queueConfig.timeout,
+          fromBeginning: test.queueConfig.fromBeginning,
+          expectedCount: test.queueConfig.expectedCount,
+          expectedMessage: test.queueConfig.expectedMessage,
+          expectedExists: test.queueConfig.expectedExists,
+        };
+      }
+      return testDef;
+    }),
+  };
+
+  return {
+    id,
+    type: "serviceNode",
+    position,
+    data,
+  };
+}
+
 export function createGenericServiceNode(
   id: string,
   position: { x: number; y: number },

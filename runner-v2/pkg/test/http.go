@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -69,13 +70,29 @@ func (e *HTTPExecutor) Execute(ctx context.Context, testCfg config.TestConfig, r
 		}
 	}
 
-	if expectedBody, ok := testCfg.Config["expected_body"].(string); ok {
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("failed to read response body : %w", err)
-		}
-		if !strings.Contains(string(bodyBytes), expectedBody) {
-			return fmt.Errorf("response body does not contain expected string : %s", expectedBody)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if expectedBody, exists := testCfg.Config["expected_body"]; exists {
+		switch expected := expectedBody.(type) {
+		case string:
+			if !strings.Contains(string(bodyBytes), expected) {
+				return fmt.Errorf("response body does not contain expected string: %s", expected)
+			}
+		case map[string]any:
+			var actual map[string]any
+			if err := json.Unmarshal(bodyBytes, &actual); err != nil {
+				return fmt.Errorf("response is not valid JSON: %w", err)
+			}
+			for key, val := range expected {
+				if actual[key] != val {
+					return fmt.Errorf("expected body field %s=%v, got %v", key, val, actual[key])
+				}
+			}
+		default:
+			return fmt.Errorf("unsupported expected_body type")
 		}
 	}
 

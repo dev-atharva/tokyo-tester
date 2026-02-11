@@ -1,3 +1,13 @@
+# Databases
+cots.db
+runner-v2/data/cots.db
+
+# Node modules
 node_modules/
+
+# macOS
 .DS_Store
-runner-v2/cots-api/*
+
+# Compiled API binary
+runner-v2/cots-api
+

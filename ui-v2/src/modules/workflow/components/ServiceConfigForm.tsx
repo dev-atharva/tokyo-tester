@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   EnvironmentVariable,
   InitScript,
@@ -50,7 +50,6 @@ interface ServiceFormData {
   initScripts: InitScript[];
 }
 
-// FIXED: EnvVariableValueInput component with proper return statement
 const EnvVariableValueInput = ({
   value,
   onChange,
@@ -67,29 +66,20 @@ const EnvVariableValueInput = ({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
 
-  // Generate suggestions based on available services
   useEffect(() => {
     const allSuggestions: string[] = [];
-
     availableServices.forEach((service) => {
-      // Add host reference
       allSuggestions.push(`\${${service.name}.host}`);
-
-      // Add port references
       service.ports.forEach((port) => {
         allSuggestions.push(`\${${service.name}.port.${port}}`);
       });
-
-      // Add env references
       service.envVars.forEach((envVar) => {
         allSuggestions.push(`\${${service.name}.env.${envVar}}`);
       });
     });
-
     setSuggestions(allSuggestions);
   }, [availableServices]);
 
-  // Filter suggestions based on current input
   const filteredSuggestions = suggestions.filter((s) =>
     s.toLowerCase().includes(value.toLowerCase()),
   );
@@ -123,7 +113,6 @@ const EnvVariableValueInput = ({
   );
 };
 
-// Helper function to get presets for different service types
 const getPresetsForServiceType = (
   serviceType: string,
 ): Array<{ key: string; value: string }> => {
@@ -139,7 +128,17 @@ const getPresetsForServiceType = (
       { key: "MYSQL_USER", value: "user" },
       { key: "MYSQL_PASSWORD", value: "password" },
     ],
+    mariadb: [
+      { key: "MARIA_DB", value: "mydb" },
+      { key: "MARIA_USER", value: "root" },
+      { key: "MARIA_PASSWORD", value: "root" },
+    ],
     redis: [{ key: "REDIS_PASSWORD", value: "" }],
+    kafka: [
+      { key: "CLUSTER_ID", value: "test-cluster" },
+      { key: "KAFKA_BROKERS", value: "Broker1,Broker2" },
+      { key: "KAFKA_PROTOCOL", value: "PLAINTEXT" },
+    ],
   };
   return presets[serviceType] || [];
 };
@@ -165,10 +164,12 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
   });
 
   const { control, register, watch } = form;
+
   const {
     fields: envFields,
     append: appendEnv,
     remove: removeEnv,
+    replace: replaceEnv,
   } = useFieldArray({ control, name: "env" });
 
   const {
@@ -228,14 +229,18 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
         },
       });
     });
-
     return () => sub.unsubscribe();
   }, [watch, onChange, serviceData]);
 
-  // Handler to load service type presets
   const handleLoadPresets = () => {
     const presets = getPresetsForServiceType(currentServiceType);
-    presets.forEach((preset) => {
+    const existingKeys = new Set(envFields.map((field) => field.key));
+
+    const newPresets = presets.filter(
+      (preset) => !existingKeys.has(preset.key),
+    );
+
+    newPresets.forEach((preset) => {
       appendEnv({
         id: crypto.randomUUID(),
         key: preset.key,
@@ -253,7 +258,6 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
             <FormLabel>Label</FormLabel>
             <Input {...register("label")} placeholder="Service label" />
           </FormItem>
-
           <FormItem>
             <FormLabel>Service Type</FormLabel>
             <Controller
@@ -267,14 +271,15 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
                   <SelectContent>
                     <SelectItem value="postgres">PostgreSQL</SelectItem>
                     <SelectItem value="mysql">MySQL</SelectItem>
+                    <SelectItem value="mariadb">MariaDB</SelectItem>
                     <SelectItem value="redis">Redis</SelectItem>
+                    <SelectItem value="kafka">Kafka</SelectItem>
                     <SelectItem value="generic">Generic</SelectItem>
                   </SelectContent>
                 </Select>
               )}
             />
           </FormItem>
-
           <FormItem>
             <FormLabel>Docker Image</FormLabel>
             <Input {...register("image")} placeholder="postgres:15-alpine" />
@@ -283,7 +288,7 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
 
         <Separator />
 
-        {/* ENV VARS - UPDATED SECTION */}
+        {/* ENV VARS */}
         <FormItem>
           <div className="flex justify-between items-center mb-2">
             <FormLabel>Environment Variables</FormLabel>
@@ -311,13 +316,11 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
               </Button>
             </div>
           </div>
-
           <FormDescription className="text-xs mb-3">
             Use ${"{"}SERVICE_NAME.host{"}"}, ${"{"}
             SERVICE_NAME.port.CONTAINER_PORT{"}"}, or ${"{"}
             SERVICE_NAME.env.VAR_NAME{"}"} to reference other services
           </FormDescription>
-
           <div className="space-y-2">
             {envFields.map((field, index) => (
               <div key={field.id} className="flex gap-2">
@@ -372,12 +375,10 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
               Add
             </Button>
           </div>
-
           <FormDescription className="text-xs mb-3">
             Map container ports to host ports. These ports can be referenced by
             other services.
           </FormDescription>
-
           <div className="space-y-2">
             {portFields.map((field, index) => (
               <div key={field.id} className="flex gap-2">
@@ -442,12 +443,10 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
                 </Select>
               )}
             />
-
             <Input
               {...register("waitStratergyTarget")}
               placeholder="Target (log message / port / command)"
             />
-
             <Input
               type="number"
               {...register("waitStratergyTimeout", { valueAsNumber: true })}
@@ -479,11 +478,13 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
               Add
             </Button>
           </div>
-
           <FormDescription className="text-xs mb-3">
             Scripts to run when the service starts (executed in order)
+            {currentServiceType === "redis" &&
+              " (Redis commands, e.g., SET key value)"}
+            {currentServiceType === "kafka" &&
+              " (Kafka CLI commands, e.g., kafka-topics --create --topic orders)"}
           </FormDescription>
-
           <div className="space-y-2">
             {initScriptFields.map((field, index) => (
               <div
@@ -513,10 +514,15 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
                     <IconTrash className="h-4 w-4" />
                   </Button>
                 </div>
-
                 <Input
                   {...register(`initScripts.${index}.script`)}
-                  placeholder="Script content or command"
+                  placeholder={
+                    currentServiceType === "redis"
+                      ? "Redis command (e.g., SET mykey myvalue)"
+                      : currentServiceType === "kafka"
+                        ? "Kafka CLI command (e.g., kafka-topics --create --topic orders --partitions 3)"
+                        : "Script content or command"
+                  }
                 />
               </div>
             ))}

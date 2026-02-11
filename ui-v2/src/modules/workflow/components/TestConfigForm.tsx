@@ -70,6 +70,10 @@ export const TestConfigForm: React.FC<TestConfigFormProps> = ({
         path: "/",
         port: "80",
         expectedStatus: 200,
+        expectedBody: {
+          mode: "contains",
+          value: "",
+        },
       },
     });
   };
@@ -123,6 +127,8 @@ export const TestConfigForm: React.FC<TestConfigFormProps> = ({
                           setValue(`tests.${index}.httpConfig`, undefined);
                           setValue(`tests.${index}.databaseConfig`, undefined);
                           setValue(`tests.${index}.shellConfig`, undefined);
+                          setValue(`tests.${index}.cacheConfig`, undefined);
+                          setValue(`tests.${index}.queueConfig`, undefined);
 
                           if (value === "http") {
                             setValue(`tests.${index}.httpConfig`, {
@@ -145,6 +151,20 @@ export const TestConfigForm: React.FC<TestConfigFormProps> = ({
                               command: "",
                             });
                           }
+                          if (value === "cache") {
+                            setValue(`tests.${index}.cacheConfig`, {
+                              service: "",
+                              cacheType: "redis",
+                              operation: "ping",
+                            });
+                          }
+                          if (value === "queue") {
+                            setValue(`tests.${index}.queueConfig`, {
+                              service: "",
+                              brokerType: "kafka",
+                              operation: "produce",
+                            });
+                          }
                         }}
                       >
                         <SelectTrigger>
@@ -154,6 +174,8 @@ export const TestConfigForm: React.FC<TestConfigFormProps> = ({
                           <SelectItem value="http">HTTP</SelectItem>
                           <SelectItem value="database">Database</SelectItem>
                           <SelectItem value="shell">Shell</SelectItem>
+                          <SelectItem value="cache">Cache</SelectItem>
+                          <SelectItem value="queue">Queue</SelectItem>
                         </SelectContent>
                       </Select>
                     )}
@@ -201,14 +223,6 @@ export const TestConfigForm: React.FC<TestConfigFormProps> = ({
                       {...register(`tests.${index}.httpConfig.port`)}
                     />
 
-                    <Input
-                      type="number"
-                      placeholder="Expected Status"
-                      {...register(`tests.${index}.httpConfig.expectedStatus`, {
-                        valueAsNumber: true,
-                      })}
-                    />
-
                     <Textarea
                       placeholder="Headers (JSON)"
                       {...register(`tests.${index}.httpConfig.headers` as any)}
@@ -218,6 +232,74 @@ export const TestConfigForm: React.FC<TestConfigFormProps> = ({
                       placeholder="Body"
                       {...register(`tests.${index}.httpConfig.body`)}
                     />
+                    <Separator />
+                    <Label>Expected Status</Label>
+                    <Input
+                      type="number"
+                      placeholder="Expected Status"
+                      {...register(`tests.${index}.httpConfig.expectedStatus`, {
+                        valueAsNumber: true,
+                      })}
+                    />
+                    <Label>Expected Body</Label>
+                    <Controller
+                      control={control}
+                      name={`tests.${index}.httpConfig.expectedBody.mode`}
+                      render={({ field }) => (
+                        <Select
+                          value={field.value}
+                          onValueChange={(value) => {
+                            const mode = value as "contains" | "json_partial";
+                            field.onChange(mode);
+                            setValue(`tests.${index}.httpConfig.expectedBody`, {
+                              mode,
+                              value: "",
+                            });
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="contains">
+                              Contains string
+                            </SelectItem>
+                            <SelectItem value="json_partial">
+                              JSON partial match
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                    {(() => {
+                      const expectedMode = watch(
+                        `tests.${index}.httpConfig.expectedBody.mode`,
+                      );
+
+                      if (expectedMode === "contains") {
+                        return (
+                          <Textarea
+                            placeholder="Expected substring"
+                            {...register(
+                              `tests.${index}.httpConfig.expectedBody.value`,
+                            )}
+                          />
+                        );
+                      }
+
+                      if (expectedMode === "json_partial") {
+                        return (
+                          <Textarea
+                            placeholder='JSON (e.g. { "status": "ok" })'
+                            {...register(
+                              `tests.${index}.httpConfig.expectedBody.value`,
+                            )}
+                          />
+                        );
+                      }
+
+                      return null;
+                    })()}
                   </div>
                 )}
 
@@ -244,8 +326,6 @@ export const TestConfigForm: React.FC<TestConfigFormProps> = ({
                     />
 
                     <Separator />
-
-                    {/* ========== EXPECTED RESULT ========== */}
                     <Label>Expected Result</Label>
 
                     {/* Mode selector */}
@@ -387,6 +467,351 @@ export const TestConfigForm: React.FC<TestConfigFormProps> = ({
                       placeholder="Working Directory"
                       {...register(`tests.${index}.shellConfig.workdir`)}
                     />
+                  </div>
+                )}
+
+                {/* CACHE CONFIG */}
+                {type === "cache" && (
+                  <div className="space-y-3">
+                    <Label>Cache Config</Label>
+
+                    <Input
+                      placeholder="Service Name"
+                      {...register(`tests.${index}.cacheConfig.service`)}
+                    />
+
+                    <Controller
+                      control={control}
+                      name={`tests.${index}.cacheConfig.cacheType`}
+                      render={({ field }) => (
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="redis">Redis</SelectItem>
+                            <SelectItem value="memcached">Memcached</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+
+                    <Controller
+                      control={control}
+                      name={`tests.${index}.cacheConfig.operation`}
+                      render={({ field }) => (
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ping">Ping</SelectItem>
+                            <SelectItem value="set">Set</SelectItem>
+                            <SelectItem value="get">Get</SelectItem>
+                            <SelectItem value="exists">Exists</SelectItem>
+                            <SelectItem value="delete">Delete</SelectItem>
+                            <SelectItem value="del">Del</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+
+                    {(() => {
+                      const operation = watch(
+                        `tests.${index}.cacheConfig.operation`,
+                      );
+
+                      return (
+                        <>
+                          {(operation === "set" ||
+                            operation === "get" ||
+                            operation === "exists" ||
+                            operation === "delete" ||
+                            operation === "del") && (
+                            <Input
+                              placeholder="Key"
+                              {...register(`tests.${index}.cacheConfig.key`)}
+                            />
+                          )}
+
+                          {operation === "set" && (
+                            <>
+                              <Input
+                                placeholder="Value"
+                                {...register(
+                                  `tests.${index}.cacheConfig.value`,
+                                )}
+                              />
+                              <Input
+                                type="number"
+                                placeholder="TTL (seconds)"
+                                {...register(`tests.${index}.cacheConfig.ttl`, {
+                                  valueAsNumber: true,
+                                })}
+                              />
+                            </>
+                          )}
+
+                          {operation === "get" && (
+                            <Input
+                              placeholder="Expected Value"
+                              {...register(
+                                `tests.${index}.cacheConfig.expectedValue`,
+                              )}
+                            />
+                          )}
+
+                          {operation === "exists" && (
+                            <Controller
+                              control={control}
+                              name={`tests.${index}.cacheConfig.expectedExists`}
+                              render={({ field }) => (
+                                <Select
+                                  value={String(field.value)}
+                                  onValueChange={(v) =>
+                                    field.onChange(v === "true")
+                                  }
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="true">
+                                      Should exist
+                                    </SelectItem>
+                                    <SelectItem value="false">
+                                      Should not exist
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              )}
+                            />
+                          )}
+
+                          <Input
+                            type="number"
+                            placeholder="Database (0-15)"
+                            {...register(`tests.${index}.cacheConfig.db`, {
+                              valueAsNumber: true,
+                            })}
+                          />
+
+                          <Input
+                            type="password"
+                            placeholder="Password (optional)"
+                            {...register(`tests.${index}.cacheConfig.password`)}
+                          />
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* QUEUE CONFIG */}
+                {type === "queue" && (
+                  <div className="space-y-3">
+                    <Label>Queue Config</Label>
+
+                    <Input
+                      placeholder="Service Name"
+                      {...register(`tests.${index}.queueConfig.service`)}
+                    />
+
+                    <Controller
+                      control={control}
+                      name={`tests.${index}.queueConfig.brokerType`}
+                      render={({ field }) => (
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="kafka">Kafka</SelectItem>
+                            <SelectItem value="rabbitmq">RabbitMQ</SelectItem>
+                            <SelectItem value="nats">NATS</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+
+                    <Controller
+                      control={control}
+                      name={`tests.${index}.queueConfig.operation`}
+                      render={({ field }) => (
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="produce">Produce</SelectItem>
+                            <SelectItem value="consume">Consume</SelectItem>
+                            <SelectItem value="produce_and_consume">
+                              Produce & Consume
+                            </SelectItem>
+                            <SelectItem value="check_topic">
+                              Check Topic
+                            </SelectItem>
+                            <SelectItem value="list_topics">
+                              List Topics
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+
+                    {(() => {
+                      const operation = watch(
+                        `tests.${index}.queueConfig.operation`,
+                      );
+
+                      return (
+                        <>
+                          {(operation === "produce" ||
+                            operation === "consume" ||
+                            operation === "produce_and_consume" ||
+                            operation === "check_topic") && (
+                            <Input
+                              placeholder="Topic"
+                              {...register(`tests.${index}.queueConfig.topic`)}
+                            />
+                          )}
+
+                          {(operation === "produce" ||
+                            operation === "produce_and_consume") && (
+                            <>
+                              <Input
+                                placeholder="Message"
+                                {...register(
+                                  `tests.${index}.queueConfig.message`,
+                                )}
+                              />
+                              <Input
+                                placeholder="Key (optional)"
+                                {...register(`tests.${index}.queueConfig.key`)}
+                              />
+                              <Input
+                                type="number"
+                                placeholder="Partition (-1 for auto)"
+                                {...register(
+                                  `tests.${index}.queueConfig.partition`,
+                                  {
+                                    valueAsNumber: true,
+                                  },
+                                )}
+                              />
+                            </>
+                          )}
+
+                          {operation === "consume" && (
+                            <>
+                              <Input
+                                type="number"
+                                placeholder="Expected Count"
+                                {...register(
+                                  `tests.${index}.queueConfig.expectedCount`,
+                                  {
+                                    valueAsNumber: true,
+                                  },
+                                )}
+                              />
+                              <Input
+                                placeholder="Expected Message (optional)"
+                                {...register(
+                                  `tests.${index}.queueConfig.expectedMessage`,
+                                )}
+                              />
+                              <Input
+                                type="number"
+                                placeholder="Partition"
+                                {...register(
+                                  `tests.${index}.queueConfig.partition`,
+                                  {
+                                    valueAsNumber: true,
+                                  },
+                                )}
+                              />
+                              <Controller
+                                control={control}
+                                name={`tests.${index}.queueConfig.fromBeginning`}
+                                render={({ field }) => (
+                                  <Select
+                                    value={String(field.value)}
+                                    onValueChange={(v) =>
+                                      field.onChange(v === "true")
+                                    }
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="true">
+                                        From beginning
+                                      </SelectItem>
+                                      <SelectItem value="false">
+                                        Latest only
+                                      </SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                              />
+                            </>
+                          )}
+
+                          {operation === "check_topic" && (
+                            <Controller
+                              control={control}
+                              name={`tests.${index}.queueConfig.expectedExists`}
+                              render={({ field }) => (
+                                <Select
+                                  value={String(field.value)}
+                                  onValueChange={(v) =>
+                                    field.onChange(v === "true")
+                                  }
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="true">
+                                      Should exist
+                                    </SelectItem>
+                                    <SelectItem value="false">
+                                      Should not exist
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              )}
+                            />
+                          )}
+
+                          {(operation === "consume" ||
+                            operation === "produce_and_consume") && (
+                            <Input
+                              type="number"
+                              placeholder="Timeout (seconds)"
+                              {...register(
+                                `tests.${index}.queueConfig.timeout`,
+                                {
+                                  valueAsNumber: true,
+                                },
+                              )}
+                            />
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
               </div>

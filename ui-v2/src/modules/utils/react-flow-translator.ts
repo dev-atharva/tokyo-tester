@@ -28,12 +28,22 @@ export function translateReactFlowToCotsConfig(
   nodes: FlowNode[],
   edges: FlowEdge[],
   customTestOrder?: Map<string, string[]>,
+  registrySecrets?: Record<
+    string,
+    {
+      url?: string;
+      auth_type: "basic" | "token";
+      username?: string;
+      password?: string;
+      token?: string;
+    }
+  >,
 ): TranslationResult {
   const nodeMap = buildNodeMap(nodes);
 
   const serviceDeps = buildServiceDependencies(nodes, edges, nodeMap);
 
-  const services = translateServices(nodes, serviceDeps);
+  const services = translateServices(nodes, serviceDeps, registrySecrets);
 
   const testDeps = buildTestDependencies(nodes, edges, nodeMap);
 
@@ -194,6 +204,18 @@ function validateTest(
       message: "Shell test must have shell configuration",
       field: `tests.${test.id}.shellConfig`,
     });
+  } else if (test.type === "cache" && !test.cacheConfig) {
+    errors.push({
+      nodeId: nodeId,
+      message: "Cache test must have cache configuration",
+      field: `tests.${test.id}.cacheConfig`,
+    });
+  } else if (test.type === "queue" && !test.queueConfig) {
+    errors.push({
+      nodeId: nodeId,
+      message: "Queue test must have queue configuration",
+      field: `tests.${test.id}.queueConfig`,
+    });
   }
 
   if (test.type === "database" && test.databaseConfig) {
@@ -226,6 +248,40 @@ function validateTest(
     }
   }
 
+  if (test.type === "cache" && test.cacheConfig) {
+    if (!test.cacheConfig.service) {
+      errors.push({
+        nodeId: nodeId,
+        message: "Cache test must specify a service",
+        field: `tests.${test.id}.cacheConfig.service`,
+      });
+    }
+    if (!test.cacheConfig.operation) {
+      errors.push({
+        nodeId: nodeId,
+        message: "Cache test must specify an operation",
+        field: `tests.${test.id}.cacheConfig.operation`,
+      });
+    }
+  }
+
+  if (test.type === "queue" && test.queueConfig) {
+    if (!test.queueConfig.service) {
+      errors.push({
+        nodeId: nodeId,
+        message: "Queue test must specify a service",
+        field: `tests.${test.id}.queueConfig.service`,
+      });
+    }
+    if (!test.queueConfig.operation) {
+      errors.push({
+        nodeId: nodeId,
+        message: "Queue test must specify an operation",
+        field: `tests.${test.id}.queueConfig.operation`,
+      });
+    }
+  }
+
   return errors;
 }
 
@@ -253,6 +309,16 @@ function buildServiceDependencies(
 function translateServices(
   nodes: FlowNode[],
   serviceDeps: DependencyGraph,
+  registrySecrets?: Record<
+    string,
+    {
+      url?: string;
+      auth_type: "basic" | "token";
+      username?: string;
+      password?: string;
+      token?: string;
+    }
+  >,
 ): ServiceConfig[] {
   return nodes.map((node) => {
     const { data } = node;
@@ -312,6 +378,19 @@ function translateServices(
       config.init_scripts = data.service.initScripts
         .sort((a: { order: number }, b: { order: number }) => a.order - b.order)
         .map((s: { script: string }) => s.script);
+    }
+
+    if (registrySecrets) {
+      const registry = registrySecrets[serviceName];
+      if (registry && registry.url) {
+        config.registry = {
+          url: registry.url,
+          auth_type: registry.auth_type,
+          username: registry.username,
+          password: registry.password,
+          token: registry.token,
+        };
+      }
     }
 
     return config;
@@ -375,9 +454,6 @@ function translateTests(
 
   const hasCustomOrder = customTestOrder && customTestOrder.size > 0;
 
-  // ─────────────────────────────────────────────────────────────
-  // ✅ CUSTOM ORDER PATH (AUTHORITATIVE)
-  // ─────────────────────────────────────────────────────────────
   if (hasCustomOrder) {
     console.log("Custom test order received:", customTestOrder);
 
@@ -415,7 +491,7 @@ function translateTests(
       const dependsOn = new Set<string>();
       dependsOn.add(serviceName);
 
-      // 🔥 Enforce sequential execution: each test depends on the previous one
+      // Enforce sequential execution: each test depends on the previous one
       if (previousTestName) {
         dependsOn.add(previousTestName);
       }
@@ -460,10 +536,71 @@ function translateTests(
         };
 
         if (test.shellConfig.expectedOutput) {
-          config.config.expected_status = test.shellConfig.expectedOutput;
+          config.config.expected_output = test.shellConfig.expectedOutput;
         }
         if (test.shellConfig.workdir) {
           config.config.workdir = test.shellConfig.workdir;
+        }
+      } else if (test.type === "cache" && test.cacheConfig) {
+        config.config = {
+          service: test.cacheConfig.service,
+          cache_type: test.cacheConfig.cacheType,
+          operation: test.cacheConfig.operation,
+        };
+        if (test.cacheConfig.key) {
+          config.config.key = test.cacheConfig.key;
+        }
+        if (test.cacheConfig.value !== undefined) {
+          config.config.value = test.cacheConfig.value;
+        }
+        if (test.cacheConfig.expectedValue !== undefined) {
+          config.config.expected_value = test.cacheConfig.expectedValue;
+        }
+        if (test.cacheConfig.expectedExists !== undefined) {
+          config.config.expected_exists = test.cacheConfig.expectedExists;
+        }
+        if (test.cacheConfig.ttl !== undefined) {
+          config.config.ttl = test.cacheConfig.ttl;
+        }
+        if (test.cacheConfig.db !== undefined) {
+          config.config.db = test.cacheConfig.db;
+        }
+        if (test.cacheConfig.password) {
+          config.config.password = test.cacheConfig.password;
+        }
+      } else if (test.type === "queue" && test.queueConfig) {
+        config.config = {
+          service: test.queueConfig.service,
+          broker_type: test.queueConfig.brokerType,
+          operation: test.queueConfig.operation,
+        };
+
+        if (test.queueConfig.topic) {
+          config.config.topic = test.queueConfig.topic;
+        }
+        if (test.queueConfig.message !== undefined) {
+          config.config.message = test.queueConfig.message;
+        }
+        if (test.queueConfig.key) {
+          config.config.key = test.queueConfig.key;
+        }
+        if (test.queueConfig.partition !== undefined) {
+          config.config.partition = test.queueConfig.partition;
+        }
+        if (test.queueConfig.timeout !== undefined) {
+          config.config.timeout = test.queueConfig.timeout;
+        }
+        if (test.queueConfig.fromBeginning !== undefined) {
+          config.config.from_beginning = test.queueConfig.fromBeginning;
+        }
+        if (test.queueConfig.expectedCount !== undefined) {
+          config.config.expected_count = test.queueConfig.expectedCount;
+        }
+        if (test.queueConfig.expectedMessage !== undefined) {
+          config.config.expected_message = test.queueConfig.expectedMessage;
+        }
+        if (test.queueConfig.expectedExists !== undefined) {
+          config.config.expected_exists = test.queueConfig.expectedExists;
         }
       }
 
@@ -538,10 +675,71 @@ function buildTestConfig(
     };
 
     if (test.shellConfig.expectedOutput) {
-      config.config.expected_status = test.shellConfig.expectedOutput;
+      config.config.expected_output = test.shellConfig.expectedOutput;
     }
     if (test.shellConfig.workdir) {
       config.config.workdir = test.shellConfig.workdir;
+    }
+  } else if (test.type === "cache" && test.cacheConfig) {
+    config.config = {
+      service: test.cacheConfig.service,
+      cache_type: test.cacheConfig.cacheType,
+      operation: test.cacheConfig.operation,
+    };
+    if (test.cacheConfig.key) {
+      config.config.key = test.cacheConfig.key;
+    }
+    if (test.cacheConfig.value !== undefined) {
+      config.config.value = test.cacheConfig.value;
+    }
+    if (test.cacheConfig.expectedValue !== undefined) {
+      config.config.expected_value = test.cacheConfig.expectedValue;
+    }
+    if (test.cacheConfig.expectedExists !== undefined) {
+      config.config.expected_exists = test.cacheConfig.expectedExists;
+    }
+    if (test.cacheConfig.ttl !== undefined) {
+      config.config.ttl = test.cacheConfig.ttl;
+    }
+    if (test.cacheConfig.db !== undefined) {
+      config.config.db = test.cacheConfig.db;
+    }
+    if (test.cacheConfig.password) {
+      config.config.password = test.cacheConfig.password;
+    }
+  } else if (test.type === "queue" && test.queueConfig) {
+    config.config = {
+      service: test.queueConfig.service,
+      broker_type: test.queueConfig.brokerType,
+      operation: test.queueConfig.operation,
+    };
+
+    if (test.queueConfig.topic) {
+      config.config.topic = test.queueConfig.topic;
+    }
+    if (test.queueConfig.message !== undefined) {
+      config.config.message = test.queueConfig.message;
+    }
+    if (test.queueConfig.key) {
+      config.config.key = test.queueConfig.key;
+    }
+    if (test.queueConfig.partition !== undefined) {
+      config.config.partition = test.queueConfig.partition;
+    }
+    if (test.queueConfig.timeout !== undefined) {
+      config.config.timeout = test.queueConfig.timeout;
+    }
+    if (test.queueConfig.fromBeginning !== undefined) {
+      config.config.from_beginning = test.queueConfig.fromBeginning;
+    }
+    if (test.queueConfig.expectedCount !== undefined) {
+      config.config.expected_count = test.queueConfig.expectedCount;
+    }
+    if (test.queueConfig.expectedMessage !== undefined) {
+      config.config.expected_message = test.queueConfig.expectedMessage;
+    }
+    if (test.queueConfig.expectedExists !== undefined) {
+      config.config.expected_exists = test.queueConfig.expectedExists;
     }
   }
 

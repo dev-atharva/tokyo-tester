@@ -95,7 +95,7 @@ export const cotsWorkFlow = inngest.createFunction(
     ) => {
       if (results.length === 0) return;
 
-      console.log(`📤 Emitting ${results.length} test results in bulk`);
+      console.log(`Emitting ${results.length} test results in bulk`);
 
       const payload = {
         sessionId,
@@ -112,34 +112,34 @@ export const cotsWorkFlow = inngest.createFunction(
         })),
       };
 
-      console.log("📤 Bulk payload:", JSON.stringify(payload, null, 2));
+      console.log("Bulk payload:", JSON.stringify(payload, null, 2));
 
       return publish(testResultChannel()["testresult"](payload));
     };
 
     try {
-      await log(`🚀 Starting workflow: ${input.workflowName}`);
+      await log(`Starting workflow: ${input.workflowName}`);
       await log(
-        `📊 Workflow contains ${input.nodes.length} nodes and ${input.edges.length} connections`,
+        `Workflow contains ${input.nodes.length} nodes and ${input.edges.length} connections`,
       );
 
       /* ---------- Validate ---------- */
       await step.run("validate-flow", async () => {
-        await log("🔍 Validating workflow structure...");
+        await log("Validating workflow structure...");
         const result = validateFlow(input.nodes, input.edges);
 
         if (!result.valid) {
           throw new Error(result.errors.map((e) => e.message).join(", "));
         }
 
-        await log("✅ Workflow validation passed");
+        await log("Workflow validation passed");
       });
 
       /* ---------- Translate ---------- */
       const { services, tests } = await step.run(
         "translate-config",
         async () => {
-          await log("🔄 Translating workflow diagram to COTS configuration...");
+          await log("Translating workflow diagram to COTS configuration...");
 
           const customTestOrder = input.customTestOrder
             ? new Map<string, string[]>(input.customTestOrder)
@@ -152,7 +152,7 @@ export const cotsWorkFlow = inngest.createFunction(
           );
 
           await log(
-            `📦 Generated ${config.services.length} service(s) and ${config.tests.length} test(s)`,
+            `Generated ${config.services.length} service(s) and ${config.tests.length} test(s)`,
           );
 
           return config;
@@ -161,7 +161,7 @@ export const cotsWorkFlow = inngest.createFunction(
 
       /* ---------- Provision ---------- */
       const cotsSessionId = await step.run("provision-services", async () => {
-        await log("🏗️ Provisioning services...");
+        await log("Provisioning services...");
 
         const res = await fetch(`${COTS_API_BASE_URL}/services`, {
           method: "POST",
@@ -178,18 +178,17 @@ export const cotsWorkFlow = inngest.createFunction(
         state.sessionId = data.session_id;
 
         await log(
-          `✅ Services provisioned (Session: ${data.session_id.slice(0, 8)}...)`,
+          `Services provisioned (Session: ${data.session_id.slice(0, 8)}...)`,
         );
 
         return data.session_id;
       });
 
       /* ---------- Wait ---------- */
-      await log("⏳ Waiting for services to be ready...");
+      await log("Waiting for services to be ready...");
       await step.sleep("wait-for-services", "3s");
-      await log("✅ Services are ready");
+      await log("Services are ready");
 
-      /* ---------- Execute Tests ---------- */
       /* ---------- Execute Tests ---------- */
       const testResults = await step.run(
         "execute-tests-with-tracking",
@@ -198,7 +197,7 @@ export const cotsWorkFlow = inngest.createFunction(
 
           // 1️⃣ Create placeholders for all tests in bulk
           const placeholders = tests.map((test) => ({
-            testResultId: `${sessionId}_${test.name}`, // ✅ Unique per session
+            testResultId: `${sessionId}_${test.name}`,
             testName: test.name,
             testType: test.type || "database",
             status: "pending",
@@ -212,9 +211,8 @@ export const cotsWorkFlow = inngest.createFunction(
 
           await log(`🧪 Executing ${tests.length} test(s)...`);
 
-          // 2️⃣ Mark all tests as running in bulk
           const runningUpdates = tests.map((test) => ({
-            testResultId: `${sessionId}_${test.name}`, // ✅ Unique per session
+            testResultId: `${sessionId}_${test.name}`,
             testName: test.name,
             testType: test.type || "database",
             status: "running",
@@ -226,7 +224,6 @@ export const cotsWorkFlow = inngest.createFunction(
 
           await emitTestResultsBulk(runningUpdates);
 
-          // 3️⃣ Execute tests via COTS API
           const res = await fetch(
             `${COTS_API_BASE_URL}/tests/${cotsSessionId}`,
             {
@@ -243,28 +240,28 @@ export const cotsWorkFlow = inngest.createFunction(
           const data: RunTestsResponse = await res.json();
           state.testsExecuted = true;
 
-          console.log("📊 RAW API RESPONSE:", JSON.stringify(data, null, 2));
-          console.log("📊 Number of results:", data.results.length);
+          console.log("RAW API RESPONSE:", JSON.stringify(data, null, 2));
+          console.log("Number of results:", data.results.length);
           console.log(
-            "📊 Result names:",
+            "Result names:",
             data.results.map((r) => r.name),
           );
 
           await log(
-            `📊 Tests completed: ${data.summary.passed} passed, ${data.summary.failed} failed`,
+            `Tests completed: ${data.summary.passed} passed, ${data.summary.failed} failed`,
           );
 
-          // 4️⃣ Collect all final results
+          // Collect all final results
           const finalResults = data.results
             .map((result) => {
               const test = tests.find((t) => t.name === result.name);
               if (!test || !test.name) {
-                console.warn("⚠️ Missing test for result:", result.name);
+                console.warn("Missing test for result:", result.name);
                 return null;
               }
 
               return {
-                testResultId: `${sessionId}_${test.name}`, // ✅ Unique per session
+                testResultId: `${sessionId}_${test.name}`,
                 testName: result.name,
                 testType: result.type || "database",
                 status: result.passed ? "passed" : "failed",
@@ -277,13 +274,13 @@ export const cotsWorkFlow = inngest.createFunction(
             .filter((r): r is NonNullable<typeof r> => r !== null);
 
           console.log(
-            `📤 Prepared ${finalResults.length} final results for emission`,
+            `Prepared ${finalResults.length} final results for emission`,
           );
 
-          // 5️⃣ Emit all final results in bulk
+          // Emit all final results in bulk
           await emitTestResultsBulk(finalResults);
 
-          // 6️⃣ Log individual test results
+          // Log individual test results
           for (const result of data.results) {
             const emoji = result.passed ? "✅" : "❌";
             await log(
@@ -301,18 +298,18 @@ export const cotsWorkFlow = inngest.createFunction(
 
       /* ---------- Cleanup ---------- */
       await step.run("cleanup", async () => {
-        await log("🧹 Cleaning up resources...");
+        await log("Cleaning up resources...");
         await fetch(`${COTS_API_BASE_URL}/cleanup/${cotsSessionId}`, {
           method: "DELETE",
         });
         state.cleanUp = true;
-        await log("✅ Cleanup complete");
+        await log("Cleanup complete");
       });
 
       await log(
         testResults.summary.failed === 0
-          ? "🎉 Workflow completed successfully!"
-          : `⚠️ Workflow completed with ${testResults.summary.failed} failed test(s)`,
+          ? "Workflow completed successfully!"
+          : `Workflow completed with ${testResults.summary.failed} failed test(s)`,
         "completed",
         { result: testResults },
       );
@@ -325,7 +322,7 @@ export const cotsWorkFlow = inngest.createFunction(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
 
-      await log(`💥 Workflow failed: ${message}`, "failed", {
+      await log(`Workflow failed: ${message}`, "failed", {
         error: message,
       });
 

@@ -5,6 +5,7 @@ import { useExecutionStore } from "../stores/execution.store.sync";
 import { inngest } from "@/modules/inngest/client";
 import { toast } from "sonner";
 import { useUIStore } from "../stores/ui.store";
+import { useRegistrySecretStore } from "../stores/registry-secret-store";
 
 interface UseWorkflowExecutionProps {
   workflowId: string;
@@ -34,6 +35,8 @@ export function useWorkflowExecution({
   const completeExecution = useExecutionStore((s) => s.completeExecution);
   const failExecution = useExecutionStore((s) => s.failExecution);
   const activeExecution = useExecutionStore((s) => s.getActiveExecution());
+  const secretStore = useRegistrySecretStore.getState();
+  const registrySecrets = secretStore.secrets;
 
   const openLogsDrawer = useUIStore((s) => s.openLogs);
 
@@ -68,6 +71,7 @@ export function useWorkflowExecution({
           edges,
           customTestOrder: Array.from(customTestOrder.entries()),
           userId: "demo-user",
+          registrySecrets,
         },
       });
 

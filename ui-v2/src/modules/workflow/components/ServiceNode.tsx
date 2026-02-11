@@ -4,8 +4,10 @@ import { ServiceNodeData } from "../types/react-flow-cots";
 import { PostgreSQLIcon } from "./logos/PostgresIcon";
 import { BaseExecutionNode } from "@/components/react-flow/base-execution-node";
 import { MySQLIcon } from "./logos/MysqlIcon";
-import { ContainerIcon } from "./logos/ContainerIcon";
 import { MariaDBIcon } from "./logos/MariadbIcon";
+import { RedisIcon } from "./logos/RedisIcon";
+import { ApacheKafkaIcon } from "./logos/KafkaIcon";
+import { DockerIcon } from "./logos/DockerIcon";
 
 export function ServiceNode(props: NodeProps<ServiceNodeData>) {
   const { data } = props;
@@ -20,8 +22,14 @@ export function ServiceNode(props: NodeProps<ServiceNodeData>) {
     case "mariadb":
       icon = MariaDBIcon;
       break;
+    case "redis":
+      icon = RedisIcon;
+      break;
+    case "kafka":
+      icon = ApacheKafkaIcon;
+      break;
     default:
-      icon = ContainerIcon;
+      icon = DockerIcon;
   }
 
   const description =

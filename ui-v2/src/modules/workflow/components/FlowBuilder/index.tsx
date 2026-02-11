@@ -28,9 +28,11 @@ import {
 
 import {
   createGenericServiceNode,
+  createKafkaNode,
   createMariaDbNode,
   createMySqlNode,
   createPostgresNode,
+  createRedisNode,
 } from "@/modules/utils/node-factory";
 
 interface FlowBuilderProps {
@@ -188,7 +190,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
 
   // Add service node helper
   const handleAddNode = (
-    type: "postgres" | "redis" | "mysql" | "mariadb" | "generic",
+    type: "postgres" | "redis" | "mysql" | "mariadb" | "generic" | "kafka",
   ) => {
     const id = `${type}-${Date.now()}`;
     const position = {
@@ -218,6 +220,17 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
             database: "testdb",
             user: "root",
             password: "root",
+          });
+        case "redis":
+          return createRedisNode(id, position, {
+            label: "Redis",
+            password: "",
+            database: 0,
+          });
+        case "kafka":
+          return createKafkaNode(id, position, {
+            label: "Kafka",
+            clusterId: "test-cluster",
           });
         case "generic":
         default:

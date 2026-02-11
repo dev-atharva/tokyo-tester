@@ -3,8 +3,8 @@ import React, { useState, useMemo } from "react";
 import {
   FlowNode,
   ServiceNodeData,
-  PortMapping, // ADD THIS
-  EnvironmentVariable, // ADD THIS
+  PortMapping,
+  EnvironmentVariable,
 } from "../types/react-flow-cots";
 import {
   Dialog,
@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ServiceConfigForm } from "./ServiceConfigForm";
 import { TestConfigForm } from "./TestConfigForm";
 import { Button } from "@/components/ui/button";
+import { RegistryConfigForm } from "./RegistryConfigForm";
 
 interface NodeConfigProps {
   isOpen: boolean;
@@ -35,7 +36,9 @@ export const NodeConfigDialog: React.FC<NodeConfigProps> = ({
   onSave,
   nodes,
 }) => {
-  const [activeTab, SetactiveTab] = useState<"service" | "tests">("service");
+  const [activeTab, SetactiveTab] = useState<"service" | "tests" | "registry">(
+    "service",
+  );
   const [editedNode, SetEditedNode] = useState<FlowNode | null>(node);
 
   React.useEffect(() => {
@@ -43,7 +46,6 @@ export const NodeConfigDialog: React.FC<NodeConfigProps> = ({
     SetactiveTab("service");
   }, [node]);
 
-  // Use useMemo to avoid recalculating on every render
   const availableServices = useMemo(() => {
     if (!editedNode) return [];
 
@@ -97,6 +99,7 @@ export const NodeConfigDialog: React.FC<NodeConfigProps> = ({
           <TabsList>
             <TabsTrigger value="service">Service</TabsTrigger>
             <TabsTrigger value="tests">Tests</TabsTrigger>
+            <TabsTrigger value="registry">Registry</TabsTrigger>
           </TabsList>
           <TabsContent
             value="service"
@@ -117,6 +120,14 @@ export const NodeConfigDialog: React.FC<NodeConfigProps> = ({
               onChange={handleDataChange}
             />
           </TabsContent>
+          <TabsContent
+            value="registry"
+            className="flex-1 overflow-auto mt-4 w-full"
+          >
+            <RegistryConfigForm
+              serviceId={sanitizeName(editedNode.data.label)}
+            />
+          </TabsContent>
         </Tabs>
         <DialogFooter>
           <DialogClose>
@@ -128,3 +139,11 @@ export const NodeConfigDialog: React.FC<NodeConfigProps> = ({
     </Dialog>
   );
 };
+
+function sanitizeName(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+}
