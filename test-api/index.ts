@@ -3,7 +3,7 @@ import { json } from "milliparsec";
 import postgres from "postgres";
 import dotenv from "dotenv";
 
-dotenv.config();
+dotenv.config({ override: false });
 
 const app = new App();
 app.use(json());
@@ -122,6 +122,27 @@ if (inpPort) {
     PORT = inpPort;
   }
 }
+
+async function waitForDb(retries = 10, delay = 500) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      console.log("DB_HOST:", process.env.DB_HOST);
+      console.log("DB_PORT:", process.env.DB_PORT);
+      console.log("DB_USER:", process.env.DB_USER);
+      console.log("DB_PASSWORD:", process.env.DB_PASSWORD);
+      console.log("DB_NAME:", process.env.DB_NAME);
+      await sql`SELECT 1`;
+      console.log("Database connected");
+      return;
+    } catch (e) {
+      console.log(`Database not ready (attempt ${i + 1}), retrying...`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw new Error("Database failed to connect after retries");
+}
+
+await waitForDb();
 app.listen(PORT, () => {
-  console.log(`Test application server listning on http://localhost:${PORT}`);
+  console.log(`Test application server listening on http://localhost:${PORT}`);
 });
