@@ -1,0 +1,106 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cots-postgres
+    environment:
+      POSTGRES_USER: cots
+      POSTGRES_PASSWORD: cots_password
+      POSTGRES_DB: cots
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cots"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cots-network
+    profiles:
+      - postgres
+
+  inngest:
+    image: inngest/inngest:latest
+    container_name: cots-inngest
+    environment:
+      - INNGEST_DEV_SERVER_HOST=0.0.0.0
+      - INNGEST_PORT=8288
+      - INNGEST_LOG_LEVEL=info
+    ports:
+      - "8288:8288"
+      - "8289:8289"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8288/health",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    network: cots-network
+
+  runner:
+    build:
+      context: ./runner-v2
+      dockerfile: Dockerfile
+    container_name: cots-runner
+    environment:
+      - PORT=8080
+      - DB_TYPE=${DB_TYPE:-sqlite}
+      - DB_PATH=${DB_PATH:-/app/data/cots.db}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - DOCKER_HOST=${DOCKER_HOST:-unix:///var/run/docker.sock}
+      - TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=${DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+      - TESTCONTAINERS_RYUK_DISABLED=false
+      - TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
+    volumes:
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+      - runner_data:/app/data
+    ports:
+      - "8080:8080"
+    depends_on:
+      inngest:
+        condition: service_healthy
+    networks:
+      - cots-network
+    command: ["-migrate"]
+    restart: unless-stopped
+
+    ui:
+      build:
+        context: ./ui-v2
+        dockerfile: Dockerfile
+      container_name: cots-ui
+      environment:
+        - NODE_ENV=production
+        - PORT=3000
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://runner:8080}
+        - NEXT_PUBLIC_INNGEST_URL=${NEXT_PUBLIC_INNGEST_URL:-http://inngest:8288}
+        - INNGEST_EVENT_KEY=${INNGEST_EVENT_KEY:-}
+        - INNGEST_SIGNING_KEY=${INNGEST_SIGNING_KEY:-}
+      ports:
+        - "3000:3000"
+      depends_on:
+        - runner
+        - inngest
+      networks:
+        - cots-network
+      restart: unless-stopped
+
+networks:
+  cots-networks:
+    driver: bridge
+    name: cots-network
+
+volumes:
+  postgres_data:
+    name: cots-postgres-data
+  runner_data:
+    name: cots-runner-data

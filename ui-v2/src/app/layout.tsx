@@ -37,7 +37,8 @@ export default function RootLayout({
           <HomeLayout>
             <SyncProvider
               config={{
-                baseUrl: "http://localhost:8080",
+                baseUrl:
+                  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080",
                 syncInterval: 3000,
                 maxBatchSize: 100,
                 enabled: true,

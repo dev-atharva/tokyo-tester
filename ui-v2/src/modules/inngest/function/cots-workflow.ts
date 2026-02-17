@@ -15,7 +15,8 @@ import {
   validateFlow,
 } from "@/modules/utils/react-flow-translator";
 
-const COTS_API_BASE_URL = "http://localhost:8080";
+const COTS_API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 /* ---------------- Realtime Channel ---------------- */
 

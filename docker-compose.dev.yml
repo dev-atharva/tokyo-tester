@@ -1,0 +1,18 @@
+services:
+  runner:
+    volumes:
+      - ./runner-v2:/app
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+    command: ["go", "run", "./cmd/main.go", "-migrate"]
+
+  ui:
+    build:
+      context: ./ui-v2
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./ui-v2:/app
+      - /app/node_modules
+      - /app/.next
+    command: ["bun", "run", "dev"]
+    environment:
+      - NODE_ENV=development
