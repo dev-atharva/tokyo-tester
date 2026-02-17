@@ -99,6 +99,25 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
     return getTestResultsBySession(selectedExecution.sessionId);
   }, [selectedExecution, getTestResultsBySession]);
 
+  const testSummary = useMemo(() => {
+    const summary = {
+      total: testResults.length,
+      passed: 0,
+      failed: 0,
+      running: 0,
+      pending: 0,
+    };
+
+    for (const test of testResults) {
+      if (test.status === "passed") summary.passed++;
+      else if (test.status === "failed") summary.failed++;
+      else if (test.status === "running") summary.running++;
+      else if (test.status === "pending") summary.pending++;
+    }
+
+    return summary;
+  }, [testResults]);
+
   /* ----------------------------- Utilities ------------------------------ */
 
   const formatExecutionDuration = (startedAt: number, updatedAt?: string) => {
@@ -183,8 +202,8 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!max-w-[95vw] h-[90vh] p-0 gap-0">
-        <DialogHeader className="p-6 border-b">
+      <DialogContent className="max-w-[95vw]! h-[90vh] p-0 gap-0 overflow-hidden">
+        <DialogHeader className="p-6 border-b shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <IconHistory className="size-5" />
             Execution History
@@ -294,6 +313,62 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                       {selectedExecutionStatus &&
                         getStatusBadge(selectedExecutionStatus)}
                     </div>
+                    {testSummary.total > 0 && (
+                      <>
+                        <Separator />
+
+                        <div>
+                          <h4 className="font-medium mb-3">Test Summary</h4>
+
+                          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                            <div className="rounded-lg border p-3 text-center">
+                              <div className="text-lg font-semibold">
+                                {testSummary.total}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                Total
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg border p-3 text-center">
+                              <div className="text-lg font-semibold text-green-600">
+                                {testSummary.passed}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                Passed
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg border p-3 text-center">
+                              <div className="text-lg font-semibold text-red-600">
+                                {testSummary.failed}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                Failed
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg border p-3 text-center">
+                              <div className="text-lg font-semibold text-yellow-600">
+                                {testSummary.running}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                Running
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg border p-3 text-center">
+                              <div className="text-lg font-semibold text-gray-600">
+                                {testSummary.pending}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                Pending
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    )}
 
                     {testResults.length > 0 && (
                       <>
@@ -340,26 +415,38 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                                 )}
 
                                 {/* Logs */}
-                                {test.logs && test.logs.length > 0 && (
-                                  <details className="group">
-                                    <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-                                      View logs ({test.logs.length})
-                                    </summary>
-                                    <div className="mt-2 max-h-48 overflow-auto rounded bg-muted p-2 space-y-1">
-                                      {test.logs.map((log, i) => (
-                                        <div
-                                          key={i}
-                                          className="font-mono text-xs whitespace-pre-wrap break-words"
-                                        >
-                                          <span className="text-muted-foreground mr-2">
-                                            [{String(i + 1).padStart(3, "0")}]
-                                          </span>
-                                          {log}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </details>
-                                )}
+                                {test.containerLogs &&
+                                  Object.keys(test.containerLogs).length >
+                                    0 && (
+                                    <details className="group">
+                                      <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                                        View container logs (
+                                        {Object.keys(test.containerLogs).length}
+                                        )
+                                      </summary>
+
+                                      <div className="mt-2 max-h-64 overflow-auto rounded bg-muted p-3 space-y-4">
+                                        {Object.entries(test.containerLogs).map(
+                                          ([containerName, logs]) => (
+                                            <div
+                                              key={containerName}
+                                              className="space-y-2"
+                                            >
+                                              {/* Container Header */}
+                                              <div className="text-xs font-semibold text-primary">
+                                                [{containerName}]
+                                              </div>
+
+                                              {/* Log Content */}
+                                              <pre className="font-mono text-xs whitespace-pre-wrap break-words bg-background p-2 rounded border">
+                                                {logs}
+                                              </pre>
+                                            </div>
+                                          ),
+                                        )}
+                                      </div>
+                                    </details>
+                                  )}
                               </div>
                             ))}
                           </div>

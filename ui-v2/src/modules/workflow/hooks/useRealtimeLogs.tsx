@@ -81,15 +81,13 @@ export function useRealtimeLogs({
     if (latestResultData.topic === "testresult") {
       const { sessionId, workflowId, results } = latestResultData.data;
 
-      console.log(
-        `📥 Received bulk update with ${results.length} test results`,
-      );
+      console.log(`Received bulk update with ${results.length} test results`);
 
       // Create a unique ID for this bulk emission
       const bulkEventId = `bulk:${sessionId}:${Date.now()}`;
 
       if (processedEventIds.current.has(bulkEventId)) {
-        console.warn("⚠️ Duplicate bulk event detected, skipping");
+        console.warn("Duplicate bulk event detected, skipping");
         return;
       }
       processedEventIds.current.add(bulkEventId);
@@ -105,6 +103,7 @@ export function useRealtimeLogs({
           durationMs,
           executedAt,
           action,
+          containerLogs,
         } = result;
 
         const normalizedStatus = status as TestStatus;
@@ -114,39 +113,30 @@ export function useRealtimeLogs({
           sessionId,
           workflowId,
           testName,
-          testType: testType || "database", // 👈 Ensure testType is always a string
+          testType: testType || "database",
           status: normalizedStatus,
           resultData: resultData ?? null,
           durationMs: durationMs ?? 0,
           executedAt: executedAt ?? new Date().toISOString(),
+          containerLogs: containerLogs,
         };
-
-        console.log(
-          `📥 Processing test result: ${testName} (${action})`,
-          basePayload,
-        );
 
         if (action === "create") {
           addTestResult(basePayload);
         } else if (action === "update") {
           // action === "update"
           if (!hasTestResult(testResultId)) {
-            // Out-of-order safety: create if it doesn't exist
-            console.log(
-              `⚠️ Test result ${testResultId} not found, creating instead of updating`,
-            );
             addTestResult(basePayload);
           } else {
             updateTestResult(testResultId, {
               status: normalizedStatus,
               resultData,
               durationMs,
+              containerLogs,
             });
           }
         }
       });
-
-      console.log(`✅ Processed ${results.length} test results`);
     }
 
     // prevent unbounded growth

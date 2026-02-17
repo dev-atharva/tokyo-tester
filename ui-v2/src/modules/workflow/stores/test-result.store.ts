@@ -41,6 +41,7 @@ export interface TestResult {
   resultData: any;
   durationMs: number;
   executedAt: string;
+  containerLogs?: Record<string, string>;
 
   // Sync metadata
   version: number;
@@ -116,6 +117,7 @@ export const useTestResultStore = create<TestResultStore>()(
                   resultData: updates.resultData ?? null,
                   durationMs: updates.durationMs ?? 0,
                   executedAt: updates.executedAt ?? new Date().toISOString(),
+                  containerLogs: updates.containerLogs,
                 }),
               },
               _currentEntityId: id,
@@ -231,6 +233,9 @@ export const useTestResultStore = create<TestResultStore>()(
             result_data: JSON.stringify(result.resultData),
             duration_ms: result.durationMs,
             executed_at: result.executedAt,
+            container_logs: result.containerLogs
+              ? JSON.stringify(result.containerLogs)
+              : null,
             created_at: result.created_at,
             updated_at: result.updated_at,
             user_id: result.user_id,

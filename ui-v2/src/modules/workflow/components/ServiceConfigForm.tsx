@@ -41,6 +41,7 @@ interface ServiceFormData {
   label: string;
   serviceType: string;
   image?: string;
+  command: { id: string; value: string }[];
   env: EnvironmentVariable[];
   ports: PortMapping[];
   waitStratergyEnabled: boolean;
@@ -59,8 +60,8 @@ const EnvVariableValueInput = ({
   onChange: (val: string) => void;
   availableServices: Array<{
     name: string;
-    ports: string[];
-    envVars: string[];
+    ports: { hostPort: string; containerPort: string }[];
+    envVars: { key: string; value: string }[];
   }>;
 }) => {
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -68,15 +69,25 @@ const EnvVariableValueInput = ({
 
   useEffect(() => {
     const allSuggestions: string[] = [];
+
     availableServices.forEach((service) => {
-      allSuggestions.push(`\${${service.name}.host}`);
-      service.ports.forEach((port) => {
-        allSuggestions.push(`\${${service.name}.port.${port}}`);
+      if (!service.name) return; // skip undefined
+      const serviceName = service.name.trim();
+
+      // Host reference
+      allSuggestions.push(`\${${serviceName}.host}`);
+
+      // Ports
+      (service.ports || []).forEach((port) => {
+        if (port) allSuggestions.push(`\${${serviceName}.port.${port}}`);
       });
-      service.envVars.forEach((envVar) => {
-        allSuggestions.push(`\${${service.name}.env.${envVar}}`);
+
+      // Env vars
+      (service.envVars || []).forEach((envVar) => {
+        if (envVar) allSuggestions.push(`\${${serviceName}.env.${envVar}}`);
       });
     });
+
     setSuggestions(allSuggestions);
   }, [availableServices]);
 
@@ -94,11 +105,11 @@ const EnvVariableValueInput = ({
         placeholder="Value or ${service.field}"
       />
       {showSuggestions && filteredSuggestions.length > 0 && (
-        <div className="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-auto">
+        <div className="absolute z-10 w-full mt-1 bg-secondary  border rounded-md shadow-lg max-h-60 overflow-auto">
           {filteredSuggestions.map((suggestion, idx) => (
             <div
               key={idx}
-              className="px-3 py-2 cursor-pointer hover:bg-gray-100"
+              className="px-3 py-2 cursor-pointer "
               onMouseDown={() => {
                 onChange(suggestion);
                 setShowSuggestions(false);
@@ -153,6 +164,10 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
       label: serviceData.label,
       serviceType: serviceData.service.type,
       image: serviceData.service.image,
+      command: (serviceData.service.command || []).map((cmd) => ({
+        id: crypto.randomUUID(),
+        value: cmd,
+      })),
       env: serviceData.service.env || [],
       ports: serviceData.service.ports || [],
       waitStratergyEnabled: serviceData.service.waitStratergy?.enabled ?? false,
@@ -164,6 +179,12 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
   });
 
   const { control, register, watch } = form;
+
+  const {
+    fields: commandFields,
+    append: appendCommand,
+    remove: removeCommand,
+  } = useFieldArray({ control, name: "command" });
 
   const {
     fields: envFields,
@@ -196,6 +217,10 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
           ...serviceData.service,
           type: (value.serviceType ?? serviceData.service.type) as any,
           image: value.image,
+          command: value.command
+            ?.filter((c): c is NonNullable<typeof c> => Boolean(c))
+            .map((c) => c.value ?? "")
+            .filter((v) => v.trim() !== ""),
           env: value.env
             ?.filter((e): e is NonNullable<typeof e> => Boolean(e))
             .map((e) => ({
@@ -287,6 +312,47 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
         </div>
 
         <Separator />
+
+        {/* COMMAND ARGUMENTS */}
+        <FormItem>
+          <div className="flex justify-between items-center mb-2">
+            <FormLabel>Command Arguments</FormLabel>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                appendCommand({ id: crypto.randomUUID(), value: "" })
+              }
+            >
+              <IconPlus className="h-4 w-4 mr-1" />
+              Add
+            </Button>
+          </div>
+          <FormDescription className="text-xs mb-3">
+            Command-line arguments to pass to the conatiner (e.g.
+            -port=8080,-debug=true)
+          </FormDescription>
+          <div className="space-y-2">
+            {commandFields.map((field, index) => (
+              <div key={field.id} className="flex gap-2">
+                <Input
+                  {...register(`command.${index}.value`)}
+                  placeholder="Argument (e.g. -port=8080)"
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="destructive"
+                  onClick={() => removeCommand(index)}
+                >
+                  <IconTrash className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </FormItem>
 
         {/* ENV VARS */}
         <FormItem>

@@ -38,6 +38,7 @@ export const testResultChannel = channel("testResult").addTopic(
           durationMs: z.number().optional(),
           executedAt: z.string().optional(),
           action: z.enum(["create", "update"]),
+          containerLogs: z.record(z.string()).optional(),
         }),
       ),
     }),
@@ -91,6 +92,7 @@ export const cotsWorkFlow = inngest.createFunction(
         durationMs?: number;
         executedAt?: string;
         action: "create" | "update";
+        containerLogs?: Record<string, string>;
       }>,
     ) => {
       if (results.length === 0) return;
@@ -109,12 +111,21 @@ export const cotsWorkFlow = inngest.createFunction(
           durationMs: r.durationMs ?? 0,
           executedAt: r.executedAt || new Date().toISOString(),
           action: r.action,
+          containerLogs: r.containerLogs,
         })),
       };
 
       console.log("Bulk payload:", JSON.stringify(payload, null, 2));
 
       return publish(testResultChannel()["testresult"](payload));
+    };
+
+    const formatContainerLogs = (logs?: Record<string, string>): string => {
+      if (!logs || Object.keys(logs).length === 0) return "";
+      const logEntries = Object.entries(logs)
+        .map(([service, log]) => `[${service}]\n${log}`)
+        .join("\n\n");
+      return `\n\n📋 Container Logs:\n${logEntries}`;
     };
 
     try {
@@ -170,7 +181,21 @@ export const cotsWorkFlow = inngest.createFunction(
         });
 
         if (!res.ok) {
-          throw new Error(await res.text());
+          const errorText = await res.text();
+          let errorData;
+          try {
+            errorData = JSON.parse(errorText);
+          } catch (error) {
+            throw new Error(errorText);
+          }
+          if (errorData.container_logs) {
+            const logsFormatted = formatContainerLogs(errorData.container_logs);
+            await log(
+              `Service provisioning failed: ${errorData.error}${logsFormatted}`,
+              "failed",
+            );
+          }
+          throw new Error(errorData.error || errorText);
         }
 
         const data: CreateServicesResponse = await res.json();
@@ -234,7 +259,25 @@ export const cotsWorkFlow = inngest.createFunction(
           );
 
           if (!res.ok) {
-            throw new Error(await res.text());
+            const errorText = await res.text();
+            let errorData;
+
+            try {
+              errorData = JSON.parse(errorText);
+            } catch (error) {
+              throw new Error(errorText);
+            }
+
+            if (errorData.container_logs) {
+              const logsFormatted = formatContainerLogs(
+                errorData.container_logs,
+              );
+              await log(
+                `Test execution failed: ${errorData.error}${logsFormatted}`,
+                "failed",
+              );
+            }
+            throw new Error(errorData.error || errorText);
           }
 
           const data: RunTestsResponse = await res.json();
@@ -268,6 +311,7 @@ export const cotsWorkFlow = inngest.createFunction(
                 durationMs: result.duration || 0,
                 executedAt: new Date().toISOString(),
                 resultData: result,
+                containerLogs: result.container_logs,
                 action: "update" as const,
               };
             })
@@ -282,12 +326,15 @@ export const cotsWorkFlow = inngest.createFunction(
 
           // Log individual test results
           for (const result of data.results) {
-            const emoji = result.passed ? "✅" : "❌";
-            await log(
-              `${emoji} ${result.name}: ${result.passed ? "passed" : "failed"} (${
-                result.duration || 0
-              }ms)`,
-            );
+            let logMessage = `${result.name}: ${result.passed ? "passed" : "failed"}`;
+            if (result.duration) {
+              logMessage += ` (${result.duration}ms)`;
+            }
+            if (!result.passed && result.container_logs) {
+              const logsFormatted = formatContainerLogs(result.container_logs);
+              logMessage += logsFormatted;
+            }
+            await log(logMessage, result.passed ? "running" : "failed");
           }
 
           return data;
@@ -299,20 +346,27 @@ export const cotsWorkFlow = inngest.createFunction(
       /* ---------- Cleanup ---------- */
       await step.run("cleanup", async () => {
         await log("Cleaning up resources...");
-        await fetch(`${COTS_API_BASE_URL}/cleanup/${cotsSessionId}`, {
-          method: "DELETE",
-        });
+        const cleanupRes = await fetch(
+          `${COTS_API_BASE_URL}/cleanup/${cotsSessionId}`,
+          {
+            method: "DELETE",
+          },
+        );
+
+        if (!cleanupRes.ok) {
+          console.warn("Cleanup warning:", await cleanupRes.text());
+        }
+
         state.cleanUp = true;
         await log("Cleanup complete");
       });
 
-      await log(
+      const finalMessage =
         testResults.summary.failed === 0
-          ? "Workflow completed successfully!"
-          : `Workflow completed with ${testResults.summary.failed} failed test(s)`,
-        "completed",
-        { result: testResults },
-      );
+          ? "🎉 Workflow completed successfully!"
+          : `⚠️ Workflow completed with ${testResults.summary.failed} failed test(s)`;
+
+      await log(finalMessage, "completed", { result: testResults });
 
       return {
         success: testResults.summary.failed === 0,
@@ -326,12 +380,33 @@ export const cotsWorkFlow = inngest.createFunction(
         error: message,
       });
 
-      if (state.servicesCreated && !state.cleanUp && state.sessionId) {
-        await fetch(`${COTS_API_BASE_URL}/cleanup/${state.sessionId}`, {
-          method: "DELETE",
-        });
+      if (state.servicesCreated && state.sessionId) {
+        try {
+          const logsRes = await fetch(
+            `${COTS_API_BASE_URL}/sessions/${state.sessionId}/logs`,
+          );
+
+          if (logsRes.ok) {
+            const logsData = await logsRes.json();
+            if (logsData.logs) {
+              const logsFormatted = formatContainerLogs(logsData.logs);
+              await log(`Container logs at failure:${logsFormatted}`, "failed");
+            }
+          }
+        } catch (logsErr) {
+          console.error("Failed to retrieve logs:", logsErr);
+        }
       }
 
+      if (state.servicesCreated && !state.cleanUp && state.sessionId) {
+        try {
+          await fetch(`${COTS_API_BASE_URL}/cleanup/${state.sessionId}`, {
+            method: "DELETE",
+          });
+        } catch (cleanupErr) {
+          console.error("Failed to cleanup:", cleanupErr);
+        }
+      }
       throw err;
     }
   },

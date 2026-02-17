@@ -63,6 +63,7 @@ export interface TestResult {
   message?: string;
   duration?: number;
   output?: any;
+  container_logs?: Record<string, string>;
 }
 
 // Service node data represents a service with embedded test definations

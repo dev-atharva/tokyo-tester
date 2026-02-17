@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -64,7 +65,18 @@ func (e *HTTPExecutor) Execute(ctx context.Context, testCfg config.TestConfig, r
 
 	defer resp.Body.Close()
 
-	if expectedStatus, ok := testCfg.Config["expected_status"].(int); ok {
+	if expectedRaw, ok := testCfg.Config["expected_status"]; ok {
+		var expectedStatus int
+
+		switch v := expectedRaw.(type) {
+		case int:
+			expectedStatus = v
+		case float64:
+			expectedStatus = int(v)
+		default:
+			return fmt.Errorf("expected_status must be a number, got %T", expectedRaw)
+		}
+
 		if resp.StatusCode != expectedStatus {
 			return fmt.Errorf("expected status %d, got %d", expectedStatus, resp.StatusCode)
 		}
@@ -86,9 +98,17 @@ func (e *HTTPExecutor) Execute(ctx context.Context, testCfg config.TestConfig, r
 			if err := json.Unmarshal(bodyBytes, &actual); err != nil {
 				return fmt.Errorf("response is not valid JSON: %w", err)
 			}
-			for key, val := range expected {
-				if actual[key] != val {
-					return fmt.Errorf("expected body field %s=%v, got %v", key, val, actual[key])
+			for key, expectedVal := range expected {
+				actualVal, exists := actual[key]
+				if !exists {
+					return fmt.Errorf("expected body field %s missing in response", key)
+				}
+
+				expectedVal = normalizeNumber(expectedVal)
+				actualVal = normalizeNumber(actualVal)
+
+				if !reflect.DeepEqual(actualVal, expectedVal) {
+					return fmt.Errorf("expected body field %s=%v (%T), got %v (%T)", key, expectedVal, expectedVal, actualVal, actualVal)
 				}
 			}
 		default:
@@ -97,4 +117,17 @@ func (e *HTTPExecutor) Execute(ctx context.Context, testCfg config.TestConfig, r
 	}
 
 	return nil
+}
+
+func normalizeNumber(v any) any {
+	switch n := v.(type) {
+	case int:
+		return float64(n)
+	case int32:
+		return float64(n)
+	case int64:
+		return float64(n)
+	default:
+		return v
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/dev-atharva/cots/pkg/config"
 	"github.com/dev-atharva/cots/pkg/orchestrator"
@@ -55,10 +56,11 @@ type RunTestsResponse struct {
 }
 
 type TestResult struct {
-	Name   string `json:"name"`
-	Type   string `json:"type"`
-	Passed bool   `json:"passed"`
-	Error  string `json:"error,omitempty"`
+	Name          string            `json:"name"`
+	Type          string            `json:"type"`
+	Passed        bool              `json:"passed"`
+	Error         string            `json:"error,omitempty"`
+	ContainerLogs map[string]string `json:"container_logs,omitempty"`
 }
 
 type TestSummary struct {
@@ -73,26 +75,27 @@ type CleanupResponse struct {
 }
 
 type ErrorResponse struct {
-	Error string `json:"error"`
+	Error         string            `json:"error"`
+	ContainerLogs map[string]string `json:"container_logs,omitempty"`
 }
 
 // Create services handles /services post request
 func (h *Handler) CreateServices(w http.ResponseWriter, r *http.Request) {
 	var req CreateServicesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("invalid request body ,%v", err))
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("invalid request body ,%v", err), nil)
 		return
 	}
 
 	if len(req.Services) == 0 {
-		respondError(w, http.StatusBadRequest, "services array cannot be empty")
+		respondError(w, http.StatusBadRequest, "services array cannot be empty", nil)
 		return
 	}
 
 	//validate configuration
 	cfg := &config.Config{Services: req.Services}
 	if err := validateServices(cfg); err != nil {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("invalid configuration: %v", err))
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("invalid configuration: %v", err), nil)
 		return
 	}
 
@@ -102,7 +105,7 @@ func (h *Handler) CreateServices(w http.ResponseWriter, r *http.Request) {
 		graph.AddNode(svc.Name, svc.DependsOn)
 	}
 	if _, err := graph.TopologicalSort(); err != nil {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("dependeny error: %v", err))
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("dependeny error: %v", err), nil)
 		return
 	}
 
@@ -111,8 +114,17 @@ func (h *Handler) CreateServices(w http.ResponseWriter, r *http.Request) {
 
 	sess, _ := h.sessionManager.Get(sessionID)
 	if err := orch.ProvisionServices(sess.Context, req.Services); err != nil {
+		var containerLogs map[string]string
+		if enhancedErr, ok := err.(*orchestrator.EnhancedError); ok {
+			containerLogs = enhancedErr.AllServiceLogs
+			if containerLogs == nil && enhancedErr.ContainerLogs != "" {
+				containerLogs = map[string]string{
+					enhancedErr.ServiceName: enhancedErr.ContainerLogs,
+				}
+			}
+		}
 		h.sessionManager.Delete(sessionID)
-		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to provision services: %v", err))
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to provision services: %v", err), containerLogs)
 		return
 	}
 	respondJson(w, http.StatusCreated, CreateServicesResponse{
@@ -127,18 +139,18 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 
 	var req RunTestsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err))
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err), nil)
 		return
 	}
 
 	if len(req.Tests) == 0 {
-		respondError(w, http.StatusBadRequest, "test arrya cannot be empty")
+		respondError(w, http.StatusBadRequest, "test array cannot be empty", nil)
 		return
 	}
 
 	sess, err := h.sessionManager.Get(sessionId)
 	if err != nil {
-		respondError(w, http.StatusNotFound, err.Error())
+		respondError(w, http.StatusNotFound, err.Error(), nil)
 		return
 	}
 
@@ -176,11 +188,23 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 
 		err = executor.Execute(sess.Context, testCfg, sess.Orchestrator.GetRegistry())
 		if err != nil {
+			var containerLogs map[string]string
+			var errorMsg string
+
+			if testErr, ok := err.(*test.TestError); ok {
+				containerLogs = testErr.ContainerLogs
+				errorMsg = extractBaseError(testErr.BaseError)
+			} else {
+				errorMsg = extractBaseError(err)
+				containerLogs = sess.Orchestrator.GetAllServiceLogs(sess.Context)
+			}
+
 			results = append(results, TestResult{
-				Name:   testCfg.Name,
-				Type:   testCfg.Type,
-				Passed: false,
-				Error:  err.Error(),
+				Name:          testCfg.Name,
+				Type:          testCfg.Type,
+				Passed:        false,
+				Error:         errorMsg,
+				ContainerLogs: containerLogs,
 			})
 			failed++
 		} else {
@@ -214,7 +238,7 @@ func (h *Handler) CleanUpSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
 
 	if err := h.sessionManager.Delete(sessionID); err != nil {
-		respondError(w, http.StatusNotFound, err.Error())
+		respondError(w, http.StatusNotFound, err.Error(), nil)
 		return
 	}
 	respondJson(w, http.StatusOK, CleanupResponse{
@@ -252,6 +276,63 @@ func respondJson(w http.ResponseWriter, status int, data any) {
 	json.NewEncoder(w).Encode(data)
 }
 
-func respondError(w http.ResponseWriter, status int, message string) {
-	respondJson(w, status, ErrorResponse{Error: message})
+func respondError(w http.ResponseWriter, status int, message string, containerLogs map[string]string) {
+	errResp := ErrorResponse{
+		Error: message,
+	}
+	if len(containerLogs) > 0 {
+		errResp.ContainerLogs = containerLogs
+	}
+	respondJson(w, status, errResp)
+}
+
+func extractBaseError(err error) string {
+	if err == nil {
+		return ""
+	}
+	errStr := err.Error()
+	if before, _, found := strings.Cut(errStr, "\n--- Container Logs"); found {
+		return strings.TrimSpace(before)
+	}
+	if before, _, found := strings.Cut(errStr, "\n--- All Service Logs"); found {
+		return strings.TrimSpace(before)
+	}
+	return strings.TrimSpace(errStr)
+}
+
+func (h *Handler) GetServiceLogs(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+	serviceName := chi.URLParam(r, "serviceName")
+
+	sess, err := h.sessionManager.Get(sessionID)
+	if err != nil {
+		respondError(w, http.StatusNotFound, err.Error(), nil)
+		return
+	}
+
+	logs, err := sess.Orchestrator.GetLogsForService(sess.Context, serviceName)
+	if err != nil {
+		respondError(w, http.StatusNotFound, fmt.Sprintf("failed to get logs: %v", err), nil)
+		return
+	}
+	respondJson(w, http.StatusOK, map[string]string{
+		"service": serviceName,
+		"logs":    logs,
+	})
+}
+
+func (h *Handler) GetAllServiceLogs(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+
+	sess, err := h.sessionManager.Get(sessionID)
+	if err != nil {
+		respondError(w, http.StatusNotFound, err.Error(), nil)
+		return
+	}
+
+	logs := sess.Orchestrator.GetAllServiceLogs(sess.Context)
+	respondJson(w, http.StatusOK, map[string]any{
+		"session_id": sessionID,
+		"logs":       logs,
+	})
 }

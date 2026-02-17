@@ -60,67 +60,11 @@ func (o *Orchestrator) ProvisionServices(ctx context.Context, services []config.
 	for levelIdx, level := range levels {
 		fmt.Printf("Provisioning level %d: %v\n", levelIdx+1, level)
 		if err := o.provisionlevel(ctx, level, serviceMap); err != nil {
-			return fmt.Errorf("failed to provision level %d: %w", levelIdx+1, err)
+			return o.WrapErrorWithLogs(ctx, err, "", true)
 		}
 	}
 	return nil
 }
-
-// provisions all services in a level in parallel
-// func (o *Orchestrator) provisionlevel(ctx context.Context, serviceNames []string, serviceMap map[string]config.ServiceConfig) error {
-// 	var wg sync.WaitGroup
-
-// 	errChan := make(chan error, len(serviceNames))
-
-// 	for _, name := range serviceNames {
-// 		wg.Add(1)
-
-// 		go func(serviceName string) {
-// 			defer wg.Done()
-
-// 			cfg := serviceMap[serviceName]
-
-// 			//Interporlate environment variables
-// 			if len(cfg.Env) > 0 {
-// 				interpolated, err := o.registry.InterpolateEnvVars(cfg.Env)
-// 				if err != nil {
-// 					errChan <- fmt.Errorf("service %s: env interpolation failed: %w", serviceName, err)
-// 					return
-// 				}
-// 				cfg.Env = interpolated
-// 			}
-
-// 			//Get provider
-// 			providerInst, ok := o.providers.Get(cfg.Type)
-// 			if !ok {
-// 				errChan <- fmt.Errorf("service %s: provider not found: %s", serviceName, cfg.Type)
-// 				return
-// 			}
-
-// 			fmt.Printf("Starting the service: %s (type: %s)\n", serviceName, cfg.Type)
-// 			container, runtime, err := providerInst.Provision(ctx, cfg, o.network)
-// 			if err != nil {
-// 				errChan <- fmt.Errorf("service %s: provisioning failed : %w", serviceName, err)
-// 				return
-// 			}
-
-// 			o.mu.Lock()
-// 			o.containers[serviceName] = container
-// 			o.mu.Unlock()
-
-// 			o.registry.Regsiter(runtime)
-// 			fmt.Printf("Service %s started successfully\n", serviceName)
-// 		}(name)
-// 	}
-
-// 	wg.Wait()
-// 	close(errChan)
-
-// 	for err := range errChan {
-// 		return err
-// 	}
-// 	return nil
-// }
 
 func (o *Orchestrator) authenticateRegisteries(ctx context.Context, services []config.ServiceConfig) error {
 	uniqueRegisteries := make(map[string]*config.RegistryConfig)
@@ -165,29 +109,42 @@ func (o *Orchestrator) provisionlevel(ctx context.Context, serviceNames []string
 			defer wg.Done()
 			cfg := serviceMap[serviceName]
 
+			// Wait for dependencies
 			for _, dep := range cfg.DependsOn {
 				if ch, ok := readyChans[dep]; ok {
 					<-ch
 				}
 			}
 
-			if len(cfg.Env) > 0 {
-				interpolated, err := o.registry.InterpolateEnvVars(cfg.Env)
-				if err != nil {
-					errChan <- fmt.Errorf("service %s : env interpolation failed: %w", serviceName, err)
-					return
-				}
-				cfg.Env = interpolated
-			}
+			// Get provider first
 			providerInst, ok := o.providers.Get(cfg.Type)
 			if !ok {
 				errChan <- fmt.Errorf("service %s: provider not found: %s", serviceName, cfg.Type)
 				return
 			}
 
-			container, runtime, err := providerInst.Provision(ctx, cfg, o.network)
+			// Interpolate env vars right before provisioning
+			finalCfg := cfg
+			if len(cfg.Env) > 0 {
+				interpolated, err := o.registry.InterpolateEnvVars(cfg.Env)
+				if err != nil {
+					errChan <- fmt.Errorf("service %s : env interpolation failed: %w", serviceName, err)
+					return
+				}
+				finalCfg.Env = interpolated
+			}
+
+			// Provision with interpolated config
+			fmt.Printf("%v", finalCfg)
+			container, runtime, err := providerInst.Provision(ctx, finalCfg, o.network)
 			if err != nil {
-				errChan <- fmt.Errorf("service %s: provisioning failed: %w", serviceName, err)
+				if container != nil {
+					o.mu.Lock()
+					o.containers[serviceName] = container
+					o.mu.Unlock()
+				}
+				enhancedErr := o.WrapErrorWithLogs(ctx, err, serviceName, false)
+				errChan <- fmt.Errorf("service %s: provisioning failed: %w", serviceName, enhancedErr)
 				return
 			}
 

@@ -320,9 +320,17 @@ function translateServices(
     }
   >,
 ): ServiceConfig[] {
-  return nodes.map((node) => {
+  const infrastructureTypes = new Set<string>([
+    "kafka",
+    "mysql",
+    "postgres",
+    "mariadb",
+    "redis",
+  ]);
+  const services = nodes.map((node) => {
     const { data } = node;
     const serviceName = sanitizeName(data.label);
+    const isInfrastructure = infrastructureTypes.has(data.service.type);
 
     const config: ServiceConfig = {
       name: serviceName,
@@ -336,18 +344,40 @@ function translateServices(
       config.command = data.service.command;
     }
     if (data.service.env && data.service.env.length > 0) {
-      config.env = data.service.env.reduce(
-        (
-          acc: Record<string, string>,
-          envVar: { key: string; value: string },
-        ) => {
-          if (envVar.key) {
-            acc[envVar.key] = envVar.value || "";
-          }
-          return acc;
-        },
-        {} as Record<string, string>,
-      );
+      config.env = {};
+
+      for (const envVar of data.service.env) {
+        if (typeof envVar.key !== "string") continue;
+
+        const key = envVar.key.trim();
+        if (!key) continue;
+
+        let rawValue = envVar.value ?? "";
+
+        if (typeof rawValue === "string") {
+          rawValue = rawValue.replace(/\$\{([^}]+)\}/g, (_, ref) => {
+            const parts = ref.split(".");
+            if (parts.length >= 2) {
+              const refService = sanitizeName(parts[0]);
+              const field = parts[1].toLowerCase();
+
+              if (field === "env" && parts[2]) {
+                return `\${${refService}.env.${parts[2]}}`;
+              }
+
+              if (field === "port" && parts[2]) {
+                return `\${${refService}.port.${parts[2]}}`;
+              }
+
+              return `\${${refService}.${field}}`;
+            }
+
+            return `\${${ref}}`;
+          });
+        }
+
+        config.env[key] = rawValue;
+      }
     }
     if (data.service.ports && data.service.ports.length > 0) {
       config.ports = data.service.ports
@@ -361,7 +391,14 @@ function translateServices(
         );
     }
 
-    const dependencies = serviceDeps.get(serviceName) || [];
+    let dependencies = serviceDeps.get(serviceName) || [];
+
+    if (isInfrastructure) {
+      dependencies = dependencies.filter((dep) => {
+        const depNode = nodes.find((n) => sanitizeName(n.data.label) === dep);
+        return depNode && infrastructureTypes.has(depNode.data.service.type);
+      });
+    }
     if (dependencies.length > 0) {
       config.depends_on = dependencies;
     }
@@ -379,7 +416,6 @@ function translateServices(
         .sort((a: { order: number }, b: { order: number }) => a.order - b.order)
         .map((s: { script: string }) => s.script);
     }
-
     if (registrySecrets) {
       const registry = registrySecrets[serviceName];
       if (registry && registry.url) {
@@ -394,6 +430,14 @@ function translateServices(
     }
 
     return config;
+  });
+  return services.sort((a, b) => {
+    const aIsInfra = infrastructureTypes.has(a.type);
+    const bIsInfra = infrastructureTypes.has(b.type);
+
+    if (aIsInfra && !bIsInfra) return -1;
+    if (!aIsInfra && bIsInfra) return 1;
+    return 0;
   });
 }
 

@@ -40,10 +40,10 @@ func (r *RuntimeRegsitry) InterpolateEnvVars(envVars map[string]string) (map[str
 		//Find all variables in the value
 		matches := varPattern.FindAllStringSubmatch(value, -1)
 		for _, match := range matches {
-			if len(matches) < 2 {
+			if len(match) < 2 {
 				continue
 			}
-			varRef := match[1] //eg. "postgres.host" or "postgres.port.5432"
+			varRef := match[1]
 			replacement, err := r.resolveReference(varRef)
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve ${%s} in %s: %w", varRef, key, err)
@@ -73,7 +73,7 @@ func (r *RuntimeRegsitry) resolveReference(ref string) (string, error) {
 		if runtime.Host == "" {
 			return "", fmt.Errorf("host not available for service: %s", serviceName)
 		}
-		return runtime.Host, nil
+		return runtime.Name, nil
 	case "port":
 		if len(parts) < 3 {
 			return "", fmt.Errorf("port reference requires container port : %s.port.CONTAINER_PORT", serviceName)
