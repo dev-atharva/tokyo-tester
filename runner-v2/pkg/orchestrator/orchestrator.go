@@ -175,15 +175,25 @@ func (o *Orchestrator) CleanUp(ctx context.Context) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	var errors []error
+	var wg sync.WaitGroup
+	errorChan := make(chan error, len(o.containers))
 
 	for name, container := range o.containers {
-		fmt.Printf("Cleaning up service %s\n", name)
-		if err := container.Terminate(ctx); err != nil {
-			errors = append(errors, fmt.Errorf("failed to cleanup %s: %w", name, err))
-		}
+		wg.Add(1)
+		go func(serviceName string, cont testcontainers.Container) {
+			defer wg.Done()
+			fmt.Printf("Cleaning up service %s\n", serviceName)
+			if err := cont.Terminate(ctx); err != nil {
+				errorChan <- fmt.Errorf("failed to cleanup %s: %w", serviceName, err)
+			}
+		}(name, container)
 	}
-
+	wg.Wait()
+	close(errorChan)
+	var errors []error
+	for err := range errorChan {
+		errors = append(errors, err)
+	}
 	if o.network != nil {
 		fmt.Printf("Removing docker network: %s\n", o.network.Name)
 		if err := o.network.Remove(ctx); err != nil {

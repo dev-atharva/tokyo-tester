@@ -30,6 +30,9 @@ type Database interface {
 	UpsertSyncMetaData(ctx context.Context, metadata *SyncMetadata) error
 	GetSyncMetaData(ctx context.Context, userID string, clientID string) (*SyncMetadata, error)
 
+	// Transaction support
+	BeginTx(ctx context.Context) (Tx, error)
+
 	// Lifecycle
 	Close() error
 	Ping(ctx context.Context) error
@@ -60,6 +63,7 @@ type Session struct {
 	Error        string     `json:"error,omitempty"`
 	StartedAt    *time.Time `json:"started_at,omitempty"`
 	CompletedAt  *time.Time `json:"completed_at,omitempty"`
+	Version      int        `json:"version"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 	ClientID     string     `json:"client_id"`
@@ -90,4 +94,25 @@ type SyncMetadata struct {
 	LastSyncAt      time.Time `json:"last_sync_at"`
 	LastSyncVersion int       `json:"last_sync_version"`
 	SyncStatus      string    `json:"sync_status"` // idle/syncing/error
+}
+
+type Tx interface {
+	UpsertWorkflow(ctx context.Context, workflow *Workflow) error
+	GetWorkflow(ctx context.Context, id string) (*Workflow, error)
+	DeleteWorkflow(ctx context.Context, id string) error
+
+	UpsertSession(ctx context.Context, session *Session) error
+	GetSession(ctx context.Context, id string) (*Session, error)
+	DeleteSession(ctx context.Context, id string) error
+	ListTestResult(ctx context.Context, sessionID string) ([]*TestResult, error)
+
+	UpsertTestResult(ctx context.Context, result *TestResult) error
+	GetTestResult(ctx context.Context, id string) (*TestResult, error)
+	DeleteTestResult(ctx context.Context, id string) error
+
+	UpsertSyncMetaData(ctx context.Context, metadata *SyncMetadata) error
+	GetSyncMetaData(ctx context.Context, userID string, clientID string) (*SyncMetadata, error)
+
+	Commit() error
+	Rollback() error
 }

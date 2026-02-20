@@ -90,6 +90,7 @@ type SessionData struct {
 	Error        string          `json:"error,omitempty"`
 	StartedAt    *time.Time      `json:"started_at,omitempty"`
 	CompletedAt  *time.Time      `json:"completed_at,omitempty"`
+	Version      int             `json:"version"`
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`
 	ClientID     string          `json:"client_id"`

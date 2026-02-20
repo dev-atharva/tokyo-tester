@@ -21,7 +21,7 @@ func NewService(database db.Database) *Service {
 	}
 }
 
-// ProcessBatch handles a batch of sync changes from the client
+// ProcessBatch handles a batch of sync changes from the client within a transaction
 func (s *Service) ProcessBatch(ctx context.Context, req *types.SyncBatchRequest) (*types.SyncBatchResponse, error) {
 	response := &types.SyncBatchResponse{
 		Success:        true,
@@ -46,9 +46,15 @@ func (s *Service) ProcessBatch(ctx context.Context, req *types.SyncBatchRequest)
 		syncMeta.LastSyncAt = time.Now()
 	}
 
-	// Process each change
+	tx, err := s.db.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction : %w", err)
+	}
+	defer tx.Rollback()
+
+	// Process each change within transaction
 	for _, change := range req.Changes {
-		if err := s.processChange(ctx, &change, response, req.UserID); err != nil {
+		if err := s.processChangeInTx(ctx, tx, &change, response, req.UserID); err != nil {
 			log.Printf("Error processing change for %s:%s: %v", change.EntityType, change.EntityID, err)
 			response.Errors = append(response.Errors, types.SyncError{
 				EntityType: change.EntityType,
@@ -60,26 +66,39 @@ func (s *Service) ProcessBatch(ctx context.Context, req *types.SyncBatchRequest)
 		response.ProcessedCount++
 	}
 
-	// Update sync metadata
+	// Update sync metadata within transaction
 	syncMeta.LastSyncVersion++
 	syncMeta.SyncStatus = "idle"
 	response.ServerVersion = syncMeta.LastSyncVersion
 
-	if err := s.db.UpsertSyncMetaData(ctx, syncMeta); err != nil {
+	if err := tx.UpsertSyncMetaData(ctx, syncMeta); err != nil {
 		log.Printf("Failed to update sync metadata: %v", err)
 		response.Errors = append(response.Errors, types.SyncError{
 			Message: fmt.Sprintf("Failed to update sync metadata: %v", err),
 		})
+		response.Success = false
+		return response, nil
 	}
 
+	//Rollback if errors
 	if len(response.Errors) > 0 {
 		response.Success = false
+		return response, nil
+	}
+
+	if err := tx.Commit(); err != nil {
+		response.Success = false
+		response.Errors = append(response.Errors, types.SyncError{
+			Message: fmt.Sprintf("Failed to commit transaction: %v", err),
+		})
+		return response, nil
 	}
 
 	return response, nil
 }
 
 // processChange dispatches the change to the correct handler
+// (legacy kept for compatiblity)
 func (s Service) processChange(ctx context.Context, change *types.SyncChange, response *types.SyncBatchResponse, userID string) error {
 	switch change.EntityType {
 	case "workflow":
@@ -88,6 +107,19 @@ func (s Service) processChange(ctx context.Context, change *types.SyncChange, re
 		return s.processSessionChange(ctx, change, response, userID)
 	case "test_result":
 		return s.processTestResultChange(ctx, change, response, userID)
+	default:
+		return fmt.Errorf("unknown entity type: %s", change.EntityType)
+	}
+}
+
+func (s Service) processChangeInTx(ctx context.Context, tx db.Tx, change *types.SyncChange, response *types.SyncBatchResponse, userID string) error {
+	switch change.EntityType {
+	case "workflow":
+		return s.processWorkflowChangeInTx(ctx, tx, change, response, userID)
+	case "session":
+		return s.processSessionChangeInTx(ctx, tx, change, response, userID)
+	case "test_result":
+		return s.processTestResultChangeInTx(ctx, tx, change, response, userID)
 	default:
 		return fmt.Errorf("unknown entity type: %s", change.EntityType)
 	}
@@ -137,6 +169,46 @@ func (s *Service) processWorkflowChange(ctx context.Context, change *types.SyncC
 	}
 }
 
+func (s *Service) processWorkflowChangeInTx(ctx context.Context, tx db.Tx, change *types.SyncChange, response *types.SyncBatchResponse, userID string) error {
+	switch change.ChangeType {
+	case "insert", "update":
+		var workflowData types.WorkflowData
+		if err := json.Unmarshal(change.Data, &workflowData); err != nil {
+			return fmt.Errorf("failed to unmarshal workflow data: %w", err)
+		}
+
+		existing, err := tx.GetWorkflow(ctx, workflowData.ID)
+		if err == nil && existing.UpdatedAt.After(change.ClientTime) {
+			response.Conflicts = append(response.Conflicts, types.ConflictInfo{
+				EntityType: "workflow",
+				EntityID:   workflowData.ID,
+				Resolution: "server_wins",
+				Message:    fmt.Sprintf("Server version (updated at: %s) is newer than client (update at : %s)", existing.UpdatedAt.Format(time.RFC3339), change.ClientTime.Format(time.RFC3339)),
+			})
+			return nil
+		}
+
+		wf := &db.Workflow{
+			ID:          workflowData.ID,
+			Name:        workflowData.Name,
+			Description: workflowData.Description,
+			NodesConfig: string(workflowData.NodesConfig),
+			EdgesConfig: string(workflowData.EdgesConfig),
+			Metadata:    string(workflowData.Metadata),
+			Version:     workflowData.Version,
+			CreatedAt:   workflowData.CreatedAt,
+			UpdatedAt:   workflowData.UpdatedAt,
+			UserID:      workflowData.UserID,
+			IsDeleted:   workflowData.IsDeleted,
+		}
+		return tx.UpsertWorkflow(ctx, wf)
+	case "delete":
+		return tx.DeleteWorkflow(ctx, change.EntityID)
+	default:
+		return fmt.Errorf("unknown workflow change type: %s", change.ChangeType)
+	}
+}
+
 // --- Session Changes ---
 func (s *Service) processSessionChange(ctx context.Context, change *types.SyncChange, response *types.SyncBatchResponse, userID string) error {
 	switch change.ChangeType {
@@ -168,6 +240,7 @@ func (s *Service) processSessionChange(ctx context.Context, change *types.SyncCh
 			Error:        sessionData.Error,
 			StartedAt:    sessionData.StartedAt,
 			CompletedAt:  sessionData.CompletedAt,
+			Version:      sessionData.Version,
 			CreatedAt:    sessionData.CreatedAt,
 			UpdatedAt:    sessionData.UpdatedAt,
 			ClientID:     sessionData.ClientID,
@@ -183,7 +256,48 @@ func (s *Service) processSessionChange(ctx context.Context, change *types.SyncCh
 	}
 }
 
-// --- TestResult Changes ---
+func (s *Service) processSessionChangeInTx(ctx context.Context, tx db.Tx, change *types.SyncChange, response *types.SyncBatchResponse, userID string) error {
+	switch change.ChangeType {
+	case "insert", "update":
+		var sessionData types.SessionData
+		if err := json.Unmarshal(change.Data, &sessionData); err != nil {
+			return fmt.Errorf("failed to unmarshal session data: %w", err)
+		}
+		existing, err := tx.GetSession(ctx, sessionData.ID)
+		if err == nil && existing.UpdatedAt.After(change.ClientTime) {
+			response.Conflicts = append(response.Conflicts, types.ConflictInfo{
+				EntityType: "session",
+				EntityID:   sessionData.ID,
+				Resolution: "server_wins",
+				Message:    fmt.Sprintf("Server version (updated_at: %s) is newer than client (updated_at: %s)", existing.UpdatedAt.Format(time.RFC3339), change.ClientTime.Format(time.RFC3339)),
+			})
+			return nil
+		}
+
+		sess := &db.Session{
+			ID:           sessionData.ID,
+			WorkflowID:   sessionData.WorkflowID,
+			Status:       sessionData.Status,
+			Result:       string(sessionData.Result),
+			ContainerIDs: string(sessionData.ContainerIDs),
+			Logs:         string(sessionData.Logs),
+			Error:        sessionData.Error,
+			StartedAt:    sessionData.StartedAt,
+			CompletedAt:  sessionData.CompletedAt,
+			Version:      sessionData.Version,
+			CreatedAt:    sessionData.CreatedAt,
+			UpdatedAt:    sessionData.UpdatedAt,
+			ClientID:     sessionData.ClientID,
+			IsDeleted:    sessionData.IsDeleted,
+		}
+		return tx.UpsertSession(ctx, sess)
+	case "delete":
+		return tx.DeleteSession(ctx, change.EntityID)
+	default:
+		return fmt.Errorf("unknown sessin change type: %s", change.ChangeType)
+	}
+}
+
 // --- TestResult Changes ---
 func (s *Service) processTestResultChange(
 	ctx context.Context,
@@ -329,6 +443,101 @@ func (s *Service) processTestResultChange(
 		}
 	}
 
+	return nil
+}
+
+func (s *Service) processTestResultChangeInTx(ctx context.Context, tx db.Tx, change *types.SyncChange, response *types.SyncBatchResponse, userID string) error {
+	if change.ChangeType == "delete" {
+		return tx.DeleteTestResult(ctx, change.EntityID)
+	}
+
+	var testData types.TestResultData
+	if err := json.Unmarshal(change.Data, &testData); err != nil {
+		return fmt.Errorf("failed to unmarshal test result data: %w", err)
+	}
+	existing, err := tx.GetTestResult(ctx, testData.ID)
+	if err == nil && existing != nil {
+		log.Printf("Test result %s: updating existing result (old status: %s, new status: %s)", testData.ID, existing.Status, testData.Status)
+	} else {
+		log.Printf("Test result %s: new test result for session %s (status %s)", testData.ID, testData.SessionID, testData.Status)
+	}
+
+	result := &db.TestResult{
+		ID:         testData.ID,
+		SessionID:  testData.SessionID,
+		WorkflowID: testData.WorkflowID,
+		TestName:   testData.TestName,
+		TestType:   testData.TestType,
+		Status:     testData.Status,
+		ResultData: testData.ResultData,
+		DurationMs: testData.DurationMs,
+		ExecutedAt: testData.ExecutedAt,
+		CreatedAt:  testData.CreatedAt,
+		UpdatedAt:  testData.UpdatedAt,
+		ClientID:   testData.ClientID,
+		UserID:     userID,
+		IsDeleted:  testData.IsDeleted,
+	}
+
+	if err := tx.UpsertTestResult(ctx, result); err != nil {
+		return fmt.Errorf("failed to upsert test result: %w", err)
+	}
+	testResults, err := tx.ListTestResult(ctx, testData.SessionID)
+	if err != nil {
+		return nil
+	}
+	allCompleted := true
+	totalTests := 0
+	passedTests := 0
+	failedTests := 0
+
+	for _, tr := range testResults {
+		if tr.IsDeleted {
+			continue
+		}
+		switch tr.Status {
+		case "passed":
+			passedTests++
+		case "failed":
+			failedTests++
+		default:
+			allCompleted = false
+		}
+	}
+
+	if allCompleted && totalTests > 0 {
+		session, err := tx.GetSession(ctx, testData.SessionID)
+		if err != nil {
+			return nil
+		}
+
+		if session != nil && session.Status != "completed" && session.Status != "failed" {
+			finalStatus := "completed"
+			if failedTests > 0 {
+				finalStatus = "failed"
+			}
+
+			session.Status = finalStatus
+			now := time.Now()
+			session.CompletedAt = &now
+			session.UpdatedAt = now
+			session.Version++
+
+			summary := map[string]any{
+				"total":  totalTests,
+				"passed": passedTests,
+				"failed": failedTests,
+			}
+			summaryJSON, _ := json.Marshal(summary)
+			session.Result = string(summaryJSON)
+
+			if err := tx.UpsertSession(ctx, session); err != nil {
+				if err.Error() == "version conflict: session was modified by another process" {
+					return nil
+				}
+			}
+		}
+	}
 	return nil
 }
 

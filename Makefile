@@ -10,7 +10,7 @@ help:
 	@echo ""
 	@echo "Available commands"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' ${MAKEFILE_LIST} | \
-	    awk 'BEGIN {FS = ":.*?## "}; {printf " %-16s$ %s\n", $$1, $$2}'
+	    awk 'BEGIN {FS = ":.*?## "}; {printf " %-16s %s\n", $$1, $$2}'
 
 validate-docker: check-version check-socket
 
@@ -25,7 +25,7 @@ check-version:
 		echo "Error: Docker daemon is not running"; \
 		exit 1; \
 	fi; \
-	echo "Docker VersionL $$DOCKER_VERSION"
+	echo "Docker Version $$DOCKER_VERSION"
 
 check-socket:
 	@echo "Detecting the docker socket"
@@ -41,8 +41,8 @@ check-socket:
 		echo "Error: Could not find the docker socket"; \
 		exit 1; \
 	fi;
-	echo "DOCKER_SOCKET_PATH=$$SOCKET_PATH" > .env.docker-socket; \
-	echo "DOCKER_HOST=unix://$$SOCKET_PATH" >> .env.docker-socket
+	@echo "DOCKER_SOCKET_PATH=$$SOCKET_PATH" > .env.docker-socket; \
+	@echo "DOCKER_HOST=unix://$$SOCKET_PATH" >> .env.docker-socket
 
 build: validate-docker
 	@echo "Building the services"
@@ -60,7 +60,7 @@ build-ui: validate-docker
 up: validate-docker
 	@echo "Starting the services..."
 	@. ./.env.docker-socket 2>/dev/null || make check-socket
-	@. ./env.docker-socket && docker-compose -f ${COMPOSE_FILE} up -d
+	@. ./.env.docker-socket && docker-compose -f ${COMPOSE_FILE} up -d
 	@echo ""
 	@echo "Started services"
 	@echo " Frontend: http://localhost:3000"
@@ -71,7 +71,7 @@ up: validate-docker
 	@echo "Run 'make health' to check service health"
 
 up-postgres: validate-docker
-	@echo "Starting services with PostgresSQL..."
+	@echo "Starting services with postgreSQL..."
 	@. ./.env.docker-socket 2>/dev/null || make check-socket
 	@. ./.env.docker-socket && docker compose -f ${COMPOSE_FILE} --profile postgres up -d
 	@echo "Services started with postgres db"
@@ -97,7 +97,7 @@ migrate:
 	docker compose -f ${COMPOSE_FILE} exec runner-v2 /app/cots -migrate
 
 health:
-	@echo "Checkign service health..."
+	@echo "Checking service health..."
 	@echo ""
 	@printf "Runner: "
 	@curl -s http://localhost:8080/health 2>/dev/null && echo "Healthy" || echo "Unhealthy"

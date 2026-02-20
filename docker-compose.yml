@@ -43,7 +43,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    network: cots-network
+    networks:
+      - cots-network
 
   runner:
     build:
@@ -73,29 +74,29 @@ services:
     command: ["-migrate"]
     restart: unless-stopped
 
-    ui:
-      build:
-        context: ./ui-v2
-        dockerfile: Dockerfile
-      container_name: cots-ui
-      environment:
-        - NODE_ENV=production
-        - PORT=3000
-        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://runner:8080}
-        - NEXT_PUBLIC_INNGEST_URL=${NEXT_PUBLIC_INNGEST_URL:-http://inngest:8288}
-        - INNGEST_EVENT_KEY=${INNGEST_EVENT_KEY:-}
-        - INNGEST_SIGNING_KEY=${INNGEST_SIGNING_KEY:-}
-      ports:
-        - "3000:3000"
-      depends_on:
-        - runner
-        - inngest
-      networks:
-        - cots-network
-      restart: unless-stopped
+  ui:
+    build:
+      context: ./ui-v2
+      dockerfile: Dockerfile
+    container_name: cots-ui
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://runner:8080}
+      - NEXT_PUBLIC_INNGEST_URL=${NEXT_PUBLIC_INNGEST_URL:-http://inngest:8288}
+      - INNGEST_EVENT_KEY=${INNGEST_EVENT_KEY:-}
+      - INNGEST_SIGNING_KEY=${INNGEST_SIGNING_KEY:-}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - runner
+      - inngest
+    networks:
+      - cots-network
+    restart: unless-stopped
 
 networks:
-  cots-networks:
+  cots-network:
     driver: bridge
     name: cots-network
 
