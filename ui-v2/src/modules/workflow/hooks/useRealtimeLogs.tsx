@@ -37,13 +37,22 @@ export function useRealtimeLogs({
 
   const processedEventIds = useRef(new Set<string>());
 
+  const onCompleteRef = useRef(onComplete);
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+    onErrorRef.current = onError;
+  }, [onComplete, onError]);
+
   /* ---------------- Workflow Logs ---------------- */
   useEffect(() => {
     if (!latestLogData) return;
 
     if (latestLogData.topic === "workflowlog") {
-      const { sessionId, message, status, result, error } = latestLogData.data;
-      const eventId = `workflowlog:${sessionId}:${status}:${message}`;
+      const { sessionId, message, status, result, error, timestamp, sequence } =
+        latestLogData.data;
+      const eventId = `workflowlog:${sessionId}:${timestamp}:${sequence}`;
 
       if (processedEventIds.current.has(eventId)) return;
       processedEventIds.current.add(eventId);
@@ -63,37 +72,31 @@ export function useRealtimeLogs({
 
     // prevent unbounded growth
     if (processedEventIds.current.size > 2000) {
-      processedEventIds.current.clear();
+      const entries = Array.from(processedEventIds.current);
+      processedEventIds.current = new Set(entries.slice(1000));
     }
-  }, [
-    latestLogData,
-    appendLog,
-    completeExecution,
-    failExecution,
-    onComplete,
-    onError,
-  ]);
+  }, [latestLogData, appendLog, completeExecution, failExecution]);
 
   /* ---------------- Bulk Test Results ---------------- */
   useEffect(() => {
     if (!latestResultData) return;
 
     if (latestResultData.topic === "testresult") {
-      const { sessionId, workflowId, results } = latestResultData.data;
+      const { sessionId, workflowId, results, bulkId } = latestResultData.data;
 
       console.log(`Received bulk update with ${results.length} test results`);
 
-      // Create a unique ID for this bulk emission
-      const bulkEventId = `bulk:${sessionId}:${Date.now()}`;
-
-      if (processedEventIds.current.has(bulkEventId)) {
-        console.warn("Duplicate bulk event detected, skipping");
+      if (processedEventIds.current.has(bulkId)) {
         return;
       }
-      processedEventIds.current.add(bulkEventId);
+      processedEventIds.current.add(bulkId);
+
+      const sortedResults = [...results].sort(
+        (a, b) => a.sequence - b.sequence,
+      );
 
       // Process each result in the bulk payload
-      results.forEach((result) => {
+      sortedResults.forEach((result) => {
         const {
           testResultId,
           testName,
@@ -104,6 +107,7 @@ export function useRealtimeLogs({
           executedAt,
           action,
           containerLogs,
+          sequence,
         } = result;
 
         const normalizedStatus = status as TestStatus;
@@ -121,29 +125,17 @@ export function useRealtimeLogs({
           containerLogs: containerLogs,
         };
 
-        if (action === "create") {
-          addTestResult(basePayload);
-        } else if (action === "update") {
-          // action === "update"
-          if (!hasTestResult(testResultId)) {
-            addTestResult(basePayload);
-          } else {
-            updateTestResult(testResultId, {
-              status: normalizedStatus,
-              resultData,
-              durationMs,
-              containerLogs,
-            });
-          }
-        }
+        updateTestResult(testResultId, basePayload);
       });
     }
 
     // prevent unbounded growth
     if (processedEventIds.current.size > 2000) {
+      const entries = Array.from(processedEventIds.current);
+      processedEventIds.current = new Set(entries.slice(1000));
       processedEventIds.current.clear();
     }
-  }, [addTestResult, updateTestResult, hasTestResult, latestResultData]);
+  }, [updateTestResult, latestResultData]);
 
   return {
     isConnected: !!(latestLogData && latestResultData),

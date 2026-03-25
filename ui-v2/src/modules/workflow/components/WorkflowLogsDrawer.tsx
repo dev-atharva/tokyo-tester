@@ -17,7 +17,6 @@ import {
   IconCircleCheck,
   IconCircleX,
   IconClock,
-  IconAlertTriangle,
   IconLoader,
   IconHistory,
   IconTerminal,
@@ -38,15 +37,14 @@ export function WorkflowLogsDrawer({
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   const sessionId = execution?.sessionId ?? null;
-  const allTestResults = useTestResultStore((s) => s.testResults);
 
-  // Filter test results for this execution
+  const getTestResultsBySession = useTestResultStore(
+    (s) => s.getTestResultsBySession,
+  );
+
   const testResults = useMemo(() => {
-    if (!sessionId) return [];
-    return Object.values(allTestResults).filter(
-      (tr) => tr.sessionId === sessionId && !tr.is_deleted,
-    );
-  }, [allTestResults, sessionId]);
+    return sessionId ? getTestResultsBySession(sessionId) : [];
+  }, [sessionId, getTestResultsBySession]);
 
   // Derived execution status based on test results
   const executionStatus = useMemo(() => {

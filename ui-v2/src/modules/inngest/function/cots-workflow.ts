@@ -29,6 +29,8 @@ export const testResultChannel = channel("testResult").addTopic(
     z.object({
       sessionId: z.string(),
       workflowId: z.string(),
+      bulkId: z.string(),
+      timestamp: z.number(),
       results: z.array(
         z.object({
           testResultId: z.string(),
@@ -40,6 +42,7 @@ export const testResultChannel = channel("testResult").addTopic(
           executedAt: z.string().optional(),
           action: z.enum(["create", "update"]),
           containerLogs: z.record(z.string()).optional(),
+          sequence: z.number(),
         }),
       ),
     }),
@@ -66,6 +69,9 @@ export const cotsWorkFlow = inngest.createFunction(
       errors: [],
     };
 
+    let logSequence = 0;
+    let testResultSequence = 0;
+
     /* ---------- Helpers ---------- */
 
     const log = async (
@@ -78,6 +84,8 @@ export const cotsWorkFlow = inngest.createFunction(
           sessionId,
           message,
           status,
+          timestamp: Date.now(),
+          sequence: logSequence++,
           ...extra,
         }),
       );
@@ -100,9 +108,14 @@ export const cotsWorkFlow = inngest.createFunction(
 
       console.log(`Emitting ${results.length} test results in bulk`);
 
+      const bulkId = `${sessionId}:${Date.now()}`;
+      const timestamp = Date.now();
+
       const payload = {
         sessionId,
         workflowId,
+        bulkId,
+        timestamp,
         results: results.map((r) => ({
           testResultId: r.testResultId,
           testName: r.testName,
@@ -113,6 +126,7 @@ export const cotsWorkFlow = inngest.createFunction(
           executedAt: r.executedAt || new Date().toISOString(),
           action: r.action,
           containerLogs: r.containerLogs,
+          sequence: testResultSequence++,
         })),
       };
 

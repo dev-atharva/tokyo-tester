@@ -46,12 +46,6 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   const executionsMap = useExecutionStore((s) => s.executions);
   const clearExecution = useExecutionStore((s) => s.clearExecution);
 
-  const getTestResultsBySession = useTestResultStore(
-    (s) => s.getTestResultsBySession,
-  );
-
-  /* ----------------------------- Executions ----------------------------- */
-
   const executions = useMemo(() => {
     return Object.values(executionsMap).filter(
       (e) => e.workflowId === workflowId && !e.is_deleted,
@@ -60,37 +54,44 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
 
   const sortedExecutions = useMemo(() => {
     return [...executions].sort((a, b) => b.startedAt - a.startedAt);
-  }, [executions]);
+  }, [executionsMap, workflowId]);
+
+  const getTestResultsBySession = useTestResultStore(
+    (s) => s.getTestResultsBySession,
+  );
+
   /* ---------------------- Derived Execution Status ----------------------- */
+
+  const executionStatusMap = useMemo(() => {
+    const map = new Map<string, WorkflowExecution["status"]>();
+    executions.forEach((execution) => {
+      const tests = getTestResultsBySession(execution.sessionId);
+      if (!tests || tests.length === 0) {
+        map.set(execution.sessionId, execution.status);
+        return;
+      }
+
+      if (tests.some((t) => t.status === "failed")) {
+        map.set(execution.sessionId, "failed");
+      } else if (tests.some((t) => t.status === "running")) {
+        map.set(execution.sessionId, "running");
+      } else if (tests.every((t) => t.status === "passed")) {
+        map.set(execution.sessionId, "completed");
+      }
+    });
+    return map;
+  }, [executions, getTestResultsBySession]);
 
   const getExecutionStatusFromTests = (
     execution: WorkflowExecution,
   ): WorkflowExecution["status"] => {
-    const tests = getTestResultsBySession(execution.sessionId);
-
-    if (!tests || tests.length === 0) {
-      return execution.status;
-    }
-
-    if (tests.some((t) => t.status === "failed")) {
-      return "failed";
-    }
-
-    if (tests.some((t) => t.status === "running")) {
-      return "running";
-    }
-
-    if (tests.every((t) => t.status === "passed")) {
-      return "completed";
-    }
-
-    return execution.status;
+    return executionStatusMap.get(execution.sessionId) ?? execution.status;
   };
 
   const selectedExecutionStatus = useMemo(() => {
     if (!selectedExecution) return null;
     return getExecutionStatusFromTests(selectedExecution);
-  }, [selectedExecution, getTestResultsBySession]);
+  }, [selectedExecution, executionsMap]);
 
   /* ---------------------------- Test Results ----------------------------- */
 

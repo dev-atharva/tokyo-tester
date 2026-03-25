@@ -3,7 +3,6 @@
 import { useEffect, useRef, useMemo } from "react";
 import { useExecutionStore } from "../stores/execution.store.sync";
 import { useTestResultStore } from "../stores/test-result.store";
-import { shallow } from "zustand/shallow";
 
 interface RealtimeTestListenerProps {
   onTestComplete?: (testResult: any) => void;
@@ -41,6 +40,22 @@ export function useRealtimeTestResults({
   const previousTestStatesRef = useRef<Map<string, string>>(new Map());
   const notifiedSessionsRef = useRef(new Set<string>());
   const sessionIdRef = useRef<string | null>(null);
+  const previousExecutionStatusRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!activeExecution) {
+      previousTestStatesRef.current.clear();
+      sessionIdRef.current = null;
+      previousExecutionStatusRef.current = null;
+      return;
+    }
+
+    if (sessionIdRef.current !== activeExecution.sessionId) {
+      previousTestStatesRef.current.clear();
+      sessionIdRef.current = activeExecution.sessionId;
+      previousExecutionStatusRef.current = activeExecution.status;
+    }
+  }, [activeExecution?.sessionId]);
 
   // Reset when session changes
   useEffect(() => {
@@ -104,7 +119,12 @@ export function useRealtimeTestResults({
     const notAlreadyNotified =
       !notifiedSessionsRef.current.has(currentSessionId);
 
-    if (allComplete && hasTests && executionCompleted && notAlreadyNotified) {
+    const justCompleted =
+      executionCompleted &&
+      previousExecutionStatusRef.current !== "completed" &&
+      previousExecutionStatusRef.current !== null;
+
+    if (allComplete && hasTests && justCompleted && notAlreadyNotified) {
       const passed = testResults.filter((t) => t.status === "passed").length;
       const failed = testResults.filter((t) => t.status === "failed").length;
 

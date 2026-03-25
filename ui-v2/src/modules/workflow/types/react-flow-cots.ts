@@ -291,6 +291,8 @@ export interface WorkflowLogEvent {
   sessionId: string;
   message: string;
   status?: "running" | "completed" | "failed";
+  timestamp: number;
+  sequence: number;
   result?: any;
   error?: string;
 }
