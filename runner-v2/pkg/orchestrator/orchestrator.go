@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/dev-atharva/cots/pkg/config"
+	"github.com/dev-atharva/cots/pkg/logger"
 	"github.com/dev-atharva/cots/pkg/provider"
 	"github.com/dev-atharva/cots/pkg/registry"
 	"github.com/docker/docker/client"
@@ -36,13 +37,13 @@ func (o *Orchestrator) ProvisionServices(ctx context.Context, services []config.
 		return fmt.Errorf("registry authentication failed : %w", err)
 	}
 
-	fmt.Println("Creating shared Docker network...")
+	logger.Info("creating shared Docker network")
 	dockerNetwork, err := network.New(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create the docker network ")
 	}
 	o.network = dockerNetwork
-	fmt.Printf("Network created: %s\n", dockerNetwork.Name)
+	logger.Info("Docker network created", "network_name", dockerNetwork.Name)
 
 	graph := NewDependencyGraph()
 	serviceMap := make(map[string]config.ServiceConfig)
@@ -58,7 +59,7 @@ func (o *Orchestrator) ProvisionServices(ctx context.Context, services []config.
 	}
 
 	for levelIdx, level := range levels {
-		fmt.Printf("Provisioning level %d: %v\n", levelIdx+1, level)
+		logger.Info("provisioning service level", "level", levelIdx+1, "services", level)
 		if err := o.provisionlevel(ctx, level, serviceMap); err != nil {
 			return o.WrapErrorWithLogs(ctx, err, "", true)
 		}
@@ -78,7 +79,7 @@ func (o *Orchestrator) authenticateRegisteries(ctx context.Context, services []c
 		return nil
 	}
 
-	fmt.Println("Authenticating with custom container registeries...")
+	logger.Info("authenticating with custom container registries", "count", len(uniqueRegisteries))
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return fmt.Errorf("failed to create Docker client: %w", err)
@@ -86,11 +87,11 @@ func (o *Orchestrator) authenticateRegisteries(ctx context.Context, services []c
 	defer dockerClient.Close()
 
 	for url, reg := range uniqueRegisteries {
-		fmt.Printf("  Authenticating with regsitry: %s\n", url)
+		logger.Debug("authenticating with regsitry", "registry_url", url)
 		if err := registry.AuthenticateRegistry(ctx, dockerClient, reg); err != nil {
-			fmt.Printf("  Failed to authenticate with registry with %s: %v. Falling back to docker hub", url, err)
+			logger.Warn("failed to authenticate with registry, falling back to docker hub", "registry_url", url, "error", err)
 		} else {
-			fmt.Printf("  Successfully authenticated with %s\n", url)
+			logger.Info("successfully authenticated with registry", "registry_url", url)
 		}
 	}
 	return nil
@@ -135,7 +136,7 @@ func (o *Orchestrator) provisionlevel(ctx context.Context, serviceNames []string
 			}
 
 			// Provision with interpolated config
-			fmt.Printf("%v", finalCfg)
+			logger.Debug("provisioning service", "service_name", serviceName, "service_type", finalCfg.Type)
 			container, runtime, err := providerInst.Provision(ctx, finalCfg, o.network)
 			if err != nil {
 				if container != nil {
@@ -182,7 +183,7 @@ func (o *Orchestrator) CleanUp(ctx context.Context) error {
 		wg.Add(1)
 		go func(serviceName string, cont testcontainers.Container) {
 			defer wg.Done()
-			fmt.Printf("Cleaning up service %s\n", serviceName)
+			logger.Info("cleaning up service", "service_name", serviceName)
 			if err := cont.Terminate(ctx); err != nil {
 				errorChan <- fmt.Errorf("failed to cleanup %s: %w", serviceName, err)
 			}
@@ -195,7 +196,7 @@ func (o *Orchestrator) CleanUp(ctx context.Context) error {
 		errors = append(errors, err)
 	}
 	if o.network != nil {
-		fmt.Printf("Removing docker network: %s\n", o.network.Name)
+		logger.Info("removing Docker network", "network_name", o.network.Name)
 		if err := o.network.Remove(ctx); err != nil {
 			errors = append(errors, fmt.Errorf("failed to remove network: %w", err))
 		}

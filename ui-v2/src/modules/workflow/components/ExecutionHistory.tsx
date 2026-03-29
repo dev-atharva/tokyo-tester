@@ -280,155 +280,164 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
           </div>
 
           {/* ---------------------- Execution Details ---------------------- */}
-          <div className="flex-1 flex flex-col">
-            <ScrollArea className="flex-1 p-6">
-              {selectedExecution ? (
-                <>
-                  <div className="flex justify-between mb-6">
-                    <div>
-                      <h3 className="font-semibold text-lg">
-                        Execution Details
-                      </h3>
-                      <p className="text-sm text-muted-foreground">
-                        {formatTimestamp(selectedExecution.startedAt)}
-                      </p>
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <ScrollArea className="flex-1 overflow-y-auto">
+              <div className="p-6">
+                {selectedExecution ? (
+                  <>
+                    <div className="flex justify-between mb-6">
+                      <div>
+                        <h3 className="font-semibold text-lg">
+                          Execution Details
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {formatTimestamp(selectedExecution.startedAt)}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          clearExecution(selectedExecution.sessionId);
+                          setSelectedExecution(null);
+                        }}
+                      >
+                        <IconTrash className="mr-2 size-4" />
+                        Delete
+                      </Button>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        clearExecution(selectedExecution.sessionId);
-                        setSelectedExecution(null);
-                      }}
-                    >
-                      <IconTrash className="mr-2 size-4" />
-                      Delete
-                    </Button>
-                  </div>
 
-                  <Separator />
+                    <Separator />
 
-                  <div className="mt-6 space-y-6">
-                    <div>
-                      <h4 className="font-medium mb-2">Status</h4>
-                      {selectedExecutionStatus &&
-                        getStatusBadge(selectedExecutionStatus)}
-                    </div>
-                    {testSummary.total > 0 && (
-                      <>
-                        <Separator />
+                    <div className="mt-6 space-y-6">
+                      <div>
+                        <h4 className="font-medium mb-2">Status</h4>
+                        {selectedExecutionStatus &&
+                          getStatusBadge(selectedExecutionStatus)}
+                      </div>
+                      {testSummary.total > 0 && (
+                        <>
+                          <Separator />
 
-                        <div>
-                          <h4 className="font-medium mb-3">Test Summary</h4>
+                          <div>
+                            <h4 className="font-medium mb-3">Test Summary</h4>
 
-                          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                            <div className="rounded-lg border p-3 text-center">
-                              <div className="text-lg font-semibold">
-                                {testSummary.total}
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                              <div className="rounded-lg border p-3 text-center">
+                                <div className="text-lg font-semibold">
+                                  {testSummary.total}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  Total
+                                </div>
                               </div>
-                              <div className="text-xs text-muted-foreground">
-                                Total
-                              </div>
-                            </div>
 
-                            <div className="rounded-lg border p-3 text-center">
-                              <div className="text-lg font-semibold text-green-600">
-                                {testSummary.passed}
+                              <div className="rounded-lg border p-3 text-center">
+                                <div className="text-lg font-semibold text-green-600">
+                                  {testSummary.passed}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  Passed
+                                </div>
                               </div>
-                              <div className="text-xs text-muted-foreground">
-                                Passed
-                              </div>
-                            </div>
 
-                            <div className="rounded-lg border p-3 text-center">
-                              <div className="text-lg font-semibold text-red-600">
-                                {testSummary.failed}
+                              <div className="rounded-lg border p-3 text-center">
+                                <div className="text-lg font-semibold text-red-600">
+                                  {testSummary.failed}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  Failed
+                                </div>
                               </div>
-                              <div className="text-xs text-muted-foreground">
-                                Failed
-                              </div>
-                            </div>
 
-                            <div className="rounded-lg border p-3 text-center">
-                              <div className="text-lg font-semibold text-yellow-600">
-                                {testSummary.running}
+                              <div className="rounded-lg border p-3 text-center">
+                                <div className="text-lg font-semibold text-yellow-600">
+                                  {testSummary.running}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  Running
+                                </div>
                               </div>
-                              <div className="text-xs text-muted-foreground">
-                                Running
-                              </div>
-                            </div>
 
-                            <div className="rounded-lg border p-3 text-center">
-                              <div className="text-lg font-semibold text-gray-600">
-                                {testSummary.pending}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                Pending
+                              <div className="rounded-lg border p-3 text-center">
+                                <div className="text-lg font-semibold text-gray-600">
+                                  {testSummary.pending}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  Pending
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      </>
-                    )}
+                        </>
+                      )}
 
-                    {testResults.length > 0 && (
-                      <>
-                        <Separator />
-                        <div>
-                          <h4 className="font-medium mb-2">Test Results</h4>
-                          <div className="space-y-2">
-                            {testResults.map((test) => (
-                              <div
-                                key={test.id}
-                                className="rounded-lg border p-4 space-y-3"
-                              >
-                                {/* Header */}
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <h5 className="font-medium">
-                                      {test.testName}
-                                    </h5>
-                                    <Badge
-                                      variant="outline"
-                                      className="text-xs"
-                                    >
-                                      {test.testType}
-                                    </Badge>
+                      {testResults.length > 0 && (
+                        <>
+                          <Separator />
+                          <div>
+                            <h4 className="font-medium mb-2">Test Results</h4>
+                            <div className="space-y-2">
+                              {testResults.map((test) => (
+                                <div
+                                  key={test.id}
+                                  className="rounded-lg border p-4 space-y-3"
+                                >
+                                  {/* Header */}
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <h5 className="font-medium">
+                                        {test.testName}
+                                      </h5>
+                                      <Badge
+                                        variant="outline"
+                                        className="text-xs"
+                                      >
+                                        {test.testType}
+                                      </Badge>
+                                    </div>
+                                    {getTestStatusBadge(test.status)}
                                   </div>
-                                  {getTestStatusBadge(test.status)}
-                                </div>
 
-                                {/* Meta */}
-                                <div className="text-xs text-muted-foreground">
-                                  Duration: {test.durationMs}ms
-                                </div>
+                                  {/* Meta */}
+                                  <div className="text-xs text-muted-foreground">
+                                    Duration: {test.durationMs}ms
+                                  </div>
 
-                                {/* Result Data */}
-                                {test.resultData && (
-                                  <details className="group">
-                                    <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-                                      View result data
-                                    </summary>
-                                    <pre className="mt-2 max-h-40 overflow-auto rounded bg-muted p-2 text-xs font-mono">
-                                      {JSON.stringify(test.resultData, null, 2)}
-                                    </pre>
-                                  </details>
-                                )}
-
-                                {/* Logs */}
-                                {test.containerLogs &&
-                                  Object.keys(test.containerLogs).length >
-                                    0 && (
+                                  {/* Result Data */}
+                                  {test.resultData && (
                                     <details className="group">
                                       <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-                                        View container logs (
-                                        {Object.keys(test.containerLogs).length}
-                                        )
+                                        View result data
                                       </summary>
+                                      <pre className="mt-2 max-h-40 overflow-auto rounded bg-muted p-2 text-xs font-mono">
+                                        {JSON.stringify(
+                                          test.resultData,
+                                          null,
+                                          2,
+                                        )}
+                                      </pre>
+                                    </details>
+                                  )}
 
-                                      <div className="mt-2 max-h-64 overflow-auto rounded bg-muted p-3 space-y-4">
-                                        {Object.entries(test.containerLogs).map(
-                                          ([containerName, logs]) => (
+                                  {/* Logs */}
+                                  {test.containerLogs &&
+                                    Object.keys(test.containerLogs).length >
+                                      0 && (
+                                      <details className="group">
+                                        <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                                          View container logs (
+                                          {
+                                            Object.keys(test.containerLogs)
+                                              .length
+                                          }
+                                          )
+                                        </summary>
+
+                                        <div className="mt-2 max-h-64 overflow-auto rounded bg-muted p-3 space-y-4">
+                                          {Object.entries(
+                                            test.containerLogs,
+                                          ).map(([containerName, logs]) => (
                                             <div
                                               key={containerName}
                                               className="space-y-2"
@@ -439,28 +448,28 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                                               </div>
 
                                               {/* Log Content */}
-                                              <pre className="font-mono text-xs whitespace-pre-wrap break-words bg-background p-2 rounded border">
+                                              <pre className="font-mono text-xs whitespace-pre-wrap wrap-break-word bg-background p-2 rounded border">
                                                 {logs}
                                               </pre>
                                             </div>
-                                          ),
-                                        )}
-                                      </div>
-                                    </details>
-                                  )}
-                              </div>
-                            ))}
+                                          ))}
+                                        </div>
+                                      </details>
+                                    )}
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      </>
-                    )}
+                        </>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-muted-foreground">
+                    Select an execution to view details
                   </div>
-                </>
-              ) : (
-                <div className="h-full flex items-center justify-center text-muted-foreground">
-                  Select an execution to view details
-                </div>
-              )}
+                )}
+              </div>
             </ScrollArea>
           </div>
         </div>

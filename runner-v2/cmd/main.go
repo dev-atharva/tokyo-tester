@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,94 +16,116 @@ import (
 	"github.com/dev-atharva/cots/pkg/db"
 	"github.com/dev-atharva/cots/pkg/db/postgres"
 	"github.com/dev-atharva/cots/pkg/db/sqlite"
+	"github.com/dev-atharva/cots/pkg/logger"
 	"github.com/dev-atharva/cots/pkg/sync"
+	"github.com/dev-atharva/cots/pkg/telemetry"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	// ------------------------------
-	// Command-line flag to enable migrations
-	// ------------------------------
 	runMigrations := flag.Bool("migrate", false, "Run DB migrations on startup")
 	flag.Parse()
+	_ = godotenv.Load()
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	cfg, err := config.NewConfigManager()
+	if err != nil {
+		fmt.Printf("Failed to load configuration: %v\n", err)
+		os.Exit(1)
 	}
 
-	dbConfig := config.LoadDatabaseConfig()
-	log.Printf("Database type: %s", dbConfig.Type)
+	log := logger.InitLogger(cfg.App.Environment, cfg.App.LogLevel)
+	log.Info("starting COTS runner", "environment", cfg.App.Environment, "log_level", cfg.App.LogLevel, "port", cfg.App.Port)
+
+	var tracerProvider *telemetry.TracerProvider
+	if cfg.Telemetry.Enabled {
+		tracerProvider, err = telemetry.InitTracer(cfg.Telemetry.ServiceName, cfg.Telemetry.CollectorURL)
+		if err != nil {
+			log.Error("failed to initialize tracing", "error", err)
+		} else {
+			defer func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := tracerProvider.Shutdown(ctx); err != nil {
+					log.Error("failed to shutdown tracer", "error", err)
+				}
+			}()
+			log.Info("Opentelemetry tracing enabled")
+		}
+	}
+
+	log.Info("database configuration loaded", "db_type", cfg.Database.Type)
 
 	var database db.Database
 	var syncHandler *sync.Handler
 
-	if err := dbConfig.Validate(); err == nil {
+	if err := cfg.Database.Validate(); err == nil {
 		var err error
 
-		switch dbConfig.Type {
+		switch cfg.Database.Type {
 		case "sqlite":
-			dir := filepath.Dir(dbConfig.Path)
+			dir := filepath.Dir(cfg.Database.Path)
 			if err := os.MkdirAll(dir, 0755); err != nil {
-				log.Printf("Warning: Failed to create data directory : %v", err)
+				log.Warn("failed to create data directory", "error", err, "path", dir)
 			}
-			database, err = sqlite.NewClient(dbConfig.Path)
+			database, err = sqlite.NewClient(cfg.Database.Path)
 			if err != nil {
-				log.Printf("Warning: Failed to initialize SQlite database : %v", err)
+				log.Warn("failed to initialize SQLite database", "error", err, "path", cfg.Database.Path)
 			} else {
-				log.Printf("SQlite database initialized at : %s", dbConfig.Path)
+				log.Info("SQLite database initialized", "path", cfg.Database.Path)
 			}
 
 		case "postgres":
-			database, err = postgres.NewClient(dbConfig.URL)
+			database, err = postgres.NewClient(cfg.Database.URL)
 			if err != nil {
-				log.Printf("Warning: Failed to initialize Postgres database: %v", err)
+				log.Warn("failed to initialize PostgreSQL database", "error", err)
 			} else {
-				log.Printf("PostgresSQL database initialized")
+				log.Info("PostgresSQL database initialized")
 			}
 		}
 
 		if database != nil {
 			if *runMigrations {
-				migrator := db.NewMigrator(database, dbConfig.Type)
+				migrator := db.NewMigrator(database, cfg.Database.Type)
 				if err := migrator.RunMigrations(); err != nil {
-					log.Printf("Warning: Failed to run migrations : %v", err)
+					log.Warn("failed to run migrations", "error", err)
 				} else {
-					log.Printf("Database migrations completed")
+					log.Info("Database migrations completed")
 				}
 			} else {
-				log.Println("Skipping migrations (run with -migrate flag to enable)")
+				log.Info("Skipping migrations (run with -migrate flag to enable)")
 			}
 
 			// Always initialize sync service & handler
 			syncService := sync.NewService(database)
 			syncHandler = sync.NewHandler(syncService)
-			log.Printf("Sync service initialized")
+			log.Info("Sync service initialized")
 
 			defer func() {
 				if err := database.Close(); err != nil {
-					log.Printf("Error closing database : %v", err)
+					log.Error("error closing database", "error", err)
 				}
 			}()
 		}
 	} else {
-		log.Printf("Database not configured (skipping) : %v", err)
-		log.Println("To enable database sync: ")
-		log.Println(" For SQlite: export DB_TYPE=sqlite DB_PATH=./data/cots.db")
-		log.Println(" For Postgres: export DB_TYPE=postgres DATABASE_URL=postgres://user:pass@host:5432/db")
+		log.Info("database not configured, skipping sync service", "error", err)
+		log.Info("to enable database sync: ")
+		log.Info(" For SQlite: export DB_TYPE=sqlite DB_PATH=./data/cots.db")
+		log.Info(" For Postgres: export DB_TYPE=postgres DATABASE_URL=postgres://user:pass@host:5432/db")
 	}
 
 	handler := api.NewHandler()
-	router := api.NewRouter(handler, syncHandler)
+	router := api.NewRouter(handler, syncHandler, cfg.Telemetry.Enabled)
 
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%s", port),
+		Addr:    fmt.Sprintf(":%s", cfg.App.Port),
 		Handler: router,
 	}
 
 	go func() {
-		log.Printf("Starting the COTS API on port : %s", port)
+		log.Info("starting the COTS API server", "port", cfg.App.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start the server : %v", err)
+			log.Error("failed to start the server", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -112,14 +133,15 @@ func main() {
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
 
-	log.Println("Shutting down the server")
+	log.Info("Shutting down the server gracefully")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		log.Error("server forced to shutdown", "error", err)
+		os.Exit(1)
 	}
 
-	log.Println("Server stopped")
+	log.Info("server stopped successfully")
 }

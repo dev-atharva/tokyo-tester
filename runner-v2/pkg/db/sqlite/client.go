@@ -10,7 +10,7 @@ import (
 )
 
 type Client struct {
-	conn *sql.DB
+	conn *db.LoggedDB
 	path string
 }
 
@@ -32,8 +32,10 @@ func NewClient(path string) (*Client, error) {
 		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
 	}
 
+	loggedConn := db.NewLoggedDB(conn, "sqlite")
+
 	return &Client{
-		conn: conn,
+		conn: loggedConn,
 		path: path,
 	}, nil
 }
@@ -542,7 +544,7 @@ func (c *Client) GetSyncMetaData(
 }
 
 func (c *Client) GetConnection() *sql.DB {
-	return c.conn
+	return c.conn.DB
 }
 
 func (c *Client) BeginTx(ctx context.Context) (db.Tx, error) {

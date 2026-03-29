@@ -10,7 +10,6 @@ import (
 )
 
 type Executor interface {
-	// Runs the test and returns error if test fails
 	Execute(ctx context.Context, testCfg config.TestConfig, registry *orchestrator.RuntimeRegsitry) error
 }
 

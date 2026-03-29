@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/dev-atharva/cots/pkg/db"
+	"github.com/dev-atharva/cots/pkg/logger"
+	"github.com/dev-atharva/cots/pkg/telemetry"
 	"github.com/dev-atharva/cots/pkg/types"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type Service struct {
@@ -23,6 +25,11 @@ func NewService(database db.Database) *Service {
 
 // ProcessBatch handles a batch of sync changes from the client within a transaction
 func (s *Service) ProcessBatch(ctx context.Context, req *types.SyncBatchRequest) (*types.SyncBatchResponse, error) {
+	ctx, span := telemetry.StartSpan(ctx, "sync.process_batch", attribute.Int("changes_count", len(req.Changes)))
+	defer span.End()
+
+	logger.InfoContext(ctx, "processing sync batch", "client_id", req.ClientID, "user_id", req.UserID, "changes_count", len(req.Changes))
+
 	response := &types.SyncBatchResponse{
 		Success:        true,
 		ProcessedCount: 0,
@@ -34,6 +41,7 @@ func (s *Service) ProcessBatch(ctx context.Context, req *types.SyncBatchRequest)
 	// Fetch or initialize sync metadata
 	syncMeta, err := s.db.GetSyncMetaData(ctx, req.UserID, req.ClientID)
 	if err != nil {
+		logger.DebugContext(ctx, "initializing new sync metadata", "user_id", req.UserID, "client_id", req.ClientID)
 		syncMeta = &db.SyncMetadata{
 			ClientID:        req.ClientID,
 			UserID:          req.UserID,
@@ -42,12 +50,15 @@ func (s *Service) ProcessBatch(ctx context.Context, req *types.SyncBatchRequest)
 			SyncStatus:      "syncing",
 		}
 	} else {
+		logger.DebugContext(ctx, "updating new sync metadata", "user_id", req.UserID, "client_id", req.ClientID)
 		syncMeta.SyncStatus = "syncing"
 		syncMeta.LastSyncAt = time.Now()
 	}
 
 	tx, err := s.db.BeginTx(ctx)
 	if err != nil {
+		logger.ErrorContext(ctx, "failed to begin transaction", "error", err)
+		telemetry.RecordError(ctx, err)
 		return nil, fmt.Errorf("failed to begin transaction : %w", err)
 	}
 	defer tx.Rollback()
@@ -55,7 +66,7 @@ func (s *Service) ProcessBatch(ctx context.Context, req *types.SyncBatchRequest)
 	// Process each change within transaction
 	for _, change := range req.Changes {
 		if err := s.processChangeInTx(ctx, tx, &change, response, req.UserID); err != nil {
-			log.Printf("Error processing change for %s:%s: %v", change.EntityType, change.EntityID, err)
+			logger.WarnContext(ctx, "error processing change", "entity_type", change.EntityType, "entity_id", change.EntityID, "error", err)
 			response.Errors = append(response.Errors, types.SyncError{
 				EntityType: change.EntityType,
 				EntityID:   change.EntityID,
@@ -72,28 +83,33 @@ func (s *Service) ProcessBatch(ctx context.Context, req *types.SyncBatchRequest)
 	response.ServerVersion = syncMeta.LastSyncVersion
 
 	if err := tx.UpsertSyncMetaData(ctx, syncMeta); err != nil {
-		log.Printf("Failed to update sync metadata: %v", err)
+		logger.WarnContext(ctx, "failed to update sync metadata", "error", err)
 		response.Errors = append(response.Errors, types.SyncError{
 			Message: fmt.Sprintf("Failed to update sync metadata: %v", err),
 		})
 		response.Success = false
+		telemetry.RecordError(ctx, err)
 		return response, nil
 	}
 
 	//Rollback if errors
 	if len(response.Errors) > 0 {
+		logger.WarnContext(ctx, "sync batch completed with errors", "error_count", len(response.Errors))
 		response.Success = false
 		return response, nil
 	}
 
 	if err := tx.Commit(); err != nil {
+		logger.ErrorContext(ctx, "failed to commit transaction", "error", err)
 		response.Success = false
 		response.Errors = append(response.Errors, types.SyncError{
 			Message: fmt.Sprintf("Failed to commit transaction: %v", err),
 		})
+		telemetry.RecordError(ctx, err)
 		return response, nil
 	}
 
+	logger.InfoContext(ctx, "sync batch processed successfully", "processed_count", response.ProcessedCount, "conflicts", len(response.Conflicts), "server_version", response.ServerVersion)
 	return response, nil
 }
 
@@ -302,7 +318,7 @@ func (s *Service) processSessionChangeInTx(ctx context.Context, tx db.Tx, change
 func (s *Service) processTestResultChange(
 	ctx context.Context,
 	change *types.SyncChange,
-	response *types.SyncBatchResponse,
+	_ *types.SyncBatchResponse,
 	userID string,
 ) error {
 	// Handle delete consistently with other entities
@@ -329,12 +345,10 @@ func (s *Service) processTestResultChange(
 	if err == nil && existing != nil {
 		// Test result exists - always accept updates from client
 		// This is important for test re-runs with the same test IDs
-		log.Printf("Test result %s: updating existing result (old status: %s, new status: %s)",
-			testData.ID, existing.Status, testData.Status)
+		logger.DebugContext(ctx, "test result : updating existing result", "test_id", testData.ID, "old_status", existing.Status, "new_status", testData.Status)
 	} else {
 		// New test result
-		log.Printf("Test result %s: new test result for session %s (status: %s)",
-			testData.ID, testData.SessionID, testData.Status)
+		logger.DebugContext(ctx, "test result : new test result for session", "test_id", testData.ID, "session_id", testData.SessionID, "status", testData.Status)
 	}
 
 	result := &db.TestResult{
@@ -359,16 +373,16 @@ func (s *Service) processTestResultChange(
 		return fmt.Errorf("failed to upsert test result: %w", err)
 	}
 
-	log.Printf("Test result %s saved successfully", testData.ID)
+	logger.DebugContext(ctx, "test result saved successfully", "test_id", testData.ID)
 
 	// Check if all tests for this session are complete
 	testResults, err := s.db.ListTestResults(ctx, testData.SessionID)
 	if err != nil {
-		log.Printf("Warning: failed to list test results for session %s: %v", testData.SessionID, err)
+		logger.WarnContext(ctx, "failed to list test results for session", "session_id", testData.SessionID, "error", err)
 		return nil
 	}
 
-	log.Printf("Session %s has %d test results", testData.SessionID, len(testResults))
+	logger.DebugContext(ctx, "session test results count", "session_id", testData.SessionID, "test_results_count", len(testResults))
 
 	// Count completed tests (passed or failed)
 	allCompleted := true
@@ -382,7 +396,7 @@ func (s *Service) processTestResultChange(
 		}
 		totalTests++
 
-		log.Printf("  - Test %s: status=%s, name=%s", tr.ID, tr.Status, tr.TestName)
+		logger.DebugContext(ctx, "test result detail", "test_id", tr.ID, "status", tr.Status, "test_name", tr.TestName)
 
 		switch tr.Status {
 		case "passed":
@@ -394,14 +408,13 @@ func (s *Service) processTestResultChange(
 		}
 	}
 
-	log.Printf("Session %s test summary: total=%d, passed=%d, failed=%d, allCompleted=%v",
-		testData.SessionID, totalTests, passedTests, failedTests, allCompleted)
+	logger.InfoContext(ctx, "session test summary", "session_id", testData.SessionID, "total", totalTests, "passed", passedTests, "failed", failedTests, "all_completed", allCompleted)
 
 	// Only update session if all tests are complete
 	if allCompleted && totalTests > 0 {
 		session, err := s.db.GetSession(ctx, testData.SessionID)
 		if err != nil {
-			log.Printf("Warning: failed to get session %s: %v", testData.SessionID, err)
+			logger.WarnContext(ctx, "failed to get session", "session_id", testData.SessionID, "error", err)
 			return nil
 		}
 
@@ -427,26 +440,23 @@ func (s *Service) processTestResultChange(
 			session.Result = string(summaryJSON)
 
 			if err := s.db.UpsertSession(ctx, session); err != nil {
-				log.Printf("Warning: failed to update session status: %v", err)
-				// Don't fail the sync for this
+				if err.Error() == "version conflict: session was modified by another process" {
+					logger.InfoContext(ctx, "session already finalized by another process", "session_id", session.ID)
+				} else {
+					logger.WarnContext(ctx, "failed to update session status", "error", err)
+				}
 			} else {
-				log.Printf(
-					"Session %s marked as %s (%d/%d tests passed)",
-					testData.SessionID,
-					finalStatus,
-					passedTests,
-					totalTests,
-				)
+				logger.InfoContext(ctx, "session marked as complete", "session_id", testData.SessionID, "status", finalStatus, "passed", passedTests, "total", totalTests)
 			}
 		} else if session != nil {
-			log.Printf("Session %s already finalized with status %s, skipping update", session.ID, session.Status)
+			logger.DebugContext(ctx, "session already finalized, skipping update", "session_id", session.ID, "status", session.Status)
 		}
 	}
 
 	return nil
 }
 
-func (s *Service) processTestResultChangeInTx(ctx context.Context, tx db.Tx, change *types.SyncChange, response *types.SyncBatchResponse, userID string) error {
+func (s *Service) processTestResultChangeInTx(ctx context.Context, tx db.Tx, change *types.SyncChange, _ *types.SyncBatchResponse, userID string) error {
 	if change.ChangeType == "delete" {
 		return tx.DeleteTestResult(ctx, change.EntityID)
 	}
@@ -457,9 +467,9 @@ func (s *Service) processTestResultChangeInTx(ctx context.Context, tx db.Tx, cha
 	}
 	existing, err := tx.GetTestResult(ctx, testData.ID)
 	if err == nil && existing != nil {
-		log.Printf("Test result %s: updating existing result (old status: %s, new status: %s)", testData.ID, existing.Status, testData.Status)
+		logger.DebugContext(ctx, "test result: updating existing result", "test_id", testData.ID, "old_status", existing.Status, "new_status", testData.Status)
 	} else {
-		log.Printf("Test result %s: new test result for session %s (status %s)", testData.ID, testData.SessionID, testData.Status)
+		logger.DebugContext(ctx, "test result: new test result for session", "test_id", testData.ID, "session_id", testData.SessionID, "status", testData.Status)
 	}
 
 	result := &db.TestResult{
@@ -482,10 +492,17 @@ func (s *Service) processTestResultChangeInTx(ctx context.Context, tx db.Tx, cha
 	if err := tx.UpsertTestResult(ctx, result); err != nil {
 		return fmt.Errorf("failed to upsert test result: %w", err)
 	}
+
+	logger.DebugContext(ctx, "test result saved successfully", "test_id", testData.ID)
+
 	testResults, err := tx.ListTestResult(ctx, testData.SessionID)
 	if err != nil {
+		logger.WarnContext(ctx, "failed to list test result for session", "session_id", testData.SessionID, "error", err)
 		return nil
 	}
+
+	logger.DebugContext(ctx, "session test result count", "session_id", testData.SessionID, "test_result_count", len(testResults))
+
 	allCompleted := true
 	totalTests := 0
 	passedTests := 0
@@ -495,6 +512,8 @@ func (s *Service) processTestResultChangeInTx(ctx context.Context, tx db.Tx, cha
 		if tr.IsDeleted {
 			continue
 		}
+		totalTests++
+		logger.DebugContext(ctx, "test result detail", "test_id", tr.ID, "status", tr.Status, "test_name", tr.TestName)
 		switch tr.Status {
 		case "passed":
 			passedTests++
@@ -505,9 +524,11 @@ func (s *Service) processTestResultChangeInTx(ctx context.Context, tx db.Tx, cha
 		}
 	}
 
+	logger.InfoContext(ctx, "session test summary", "session_id", testData.SessionID, "total", totalTests, "passed", passedTests, "failed", failedTests, "all_completed", allCompleted)
 	if allCompleted && totalTests > 0 {
 		session, err := tx.GetSession(ctx, testData.SessionID)
 		if err != nil {
+			logger.WarnContext(ctx, "failed to get session", "session_id", testData.SessionID, "error", err)
 			return nil
 		}
 
@@ -533,9 +554,15 @@ func (s *Service) processTestResultChangeInTx(ctx context.Context, tx db.Tx, cha
 
 			if err := tx.UpsertSession(ctx, session); err != nil {
 				if err.Error() == "version conflict: session was modified by another process" {
+					logger.InfoContext(ctx, "session already finalized by another process", "session_id", session.ID)
 					return nil
 				}
+				logger.WarnContext(ctx, "failed to update session status", "error", err)
+			} else {
+				logger.InfoContext(ctx, "session marked as complete", "session_id", testData.SessionID, "status", finalStatus, "passed", passedTests, "total", totalTests)
 			}
+		} else if session != nil {
+			logger.DebugContext(ctx, "session already finalized , skipping update", "session_id", session.ID, "status", session.Status)
 		}
 	}
 	return nil
@@ -543,7 +570,9 @@ func (s *Service) processTestResultChangeInTx(ctx context.Context, tx db.Tx, cha
 
 // --- Health check ---
 func (s *Service) GetStatus(ctx context.Context) (*types.SyncStatusResponse, error) {
+	logger.DebugContext(ctx, "checking sync service status")
 	if err := s.db.Ping(ctx); err != nil {
+		logger.WarnContext(ctx, "database ping failed", "error", err)
 		return &types.SyncStatusResponse{
 			Status:        "down",
 			ServerVersion: 0,
@@ -551,6 +580,7 @@ func (s *Service) GetStatus(ctx context.Context) (*types.SyncStatusResponse, err
 		}, nil
 	}
 
+	logger.DebugContext(ctx, "sync service is healthy")
 	return &types.SyncStatusResponse{
 		Status:        "healthy",
 		ServerVersion: 1, // or can fetch last sync version globally
@@ -560,6 +590,8 @@ func (s *Service) GetStatus(ctx context.Context) (*types.SyncStatusResponse, err
 
 // --- Pull changes for a user ---
 func (s *Service) PullChanges(ctx context.Context, userID string) (*types.SyncPullResponse, error) {
+	logger.InfoContext(ctx, "pulling changes for user", "user_id", userID)
+
 	response := &types.SyncPullResponse{
 		Workflows:   []types.WorkflowData{},
 		Sessions:    []types.SessionData{},
@@ -568,16 +600,19 @@ func (s *Service) PullChanges(ctx context.Context, userID string) (*types.SyncPu
 
 	workflows, err := s.db.ListWorkflows(ctx, userID)
 	if err != nil {
+		logger.ErrorContext(ctx, "failed to list workflows", "error", err, "user_id", userID)
 		return nil, fmt.Errorf("failed to list workflows: %w", err)
 	}
 
 	sessions, err := s.db.ListSessionsByUserId(ctx, userID)
 	if err != nil {
+		logger.ErrorContext(ctx, "failed to list sessions", "error", err, "user_id", userID)
 		return nil, fmt.Errorf("failed to list sessions: %w", err)
 	}
 
 	testResults, err := s.db.ListTestResultsByUserId(ctx, userID)
 	if err != nil {
+		logger.ErrorContext(ctx, "failed to list test results", "error", err, "user_id", userID)
 		return nil, fmt.Errorf("failed to list the test results: %w", err)
 	}
 
@@ -633,6 +668,8 @@ func (s *Service) PullChanges(ctx context.Context, userID string) (*types.SyncPu
 			IsDeleted:  testres.IsDeleted,
 		})
 	}
+
+	logger.InfoContext(ctx, "changes pulled successfully", "user_id", userID, "workflows_count", len(response.Workflows), "sessions_count", len(response.Sessions), "test_results_count", len(response.TestResults))
 
 	return response, nil
 }

@@ -10,7 +10,7 @@ import (
 )
 
 type Client struct {
-	conn *sql.DB
+	conn *db.LoggedDB
 	dsn  string
 }
 
@@ -27,8 +27,10 @@ func NewClient(dsn string) (*Client, error) {
 		return nil, fmt.Errorf("failed to ping postgres database: %w", err)
 	}
 
+	loggedConn := db.NewLoggedDB(conn, "postgres")
+
 	return &Client{
-		conn: conn,
+		conn: loggedConn,
 		dsn:  dsn,
 	}, nil
 }
@@ -500,7 +502,7 @@ func (c *Client) GetSyncMetaData(
 }
 
 func (c *Client) GetConnection() *sql.DB {
-	return c.conn
+	return c.conn.DB
 }
 
 func (c *Client) BeginTx(ctx context.Context) (db.Tx, error) {

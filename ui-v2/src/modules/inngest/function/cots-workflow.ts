@@ -203,8 +203,9 @@ export const cotsWorkFlow = inngest.createFunction(
           } catch (error) {
             throw new Error(errorText);
           }
-          if (errorData.container_logs) {
-            const logsFormatted = formatContainerLogs(errorData.container_logs);
+          const logs = errorData.details || errorData.container_logs;
+          if (logs) {
+            const logsFormatted = formatContainerLogs(logs);
             await log(
               `Service provisioning failed: ${errorData.error}${logsFormatted}`,
               "failed",
