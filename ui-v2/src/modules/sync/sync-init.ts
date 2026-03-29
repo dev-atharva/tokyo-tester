@@ -17,17 +17,16 @@ export function initSync(config: SyncConfig = {}): void {
     autoStart = true,
   } = config;
 
-  // Access private properties properly via type casting
-  if (baseUrl !== (syncService as any).baseUrl) {
-    (syncService as any).baseUrl = baseUrl;
+  if (baseUrl !== syncService.baseUrl) {
+    syncService.baseUrl = baseUrl;
   }
 
-  if (syncInterval !== (syncService as any).syncInterval) {
-    (syncService as any).syncInterval = syncInterval;
+  if (syncInterval !== syncService.syncInterval) {
+    syncService.syncInterval = syncInterval;
   }
 
-  if (maxBatchSize !== (syncService as any).maxBatchSize) {
-    (syncService as any).maxBatchSize = maxBatchSize;
+  if (maxBatchSize !== syncService.maxBatchSize) {
+    syncService.maxBatchSize = maxBatchSize;
   }
 
   syncService.setEnabled(enabled);
@@ -50,7 +49,7 @@ export async function syncNow(): Promise<void> {
 }
 
 export async function checkSyncHealth(): Promise<{
-  status: string;
+  status: "healthy" | "degraded" | "down" | "error";
   queueSize: number;
 }> {
   try {

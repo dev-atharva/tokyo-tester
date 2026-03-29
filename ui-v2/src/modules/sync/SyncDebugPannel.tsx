@@ -1,15 +1,17 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { syncService } from "@/modules/sync/sync-service";
 import { useWorkflowStore } from "../workflow/stores/workflow.store.sync";
-import { Button } from "@/components/ui/button";
 
 export function SyncDebugPanel() {
-  const [debugInfo, setDebugInfo] = useState<any>(null);
+  const [debugInfo, setDebugInfo] = useState<ReturnType<
+    (typeof syncService)["getDebugInfo"]
+  > | null>(null);
   const createWorkflow = useWorkflowStore((state) => state.createWorkflow);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setDebugInfo((syncService as any).getDebugInfo());
+      setDebugInfo(syncService.getDebugInfo());
     }, 1000);
 
     return () => clearInterval(interval);
@@ -19,10 +21,10 @@ export function SyncDebugPanel() {
     console.log("=== MANUAL QUEUE TEST ===");
     syncService.queueChange({
       entity_type: "workflow",
-      entity_id: "manual-test-" + Date.now(),
+      entity_id: `manual-test-${Date.now()}`,
       change_type: "insert",
       data: {
-        id: "manual-test-" + Date.now(),
+        id: `manual-test-${Date.now()}`,
         name: "Manual Test",
         nodes_config: [],
         edges_config: [],
@@ -44,7 +46,7 @@ export function SyncDebugPanel() {
 
   const handleCreateWorkflow = () => {
     console.log("=== CREATE WORKFLOW TEST ===");
-    const id = createWorkflow("Test Workflow " + Date.now());
+    const id = createWorkflow(`Test Workflow ${Date.now()}`);
     console.log("Created workflow:", id);
   };
 

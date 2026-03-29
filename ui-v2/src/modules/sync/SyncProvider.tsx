@@ -2,15 +2,21 @@
 
 import {
   createContext,
-  ReactNode,
+  type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useState,
 } from "react";
-import { checkSyncHealth, initSync, SyncConfig, syncNow } from "./sync-init";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { initializeSyncWithHydration } from "./sync-hydration";
+import {
+  checkSyncHealth,
+  initSync,
+  type SyncConfig,
+  syncNow,
+} from "./sync-init";
 
 interface SyncContextValue {
   isInitialized: boolean;
@@ -41,6 +47,17 @@ export function SyncProvider({
   >("unknown");
   const [queueSize, setQueueSize] = useState(0);
 
+  const checkHealth = useCallback(async () => {
+    try {
+      const health = await checkSyncHealth();
+      setSyncStatus(health.status);
+      setQueueSize(health.queueSize);
+    } catch (error) {
+      console.error("[SyncService] Health check failed:", error);
+      setSyncStatus("error");
+    }
+  }, []);
+
   useEffect(() => {
     const initialize = async () => {
       try {
@@ -67,18 +84,13 @@ export function SyncProvider({
     };
 
     initialize();
-  }, []);
-
-  const checkHealth = async () => {
-    try {
-      const health = await checkSyncHealth();
-      setSyncStatus(health.status as any);
-      setQueueSize(health.queueSize);
-    } catch (error) {
-      console.error("[SyncService] Health check failed:", error);
-      setSyncStatus("error");
-    }
-  };
+  }, [
+    checkHealth,
+    config.baseUrl,
+    config.enabled,
+    config.maxBatchSize,
+    config.syncInterval,
+  ]);
 
   useEffect(() => {
     if (!isInitialized || statusPollingInterval <= 0) return;
@@ -88,7 +100,7 @@ export function SyncProvider({
     }, statusPollingInterval);
 
     return () => clearInterval(interval);
-  }, [isInitialized, statusPollingInterval]);
+  }, [isInitialized, statusPollingInterval, checkHealth]);
 
   const forceSync = async () => {
     try {

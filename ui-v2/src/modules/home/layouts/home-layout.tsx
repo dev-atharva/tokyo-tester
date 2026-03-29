@@ -1,9 +1,9 @@
 "use client";
 
+import type React from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import React from "react";
-import { HomeSidebar } from "../components/sidebar";
 import { Navbar } from "../components/navbar";
+import { HomeSidebar } from "../components/sidebar";
 
 interface HomeLayoutProps {
   children: React.ReactNode;

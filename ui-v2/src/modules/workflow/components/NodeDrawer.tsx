@@ -1,25 +1,13 @@
 "use client";
-import { Button } from "@/components/ui/button";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import {
-  IconSettings,
-  IconPlus,
-  IconCheck,
-  IconGripVertical,
-  IconTestPipe2,
-} from "@tabler/icons-react";
-import React, { useState, useEffect } from "react";
-import { cn } from "@/lib/utils";
-import { FlowNode } from "../types/react-flow-cots";
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
 import {
   arrayMove,
   SortableContext,
@@ -27,24 +15,36 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-} from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  IconCheck,
+  IconGripVertical,
+  IconPlus,
+  IconSettings,
+  IconTestPipe2,
+} from "@tabler/icons-react";
 import type { SVGProps } from "react";
-import { PostgreSQLIcon } from "./logos/PostgresIcon";
+import React, { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
+import type { FlowNode } from "../types/react-flow-cots";
+import { DockerIcon } from "./logos/DockerIcon";
+import { ApacheKafkaIcon } from "./logos/KafkaIcon";
 import { MariaDBIcon } from "./logos/MariadbIcon";
 import { MySQLIcon } from "./logos/MysqlIcon";
+import { PostgreSQLIcon } from "./logos/PostgresIcon";
 import { RedisIcon } from "./logos/RedisIcon";
-import { ApacheKafkaIcon } from "./logos/KafkaIcon";
-import { DockerIcon } from "./logos/DockerIcon";
 
 interface NodeDrawerProps {
   isOpen: boolean;
@@ -135,8 +135,8 @@ export const NodeDrawer: React.FC<NodeDrawerProps> = ({
   const [workflowName, setWorkflowName] = useState(currentWorkflowName);
   const [isEditingName, setIsEditingName] = useState(false);
   const [tests, setTests] = useState<TestItem[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
-  const initializedRef = React.useRef(false);
+  const [_isDragging, setIsDragging] = useState(false);
+  const _initializedRef = React.useRef(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -176,7 +176,9 @@ export const NodeDrawer: React.FC<NodeDrawerProps> = ({
       let index = 0;
 
       for (const [, testIds] of customTestOrder.entries()) {
-        testIds.forEach((id) => orderMap.set(id, index++));
+        for (const id of testIds) {
+          orderMap.set(id, index++);
+        }
       }
 
       allTests.forEach((t) => {
@@ -185,7 +187,11 @@ export const NodeDrawer: React.FC<NodeDrawerProps> = ({
         }
       });
 
-      allTests.sort((a, b) => orderMap.get(a.id)! - orderMap.get(b.id)!);
+      allTests.sort((a, b) => {
+        const aOrder = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+        const bOrder = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+        return aOrder - bOrder;
+      });
     }
 
     setTests(allTests);
@@ -220,7 +226,7 @@ export const NodeDrawer: React.FC<NodeDrawerProps> = ({
       if (!newGlobalOrder.has(test.nodeId)) {
         newGlobalOrder.set(test.nodeId, []);
       }
-      newGlobalOrder.get(test.nodeId)!.push(test.id);
+      newGlobalOrder.get(test.nodeId)?.push(test.id);
     });
 
     // Pass the entire order to parent at once

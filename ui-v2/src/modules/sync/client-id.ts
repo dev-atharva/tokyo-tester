@@ -13,7 +13,7 @@ const DEFAULT_DEV_USER_ID = "dev-user-default";
  */
 export function getOrCreateClientId(): string {
   if (typeof window === "undefined") {
-    return "ssr-client-" + Date.now();
+    return `ssr-client-${Date.now()}`;
   }
 
   try {
@@ -26,7 +26,7 @@ export function getOrCreateClientId(): string {
     return clientId;
   } catch (error) {
     console.error("[ClientID] Error accessing localStorage:", error);
-    return "fallback-client-" + Date.now();
+    return `fallback-client-${Date.now()}`;
   }
 }
 
@@ -110,7 +110,7 @@ export function getClientId(): string | null {
 
   try {
     return localStorage.getItem(CLIENT_ID_KEY);
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }

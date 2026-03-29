@@ -1,6 +1,6 @@
-import { decrypt, encrypt } from "@/modules/utils/crypto-utils";
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { decrypt, encrypt } from "@/modules/utils/crypto-utils";
 
 const encryptedSessionStorage = {
   getItem: (name: string) => {

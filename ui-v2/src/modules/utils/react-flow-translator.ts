@@ -1,6 +1,6 @@
 //Translates the visal flow builder data to COTS backend payload.
 
-import {
+import type {
   DependencyGraph,
   FlowEdge,
   FlowNode,
@@ -12,7 +12,6 @@ import {
   TranslationResult,
   ValidationResult,
 } from "../workflow/types/react-flow-cots";
-import test from "node:test";
 
 //Edge: source -> target means data flows from sdource to target.
 // Service Dependencies : target depends_on source (Revrse of dataflow)
@@ -298,7 +297,7 @@ function buildServiceDependencies(
 
     const dependencies = outgoingEdges.map((e) => {
       const targetNode = nodeMap.get(e.target);
-      return sanitizeName(targetNode!.data.label);
+      return sanitizeName(targetNode?.data.label);
     });
     graph.set(serviceName, dependencies);
   }
@@ -418,7 +417,7 @@ function translateServices(
     }
     if (registrySecrets) {
       const registry = registrySecrets[serviceName];
-      if (registry && registry.url) {
+      if (registry?.url) {
         config.registry = {
           url: registry.url,
           auth_type: registry.auth_type,
@@ -502,16 +501,18 @@ function translateTests(
     console.log("Custom test order received:", customTestOrder);
 
     // Check if we have a global flat order (new format)
-    const globalFlatOrder = customTestOrder!.get("__GLOBAL_ORDER__");
+    const globalFlatOrder = customTestOrder?.get("__GLOBAL_ORDER__");
 
     const globalTestOrder: string[] = globalFlatOrder || [];
 
     // If no global order, fall back to old method (flatten by iterating Map)
     if (!globalFlatOrder) {
       console.log("No global order found, using legacy grouping");
-      for (const [nodeId, testIds] of customTestOrder!.entries()) {
-        if (testIds && testIds.length > 0) {
-          globalTestOrder.push(...testIds);
+      if (customTestOrder) {
+        for (const [, testIds] of customTestOrder.entries()) {
+          if (testIds && testIds.length > 0) {
+            globalTestOrder.push(...testIds);
+          }
         }
       }
     }
@@ -710,7 +711,7 @@ function buildTestConfig(
     if (test.httpConfig.body) {
       config.config.body = test.httpConfig.body;
     }
-    if (test.httpConfig.expectedStatus != undefined) {
+    if (test.httpConfig.expectedStatus !== undefined) {
       config.config.expected_status = test.httpConfig.expectedStatus;
     }
   } else if (test.type === "shell" && test.shellConfig) {
@@ -877,8 +878,8 @@ export function getTestExecutionOrder(
     for (const node of nodes) {
       const serviceName = sanitizeName(node.data.label);
       const nodeCustomOrder =
-        customTestOrder!.get(node.id) ??
-        customTestOrder!.get(sanitizeName(node.data.label));
+        customTestOrder?.get(node.id) ??
+        customTestOrder?.get(sanitizeName(node.data.label));
 
       if (nodeCustomOrder && nodeCustomOrder.length > 0) {
         for (const testId of nodeCustomOrder) {

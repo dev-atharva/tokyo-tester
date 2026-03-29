@@ -1,7 +1,7 @@
+import { del, get, set } from "idb-keyval";
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
-import { get, set, del } from "idb-keyval";
-import { FlowEdge, FlowNode } from "../types/react-flow-cots";
+import { createJSONStorage, persist } from "zustand/middleware";
+import type { FlowEdge, FlowNode } from "../types/react-flow-cots";
 
 const indexedDBStorage = {
   getItem: async (name: string) => {
@@ -22,7 +22,7 @@ export interface WorkflowExecution {
   sessionId: string;
   status: ExecutionStatus;
   logs: string[];
-  result?: any;
+  result?: unknown;
   error?: string;
   startedAt: number;
   finishedAt?: number;
@@ -64,14 +64,14 @@ interface WorkflowStore {
   completeExecution: (
     workflowId: string,
     sessionId: string,
-    result?: any,
+    result?: unknown,
   ) => void;
   failExecution: (workflowId: string, sessionId: string, error: string) => void;
 }
 
 export const useWorkflowStore = create<WorkflowStore>()(
   persist(
-    (set, get) => ({
+    (set, _get) => ({
       workflows: {},
       activeWorkflowId: null,
 

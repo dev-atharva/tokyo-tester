@@ -45,7 +45,9 @@ export class FastQueue<T> {
    * Add multiple items to the front - O(n)
    */
   unshiftMany(items: T[]): void {
-    items.reverse().forEach((item) => this.unshift(item));
+    for (const item of [...items].reverse()) {
+      this.unshift(item);
+    }
   }
 
   /**

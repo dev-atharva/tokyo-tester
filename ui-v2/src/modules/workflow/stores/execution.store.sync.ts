@@ -1,6 +1,6 @@
+import { del, get, set } from "idb-keyval";
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
-import { get, set, del } from "idb-keyval";
+import { createJSONStorage, persist } from "zustand/middleware";
 import {
   addSyncMetadata,
   markAsDeleted,
@@ -28,7 +28,7 @@ export interface WorkflowExecution {
   workflowId: string;
   status: ExecutionStatus;
   logs: string[];
-  result?: any;
+  result?: unknown;
   error?: string;
   startedAt: number;
   finishedAt?: number;
@@ -49,7 +49,7 @@ interface ExecutionStore {
 
   startExecution: (workflowId: string, sessionId: string) => void;
   appendLog: (sessionId: string, message: string) => void;
-  completeExecution: (sessionId: string, result?: any) => void;
+  completeExecution: (sessionId: string, result?: unknown) => void;
   failExecution: (sessionId: string, error: string) => void;
 
   getExecution: (sessionId: string) => WorkflowExecution | null;

@@ -1,4 +1,5 @@
 import CryptoJS from "crypto-js";
+
 const SECRET = "registry-temp-sec-2468";
 
 export function encrypt(data: string): string {

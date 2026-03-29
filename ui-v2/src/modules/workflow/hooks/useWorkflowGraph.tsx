@@ -1,18 +1,17 @@
 import { useCallback, useEffect } from "react";
 import {
-  useNodesState,
-  useEdgesState,
   addEdge,
-  Connection,
-  Node,
+  type Connection,
+  type Node,
+  useEdgesState,
+  useNodesState,
 } from "reactflow";
-import {
-  FlowNode,
-  FlowEdge,
-  ServiceNodeData,
-  EdgeData,
-} from "../types/react-flow-cots";
 import { useWorkflowStore } from "../stores/workflow.store.sync";
+import type {
+  EdgeData,
+  FlowNode,
+  ServiceNodeData,
+} from "../types/react-flow-cots";
 
 export function useWorkflowGraph(workflowId: string) {
   const workflow = useWorkflowStore((s) => s.getWorkflow(workflowId));
@@ -32,7 +31,7 @@ export function useWorkflowGraph(workflowId: string) {
       // Set edges from workflow
       setEdges(workflow.edges);
     }
-  }, [workflow?.id, setEdges]); // Don't include setNodes to avoid conflicts
+  }, [workflow?.id, setEdges, workflow.edges, workflow]); // Don't include setNodes to avoid conflicts
 
   // Delete node
   const deleteNode = useCallback(

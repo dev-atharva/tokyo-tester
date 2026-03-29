@@ -1,12 +1,18 @@
 import { getOrCreateClientId, getUserId } from "./client-id";
-import {
+import { FastQueue } from "./fast-queue";
+import type {
   SyncBatchRequest,
   SyncBatchResponse,
   SyncChange,
   SyncPullResponse,
   SyncStatusResponse,
 } from "./sync-types";
-import { FastQueue } from "./fast-queue";
+
+declare global {
+  interface Window {
+    syncService?: SyncService;
+  }
+}
 
 export class SyncService {
   private _baseUrl: string;
@@ -115,7 +121,10 @@ export class SyncService {
         console.warn("[SyncService] Conflicts:", response.conflicts);
       }
       if (response.errors && response.errors.length > 0) {
-        console.error("[SyncService] Errors:", response.errors);
+        console.warn(
+          "[SyncService] Sync completed with server-reported errors:",
+          response.errors,
+        );
       }
 
       return response;
@@ -222,5 +231,5 @@ export class SyncService {
 export const syncService = new SyncService();
 
 if (typeof window !== "undefined") {
-  (window as any).syncService = syncService;
+  window.syncService = syncService;
 }

@@ -1,27 +1,27 @@
 "use client";
 
-import React from "react";
 import {
-  ReactFlow,
-  Background,
-  Controls,
-  Panel,
-  Node,
-  Edge,
-  OnNodesChange,
-  OnEdgesChange,
-  OnConnect,
-  NodeMouseHandler,
-  NodeTypes,
-} from "reactflow";
-import { Button } from "@/components/ui/button";
-import {
+  IconHistory,
   IconKeyboard,
   IconPlus,
   IconRun,
   IconTerminal2,
-  IconHistory,
 } from "@tabler/icons-react";
+import type React from "react";
+import {
+  Background,
+  Controls,
+  type Edge,
+  type Node,
+  type NodeMouseHandler,
+  type NodeTypes,
+  type OnConnect,
+  type OnEdgesChange,
+  type OnNodesChange,
+  Panel,
+  ReactFlow,
+} from "reactflow";
+import { Button } from "@/components/ui/button";
 import { SyncStatusIndicator } from "@/modules/sync/SyncProvider";
 
 interface FlowCanvasProps {

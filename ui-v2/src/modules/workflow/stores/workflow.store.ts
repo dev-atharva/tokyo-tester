@@ -1,7 +1,7 @@
+import { del, get, set } from "idb-keyval";
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
-import { get, set, del } from "idb-keyval";
-import { FlowEdge, FlowNode } from "../types/react-flow-cots";
+import { createJSONStorage, persist } from "zustand/middleware";
+import type { FlowEdge, FlowNode } from "../types/react-flow-cots";
 
 const indexedDBStorage = {
   getItem: async (name: string) => {

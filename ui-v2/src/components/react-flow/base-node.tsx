@@ -11,7 +11,6 @@ export function BaseNode({ className, ...props }: BaseNodeProps) {
         "bg-card text-card-foreground relative rounded-sm border-muted-foreground hover:bg-accent border",
         className,
       )}
-      tabIndex={0}
       {...props}
     >
       {props.children}

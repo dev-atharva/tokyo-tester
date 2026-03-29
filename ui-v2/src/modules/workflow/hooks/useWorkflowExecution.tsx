@@ -1,11 +1,15 @@
-import { useState, useCallback } from "react";
-import { FlowNode, FlowEdge } from "../types/react-flow-cots";
+import { useCallback, useState } from "react";
+import { toast } from "sonner";
+import { inngest } from "@/modules/inngest/client";
 import { validateFlow } from "@/modules/utils/react-flow-translator";
 import { useExecutionStore } from "../stores/execution.store.sync";
-import { inngest } from "@/modules/inngest/client";
-import { toast } from "sonner";
-import { useUIStore } from "../stores/ui.store";
 import { useRegistrySecretStore } from "../stores/registry-secret-store";
+import { useUIStore } from "../stores/ui.store";
+import type {
+  FlowEdge,
+  FlowNode,
+  ValidationResult,
+} from "../types/react-flow-cots";
 
 interface UseWorkflowExecutionProps {
   workflowId: string;
@@ -14,7 +18,7 @@ interface UseWorkflowExecutionProps {
   edges: FlowEdge[];
   customTestOrder: Map<string, string[]>;
   onStart?: (sessionId: string) => void;
-  onComplete?: (result: any) => void;
+  onComplete?: (result: unknown) => void;
   onError?: (error: string) => void;
 }
 
@@ -25,14 +29,14 @@ export function useWorkflowExecution({
   edges,
   customTestOrder,
   onStart,
-  onComplete,
+  onComplete: _onComplete,
   onError,
 }: UseWorkflowExecutionProps) {
   const [isExecuting, setIsExecuting] = useState(false);
-  const [validationResult, setValidationResult] = useState<any>(null);
+  const [validationResult, setValidationResult] =
+    useState<ValidationResult | null>(null);
 
   const startExecution = useExecutionStore((s) => s.startExecution);
-  const completeExecution = useExecutionStore((s) => s.completeExecution);
   const failExecution = useExecutionStore((s) => s.failExecution);
   const activeExecution = useExecutionStore((s) => s.getActiveExecution());
   const secretStore = useRegistrySecretStore.getState();
@@ -94,6 +98,8 @@ export function useWorkflowExecution({
     failExecution,
     onStart,
     onError,
+    openLogsDrawer,
+    registrySecrets,
   ]);
 
   return {

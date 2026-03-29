@@ -1,27 +1,27 @@
 "use client";
 
-import { useMemo, useEffect, useRef } from "react";
+import {
+  IconCircleCheck,
+  IconCircleX,
+  IconClock,
+  IconFileText,
+  IconHistory,
+  IconLoader,
+  IconTerminal,
+} from "@tabler/icons-react";
+import { useEffect, useMemo, useRef } from "react";
+import { Badge } from "@/components/ui/badge";
 import {
   Drawer,
   DrawerContent,
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { WorkflowExecution } from "../stores/execution.store.sync";
-import { useTestResultStore } from "../stores/test-result.store";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import {
-  IconCircleCheck,
-  IconCircleX,
-  IconClock,
-  IconLoader,
-  IconHistory,
-  IconTerminal,
-  IconFileText,
-} from "@tabler/icons-react";
+import type { WorkflowExecution } from "../stores/execution.store.sync";
+import { useTestResultStore } from "../stores/test-result.store";
 
 interface WorkflowLogsDrawerProps {
   open: boolean;
@@ -129,7 +129,7 @@ export function WorkflowLogsDrawer({
     if (logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [execution?.logs, testResults.length]);
+  }, []);
 
   if (!execution) return null;
 
@@ -302,7 +302,7 @@ export function WorkflowLogsDrawer({
 
                     return (
                       <div
-                        key={i}
+                        key={`${execution.sessionId}-${i}-${log.slice(0, 16)}`}
                         className={cn(
                           "rounded-lg border px-4 py-2.5 font-mono text-sm transition-colors overflow-hidden",
                           isError &&

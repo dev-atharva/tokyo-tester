@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { FlowNode } from "../types/react-flow-cots";
+import type { FlowNode } from "../types/react-flow-cots";
 
 interface UIStore {
   // Drawer and dialog states

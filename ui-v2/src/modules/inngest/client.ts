@@ -1,5 +1,11 @@
-import { Inngest } from "inngest";
 import { realtimeMiddleware } from "@inngest/realtime/middleware";
+import { Inngest } from "inngest";
+import type {
+  RunTestsResponse,
+  ServiceConfig,
+  TestConfig,
+  WorkflowInput,
+} from "../workflow/types/react-flow-cots";
 
 export const inngest = new Inngest({
   id: "cots-orchestrator",
@@ -9,12 +15,7 @@ export const inngest = new Inngest({
 
 export type Events = {
   "cots/workflow.start": {
-    data: {
-      nodes: any[];
-      edges: any[];
-      workflowName: string;
-      userId?: string;
-    };
+    data: WorkflowInput;
   };
   "cots/workflow.completed": {
     data: {
@@ -31,7 +32,7 @@ export type Events = {
   };
   "cots/services.provision": {
     data: {
-      services: any[];
+      services: ServiceConfig[];
     };
   };
   "cots/services.created": {
@@ -42,13 +43,13 @@ export type Events = {
   "cots/tests.execute": {
     data: {
       sessionId: string;
-      tests: any[];
+      tests: TestConfig[];
     };
   };
   "cots/tests.completed": {
     data: {
       sessionId: string;
-      results: any;
+      results: RunTestsResponse;
     };
   };
   "cots/cleanup.execute": {

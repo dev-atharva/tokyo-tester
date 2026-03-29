@@ -3,6 +3,8 @@ import type { SVGProps } from "react";
 const ContainerIcon = (props: SVGProps<SVGSVGElement>) => (
   <svg
     {...props}
+    aria-hidden="true"
+    focusable="false"
     version="1.1"
     id="hack_the_box__Layer_1"
     xmlnsXlink="http://www.w3.org/1999/xlink"

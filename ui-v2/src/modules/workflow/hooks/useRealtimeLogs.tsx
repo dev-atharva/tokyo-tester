@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useRef } from "react";
 import { useInngestSubscription } from "@inngest/realtime/hooks";
+import { useEffect, useRef } from "react";
 import {
   fetchLogsRealtimeSubscriptionToken,
   fetchTestResultRealtimeSubscriptionToken,
@@ -11,7 +11,7 @@ import { useTestResultStore } from "../stores/test-result.store";
 type TestStatus = "pending" | "running" | "passed" | "failed";
 
 interface UseRealtimeLogsProps {
-  onComplete?: (result: any) => void;
+  onComplete?: (result: unknown) => void;
   onError?: (error: string) => void;
 }
 
@@ -31,9 +31,9 @@ export function useRealtimeLogs({
   const completeExecution = useExecutionStore((s) => s.completeExecution);
   const failExecution = useExecutionStore((s) => s.failExecution);
 
-  const addTestResult = useTestResultStore((s) => s.addTestResult);
+  const _addTestResult = useTestResultStore((s) => s.addTestResult);
   const updateTestResult = useTestResultStore((s) => s.updateTestResult);
-  const hasTestResult = useTestResultStore((s) => s.hasTestResult);
+  const _hasTestResult = useTestResultStore((s) => s.hasTestResult);
 
   const processedEventIds = useRef(new Set<string>());
 
@@ -75,7 +75,14 @@ export function useRealtimeLogs({
       const entries = Array.from(processedEventIds.current);
       processedEventIds.current = new Set(entries.slice(1000));
     }
-  }, [latestLogData, appendLog, completeExecution, failExecution]);
+  }, [
+    latestLogData,
+    appendLog,
+    completeExecution,
+    failExecution,
+    onComplete,
+    onError,
+  ]);
 
   /* ---------------- Bulk Test Results ---------------- */
   useEffect(() => {
@@ -105,9 +112,7 @@ export function useRealtimeLogs({
           resultData,
           durationMs,
           executedAt,
-          action,
           containerLogs,
-          sequence,
         } = result;
 
         const normalizedStatus = status as TestStatus;

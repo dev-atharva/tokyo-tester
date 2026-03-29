@@ -1,4 +1,10 @@
+import { channel, topic } from "@inngest/realtime";
+import { z } from "zod";
 import {
+  translateReactFlowToCotsConfig,
+  validateFlow,
+} from "@/modules/utils/react-flow-translator";
+import type {
   CreateServicesResponse,
   RunTestsResponse,
   WorkflowInput,
@@ -7,16 +13,15 @@ import {
   WorkflowState,
 } from "@/modules/workflow/types/react-flow-cots";
 import { inngest } from "../client";
-import { channel, topic } from "@inngest/realtime";
-import { z } from "zod";
-
-import {
-  translateReactFlowToCotsConfig,
-  validateFlow,
-} from "@/modules/utils/react-flow-translator";
 
 const COTS_API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+
+type WorkflowErrorResponse = {
+  error?: string;
+  details?: Record<string, string>;
+  container_logs?: Record<string, string>;
+};
 
 /* ---------------- Realtime Channel ---------------- */
 
@@ -37,7 +42,7 @@ export const testResultChannel = channel("testResult").addTopic(
           testName: z.string(),
           testType: z.string().optional(),
           status: z.string(),
-          resultData: z.any().optional(),
+          resultData: z.unknown().optional(),
           durationMs: z.number().optional(),
           executedAt: z.string().optional(),
           action: z.enum(["create", "update"]),
@@ -97,7 +102,7 @@ export const cotsWorkFlow = inngest.createFunction(
         testName: string;
         testType?: string;
         status: string;
-        resultData?: any;
+        resultData?: unknown;
         durationMs?: number;
         executedAt?: string;
         action: "create" | "update";
@@ -132,7 +137,7 @@ export const cotsWorkFlow = inngest.createFunction(
 
       console.log("Bulk payload:", JSON.stringify(payload, null, 2));
 
-      return publish(testResultChannel()["testresult"](payload));
+      return publish(testResultChannel().testresult(payload));
     };
 
     const formatContainerLogs = (logs?: Record<string, string>): string => {
@@ -197,21 +202,21 @@ export const cotsWorkFlow = inngest.createFunction(
 
         if (!res.ok) {
           const errorText = await res.text();
-          let errorData;
+          let errorData: WorkflowErrorResponse | undefined;
           try {
-            errorData = JSON.parse(errorText);
-          } catch (error) {
+            errorData = JSON.parse(errorText) as WorkflowErrorResponse;
+          } catch (_error) {
             throw new Error(errorText);
           }
-          const logs = errorData.details || errorData.container_logs;
+          const logs = errorData?.details || errorData?.container_logs;
           if (logs) {
             const logsFormatted = formatContainerLogs(logs);
             await log(
-              `Service provisioning failed: ${errorData.error}${logsFormatted}`,
+              `Service provisioning failed: ${errorData?.error ?? errorText}${logsFormatted}`,
               "failed",
             );
           }
-          throw new Error(errorData.error || errorText);
+          throw new Error(errorData?.error || errorText);
         }
 
         const data: CreateServicesResponse = await res.json();
@@ -276,24 +281,24 @@ export const cotsWorkFlow = inngest.createFunction(
 
           if (!res.ok) {
             const errorText = await res.text();
-            let errorData;
+            let errorData: WorkflowErrorResponse | undefined;
 
             try {
-              errorData = JSON.parse(errorText);
-            } catch (error) {
+              errorData = JSON.parse(errorText) as WorkflowErrorResponse;
+            } catch (_error) {
               throw new Error(errorText);
             }
 
-            if (errorData.container_logs) {
+            if (errorData?.container_logs) {
               const logsFormatted = formatContainerLogs(
                 errorData.container_logs,
               );
               await log(
-                `Test execution failed: ${errorData.error}${logsFormatted}`,
+                `Test execution failed: ${errorData?.error ?? errorText}${logsFormatted}`,
                 "failed",
               );
             }
-            throw new Error(errorData.error || errorText);
+            throw new Error(errorData?.error || errorText);
           }
 
           const data: RunTestsResponse = await res.json();

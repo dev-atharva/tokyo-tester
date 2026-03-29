@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Roboto } from "next/font/google";
 import "./globals.css";
-import { HomeLayout } from "@/modules/home/layouts/home-layout";
 import { ThemeProvider } from "next-themes";
+import { HomeLayout } from "@/modules/home/layouts/home-layout";
 import { SyncProvider } from "@/modules/sync/SyncProvider";
 
 const roboto = Roboto({ subsets: ["latin"], variable: "--font-sans" });
@@ -29,7 +29,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={roboto.variable}>
+    <html lang="en" className={roboto.variable} suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

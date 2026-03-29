@@ -1,31 +1,10 @@
 "use client";
 
-import React, { useMemo, useEffect, useState } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
+import type React from "react";
+import { useEffect, useMemo, useState } from "react";
 import "@xyflow/react/dist/style.css";
 import { toast } from "sonner";
-
-import { ServiceNode } from "../ServiceNode";
-import { FlowCanvas } from "./FlowCanvas";
-import { NodeDrawer } from "../NodeDrawer";
-import { NodeConfigDialog } from "../NodeConfigDialog";
-import { WorkflowLogsDrawer } from "../WorkflowLogsDrawer";
-import { ShortcutsDialog } from "../KeyboardShortCutsDialog";
-import { ExecutionHistory } from "../ExecutionHistory";
-
-import { useWorkflowGraph } from "../../hooks/useWorkflowGraph";
-import { useWorkflowExecution } from "../../hooks/useWorkflowExecution";
-import { useRealtimeLogs } from "../../hooks/useRealtimeLogs";
-import { useRealtimeTestResults } from "../../hooks/useRealTimeTestReults";
-import { useTestOrderManager } from "../../hooks/useTestOrderManager";
-import { useUIStore } from "../../stores/ui.store";
-import { useExecutionStore } from "../../stores/execution.store.sync";
-import { useWorkflowStore } from "../../stores/workflow.store.sync";
-import {
-  useKeyboardShortcuts,
-  getShortcutDescription,
-} from "../../hooks/useKeyboardShortcuts";
-
 import {
   createGenericServiceNode,
   createKafkaNode,
@@ -34,11 +13,30 @@ import {
   createPostgresNode,
   createRedisNode,
 } from "@/modules/utils/node-factory";
+import {
+  getShortcutDescription,
+  useKeyboardShortcuts,
+} from "../../hooks/useKeyboardShortcuts";
+import { useRealtimeTestResults } from "../../hooks/useRealTimeTestReults";
+import { useRealtimeLogs } from "../../hooks/useRealtimeLogs";
+import { useTestOrderManager } from "../../hooks/useTestOrderManager";
+import { useWorkflowExecution } from "../../hooks/useWorkflowExecution";
+import { useWorkflowGraph } from "../../hooks/useWorkflowGraph";
+import { useExecutionStore } from "../../stores/execution.store.sync";
+import { useUIStore } from "../../stores/ui.store";
+import { useWorkflowStore } from "../../stores/workflow.store.sync";
+import { ExecutionHistory } from "../ExecutionHistory";
+import { ShortcutsDialog } from "../KeyboardShortCutsDialog";
+import { NodeConfigDialog } from "../NodeConfigDialog";
+import { NodeDrawer } from "../NodeDrawer";
+import { ServiceNode } from "../ServiceNode";
+import { WorkflowLogsDrawer } from "../WorkflowLogsDrawer";
+import { FlowCanvas } from "./FlowCanvas";
 
 interface FlowBuilderProps {
   workflowId: string;
   onWorkflowStart?: (sessionId: string) => void;
-  onWorkComplete?: (results: any) => void;
+  onWorkComplete?: (results: unknown) => void;
   onError?: (error: string) => void;
 }
 
@@ -110,13 +108,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   });
 
   // Real-time test results with enhanced tracking
-  const {
-    activeSessionTestResults,
-    summary,
-    hasTests,
-    allComplete,
-    hasFailures,
-  } = useRealtimeTestResults({
+  const { summary, hasTests } = useRealtimeTestResults({
     onTestComplete: (testResult) => {
       console.log(
         `[FlowBuilder] Test completed: ${testResult.testName} - ${testResult.status}`,
@@ -186,7 +178,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
         },
       })),
     );
-  }, [workflow?.id, deleteNode, setNodes]);
+  }, [workflow?.id, deleteNode, setNodes, workflow]);
 
   // Add service node helper
   const handleAddNode = (
@@ -232,7 +224,6 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
             label: "Kafka",
             clusterId: "test-cluster",
           });
-        case "generic":
         default:
           return createGenericServiceNode(id, position, {
             label: "API Server",
@@ -335,7 +326,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={connectNodes}
-          onNodeDoubleClick={(_, node) => openNodeConfig(node as any)}
+          onNodeDoubleClick={(_, node) => openNodeConfig(node)}
           onExecute={execute}
           onOpenDrawer={openDrawer}
           onOpenLogs={openLogs}

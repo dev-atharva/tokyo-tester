@@ -1,12 +1,11 @@
 "use server";
 
+import { getSubscriptionToken, type Realtime } from "@inngest/realtime";
 import { inngest } from "../inngest/client";
-
 import {
   logsChannel,
   testResultChannel,
 } from "../inngest/function/cots-workflow";
-import { getSubscriptionToken, Realtime } from "@inngest/realtime";
 
 export type LogsChannelToken = Realtime.Token<
   typeof logsChannel,

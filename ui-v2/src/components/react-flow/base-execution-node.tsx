@@ -1,11 +1,11 @@
 "use client";
-import { Handle, Position, useReactFlow } from "@xyflow/react";
-import { NodeProps } from "reactflow";
+import { Position } from "@xyflow/react";
 import Image from "next/image";
+import { type ComponentType, memo, type ReactNode, type SVGProps } from "react";
+import type { NodeProps } from "reactflow";
 import { BaseNode, BaseNodeContent } from "@/components/react-flow/base-node";
-import { WorkflowNode } from "./workflow-node";
-import { memo, ReactNode, SVGProps, ComponentType } from "react";
 import { BaseHandle } from "./base-handle";
+import { WorkflowNode } from "./workflow-node";
 
 interface BaseExecutionNodeProps extends NodeProps {
   icon: string | ComponentType<SVGProps<SVGSVGElement>>;

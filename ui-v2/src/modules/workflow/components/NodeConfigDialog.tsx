@@ -1,11 +1,6 @@
 "use client";
-import React, { useState, useMemo } from "react";
-import {
-  FlowNode,
-  ServiceNodeData,
-  PortMapping,
-  EnvironmentVariable,
-} from "../types/react-flow-cots";
+import React, { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogClose,
@@ -16,10 +11,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type {
+  EnvironmentVariable,
+  FlowNode,
+  PortMapping,
+  ServiceNodeData,
+} from "../types/react-flow-cots";
+import { RegistryConfigForm } from "./RegistryConfigForm";
 import { ServiceConfigForm } from "./ServiceConfigForm";
 import { TestConfigForm } from "./TestConfigForm";
-import { Button } from "@/components/ui/button";
-import { RegistryConfigForm } from "./RegistryConfigForm";
 
 interface NodeConfigProps {
   isOpen: boolean;

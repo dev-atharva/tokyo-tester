@@ -1,4 +1,5 @@
 "use client";
+import { IconKeyboard } from "@tabler/icons-react";
 import {
   Dialog,
   DialogContent,
@@ -6,10 +7,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { IconKeyboard } from "@tabler/icons-react";
 import {
-  KeyboardShortcut,
   formatShortcut,
+  type KeyboardShortcut,
 } from "../hooks/useKeyboardShortcuts";
 
 interface ShortcutsDialogProps {

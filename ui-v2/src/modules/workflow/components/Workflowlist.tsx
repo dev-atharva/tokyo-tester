@@ -1,11 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useWorkflowStore } from "../stores/workflow.store.sync";
-import { Button } from "@/components/ui/button";
 import { IconPlus } from "@tabler/icons-react";
-import { useExecutionStore } from "../stores/execution.store.sync";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { useExecutionStore } from "../stores/execution.store.sync";
+import { useWorkflowStore } from "../stores/workflow.store.sync";
 
 export const WorkflowList = () => {
   const router = useRouter();
@@ -71,9 +71,10 @@ export const WorkflowList = () => {
           ).length;
 
           return (
-            <div
+            <button
+              type="button"
               key={workflow.id}
-              className="border rounded p-4 cursor-pointer hover:bg-muted transition-colors"
+              className="border rounded p-4 cursor-pointer hover:bg-muted transition-colors text-left w-full"
               onClick={() => {
                 setActiveWorkflow(workflow.id);
                 router.push(`/workflow/${workflow.id}`);
@@ -83,7 +84,7 @@ export const WorkflowList = () => {
               <div className="text-sm text-muted-foreground">
                 {executionCount} execution{executionCount !== 1 ? "s" : ""}
               </div>
-            </div>
+            </button>
           );
         })}
       </div>

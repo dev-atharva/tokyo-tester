@@ -1,3 +1,9 @@
+import type {
+  FlowEdge,
+  FlowNode,
+  JsonValue,
+} from "../workflow/types/react-flow-cots";
+
 export type EntityType = "workflow" | "session" | "test_result";
 export type ChangeType = "insert" | "update" | "delete";
 
@@ -5,7 +11,7 @@ export interface SyncChange {
   entity_type: EntityType;
   entity_id: string;
   change_type: ChangeType;
-  data: any;
+  data: JsonValue;
   client_time: string;
   client_version: number;
 }
@@ -48,9 +54,9 @@ export interface WorkflowData {
   id: string;
   name: string;
   description?: string;
-  nodes_config: any;
-  edges_config: any;
-  metadata?: any;
+  nodes_config: FlowNode[];
+  edges_config: FlowEdge[];
+  metadata?: Record<string, JsonValue>;
   version: number;
   created_at: string;
   updated_at: string;
@@ -63,9 +69,9 @@ export interface SessionData {
   id: string;
   workflow_id?: string;
   status: string;
-  result?: any;
-  container_ids?: any;
-  logs?: any;
+  result?: JsonValue;
+  container_ids?: string[];
+  logs?: string[];
   error?: string;
   started_at?: string | null;
   completed_at?: string | null;
@@ -83,7 +89,7 @@ export interface TestResultData {
   test_name: string;
   test_type: string;
   status: string;
-  result_data?: any; // JSON stringified
+  result_data?: JsonValue | string | null;
   duration_ms: number;
   executed_at: string;
   created_at: string;
@@ -96,5 +102,5 @@ export interface TestResultData {
 export interface SyncPullResponse {
   workflows?: WorkflowData[];
   sessions?: SessionData[];
-  test_results?: any[];
+  test_results?: TestResultData[];
 }

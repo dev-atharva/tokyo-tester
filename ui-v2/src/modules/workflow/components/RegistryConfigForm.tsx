@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -10,8 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useRegistrySecretStore } from "../stores/registry-secret-store";
 
@@ -61,7 +61,7 @@ export const RegistryConfigForm: React.FC<Props> = ({ serviceId }) => {
     });
 
     return () => sub.unsubscribe();
-  }, [watch, serviceId, setSecret]);
+  }, [watch, serviceId, setSecret, clearSecret]);
 
   return (
     <div className="space-y-6">

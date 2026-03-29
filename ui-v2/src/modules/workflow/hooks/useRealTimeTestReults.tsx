@@ -1,12 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useExecutionStore } from "../stores/execution.store.sync";
-import { useTestResultStore } from "../stores/test-result.store";
+import {
+  type TestResult,
+  useTestResultStore,
+} from "../stores/test-result.store";
 
 interface RealtimeTestListenerProps {
-  onTestComplete?: (testResult: any) => void;
-  onAllTestsComplete?: (sessionId: string, summary: any) => void;
+  onTestComplete?: (testResult: TestResult) => void;
+  onAllTestsComplete?: (
+    sessionId: string,
+    summary: {
+      total: number;
+      passed: number;
+      failed: number;
+      duration: number;
+    },
+  ) => void;
   onError?: (error: string) => void;
 }
 
@@ -17,7 +28,7 @@ interface RealtimeTestListenerProps {
 export function useRealtimeTestResults({
   onTestComplete,
   onAllTestsComplete,
-  onError,
+  onError: _onError,
 }: RealtimeTestListenerProps = {}) {
   // Get active execution
   const activeExecution = useExecutionStore((s) => s.getActiveExecution());
@@ -55,7 +66,7 @@ export function useRealtimeTestResults({
       sessionIdRef.current = activeExecution.sessionId;
       previousExecutionStatusRef.current = activeExecution.status;
     }
-  }, [activeExecution?.sessionId]);
+  }, [activeExecution?.sessionId, activeExecution]);
 
   // Reset when session changes
   useEffect(() => {
@@ -73,7 +84,7 @@ export function useRealtimeTestResults({
       previousTestStatesRef.current.clear();
       sessionIdRef.current = activeExecution.sessionId;
     }
-  }, [activeExecution?.sessionId]);
+  }, [activeExecution?.sessionId, activeExecution]);
 
   // Monitor test result changes
   useEffect(() => {

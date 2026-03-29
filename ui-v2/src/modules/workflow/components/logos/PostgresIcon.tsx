@@ -1,7 +1,13 @@
 import type { SVGProps } from "react";
 
 const PostgreSQLIcon = (props: SVGProps<SVGSVGElement>) => (
-  <svg {...props} xmlSpace="preserve" viewBox="0 0 432.071 445.383">
+  <svg
+    {...props}
+    aria-hidden="true"
+    focusable="false"
+    xmlSpace="preserve"
+    viewBox="0 0 432.071 445.383"
+  >
     <g
       style={{
         fillRule: "nonzero",

@@ -1,6 +1,6 @@
+import { del, get, set } from "idb-keyval";
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
-import { get, set, del } from "idb-keyval";
+import { createJSONStorage, persist } from "zustand/middleware";
 import {
   addSyncMetadata,
   markAsDeleted,
@@ -38,7 +38,7 @@ export interface TestResult {
   testName: string;
   testType: string; // database/http/shell/cache/kafka
   status: "pending" | "running" | "passed" | "failed";
-  resultData: any;
+  resultData: unknown;
   durationMs: number;
   executedAt: string;
   containerLogs?: Record<string, string>;
@@ -102,6 +102,11 @@ export const useTestResultStore = create<TestResultStore>()(
         updateTestResult: (id, updates) => {
           const existing = get().testResults[id];
           if (!existing) {
+            const { sessionId, workflowId, testName, testType } = updates;
+            if (!sessionId || !workflowId || !testName || !testType) {
+              return;
+            }
+
             trackSync(store, id, "insert");
 
             set((state) => ({
@@ -109,10 +114,10 @@ export const useTestResultStore = create<TestResultStore>()(
                 ...state.testResults,
                 [id]: addSyncMetadata({
                   id,
-                  sessionId: updates.sessionId!,
-                  workflowId: updates.workflowId!,
-                  testName: updates.testName!,
-                  testType: updates.testType!,
+                  sessionId,
+                  workflowId,
+                  testName,
+                  testType,
                   status: updates.status ?? "pending",
                   resultData: updates.resultData ?? null,
                   durationMs: updates.durationMs ?? 0,

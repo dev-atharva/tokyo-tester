@@ -1,26 +1,25 @@
 "use client";
 
+import { IconLogout2, IconMoon2, IconSun } from "@tabler/icons-react";
+import Avatar from "boring-avatars";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuPortal,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-  DropdownMenuSeparator,
-  DropdownMenuGroup,
 } from "@/components/ui/dropdown-menu";
-import Avatar from "boring-avatars";
-import { IconLogout2, IconMoon2, IconSun } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
 
 export const UserMenu = () => {
-  const router = useRouter();
+  const _router = useRouter();
   const { setTheme } = useTheme();
   return (
     <DropdownMenu>

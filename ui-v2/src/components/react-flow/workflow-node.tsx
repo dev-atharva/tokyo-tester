@@ -1,8 +1,8 @@
 "use client";
 
-import { NodeToolbar, Position } from "reactflow";
 import { IconTrash } from "@tabler/icons-react";
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
+import { NodeToolbar, Position } from "reactflow";
 import { Button } from "@/components/ui/button";
 
 interface WorkflowNodeProps {

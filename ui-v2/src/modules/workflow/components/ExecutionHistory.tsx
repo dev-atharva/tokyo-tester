@@ -1,21 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import {
-  useExecutionStore,
-  WorkflowExecution,
-} from "../stores/execution.store.sync";
-import { useTestResultStore } from "@/modules/workflow/stores/test-result.store";
-import { Badge } from "@/components/ui/badge";
 import {
   IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
   IconClock,
   IconHistory,
   IconTrash,
   IconX,
-  IconChevronLeft,
-  IconChevronRight,
 } from "@tabler/icons-react";
+import { useCallback, useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -24,9 +20,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { useTestResultStore } from "@/modules/workflow/stores/test-result.store";
+import {
+  useExecutionStore,
+  type WorkflowExecution,
+} from "../stores/execution.store.sync";
 
 interface ExecutionHistoryProps {
   workflowId: string;
@@ -54,7 +54,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
 
   const sortedExecutions = useMemo(() => {
     return [...executions].sort((a, b) => b.startedAt - a.startedAt);
-  }, [executionsMap, workflowId]);
+  }, [executions]);
 
   const getTestResultsBySession = useTestResultStore(
     (s) => s.getTestResultsBySession,
@@ -82,16 +82,17 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
     return map;
   }, [executions, getTestResultsBySession]);
 
-  const getExecutionStatusFromTests = (
-    execution: WorkflowExecution,
-  ): WorkflowExecution["status"] => {
-    return executionStatusMap.get(execution.sessionId) ?? execution.status;
-  };
+  const getExecutionStatusFromTests = useCallback(
+    (execution: WorkflowExecution): WorkflowExecution["status"] => {
+      return executionStatusMap.get(execution.sessionId) ?? execution.status;
+    },
+    [executionStatusMap],
+  );
 
   const selectedExecutionStatus = useMemo(() => {
     if (!selectedExecution) return null;
     return getExecutionStatusFromTests(selectedExecution);
-  }, [selectedExecution, executionsMap]);
+  }, [selectedExecution, getExecutionStatusFromTests]);
 
   /* ---------------------------- Test Results ----------------------------- */
 
@@ -244,6 +245,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
 
                     return (
                       <button
+                        type="button"
                         key={execution.sessionId}
                         onClick={() => setSelectedExecution(execution)}
                         className={cn(

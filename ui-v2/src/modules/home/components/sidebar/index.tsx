@@ -1,5 +1,9 @@
 "use client";
 
+import { IconChevronDown, IconTopologyRing2 } from "@tabler/icons-react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import type React from "react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -16,10 +20,6 @@ import {
   SidebarMenuSub,
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
-import { IconChevronDown, IconTopologyRing2 } from "@tabler/icons-react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import React from "react";
 
 interface MenuItem {
   title: string;
@@ -58,68 +58,69 @@ const MenuItemRender = ({ items, isSubItem }: MenuItemRenderProps) => {
     router.push(finalUrlWithParams);
   };
 
-  return items.map((item, index) => {
+  return items.map((item) => {
     const isActive = pathname === item.url;
     const hasActiveChild = item.subItem?.some(
       (subitem) => pathname === subitem.url,
     );
 
     return (
-      <SidebarMenu key={index}>
+      <SidebarMenu key={item.url}>
         <Collapsible className="group/collapsible" defaultOpen={hasActiveChild}>
           <SidebarMenuItem className="w-full">
-            <CollapsibleTrigger className="w-full">
-              {item.subItem ? (
-                <SidebarMenuButton
-                  tooltip={item.title}
-                  className={cn(
-                    "flex items-center justify-between w-full px-4 py-2 text-left cursor-pointer ",
-                    isSubItem ? "text-xs" : "text-sm",
-                    isActive
-                      ? "font-semibold bg-primary dark:bg-secondary text-primary-foreground dark:text-secondary-foreground rounded"
-                      : "hover:bg-muted hover:rounded",
-                  )}
-                >
-                  <div className="flex items-center gap-2 w-full">
-                    {item.icon && (
-                      <item.icon
-                        height={isSubItem ? 14 : 16}
-                        width={isSubItem ? 14 : 16}
-                        className="shrink-0"
-                      />
+            {item.subItem ? (
+              <CollapsibleTrigger
+                className="w-full"
+                render={
+                  <SidebarMenuButton
+                    tooltip={item.title}
+                    className={cn(
+                      "flex items-center justify-between w-full px-4 py-2 text-left cursor-pointer ",
+                      isSubItem ? "text-xs" : "text-sm",
+                      isActive
+                        ? "font-semibold bg-primary dark:bg-secondary text-primary-foreground dark:text-secondary-foreground rounded"
+                        : "hover:bg-muted hover:rounded",
                     )}
-                    <span className="flex-1">{item.title}</span>
-                    {item.subItem && (
+                  >
+                    <div className="flex items-center gap-2 w-full">
+                      {item.icon && (
+                        <item.icon
+                          height={isSubItem ? 14 : 16}
+                          width={isSubItem ? 14 : 16}
+                          className="shrink-0"
+                        />
+                      )}
+                      <span className="flex-1">{item.title}</span>
                       <IconChevronDown className="transition-transform duration-200 group-data-[state=open]/collapsible:rotate-180" />
-                    )}
-                  </div>
-                </SidebarMenuButton>
-              ) : (
-                <SidebarMenuButton
-                  tooltip={item.title}
-                  className={cn(
-                    "flex items-center gap-2 w-full px-4 py-2 text-left no-underline cursor-pointer",
-                    isSubItem ? "text-xs" : "text-sm",
-                    isActive
-                      ? "font-semibold bg-primary dark:bg-secondary text-primary-foreground dark:text-secondary-foreground rounded"
-                      : "hover:bg-muted hover:rounded",
-                  )}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    handleNavigation(item.url);
-                  }}
-                >
-                  {item.icon && (
-                    <item.icon
-                      height={isSubItem ? 14 : 16}
-                      width={isSubItem ? 14 : 16}
-                      className="shrink-0"
-                    />
-                  )}
-                  <span className="flex-1">{item.title}</span>
-                </SidebarMenuButton>
-              )}
-            </CollapsibleTrigger>
+                    </div>
+                  </SidebarMenuButton>
+                }
+              />
+            ) : (
+              <SidebarMenuButton
+                tooltip={item.title}
+                className={cn(
+                  "flex items-center gap-2 w-full px-4 py-2 text-left no-underline cursor-pointer",
+                  isSubItem ? "text-xs" : "text-sm",
+                  isActive
+                    ? "font-semibold bg-primary dark:bg-secondary text-primary-foreground dark:text-secondary-foreground rounded"
+                    : "hover:bg-muted hover:rounded",
+                )}
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleNavigation(item.url);
+                }}
+              >
+                {item.icon && (
+                  <item.icon
+                    height={isSubItem ? 14 : 16}
+                    width={isSubItem ? 14 : 16}
+                    className="shrink-0"
+                  />
+                )}
+                <span className="flex-1">{item.title}</span>
+              </SidebarMenuButton>
+            )}
 
             {item.subItem && (
               <CollapsibleContent className="pl-6">

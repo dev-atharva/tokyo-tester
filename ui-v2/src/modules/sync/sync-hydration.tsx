@@ -1,20 +1,26 @@
 "use client";
 
-import { syncService } from "./sync-service";
 import {
-  useWorkflowStore,
-  Workflow,
-} from "../workflow/stores/workflow.store.sync";
+  type TestResult,
+  useTestResultStore,
+} from "@/modules/workflow/stores/test-result.store";
 import {
-  ExecutionStatus,
+  type ExecutionStatus,
   useExecutionStore,
-  WorkflowExecution,
+  type WorkflowExecution,
 } from "../workflow/stores/execution.store.sync";
 import {
-  useTestResultStore,
-  TestResult,
-} from "@/modules/workflow/stores/test-result.store";
-import { SessionData, WorkflowData, TestResultData } from "./sync-types";
+  useWorkflowStore,
+  type Workflow,
+} from "../workflow/stores/workflow.store.sync";
+import type { FlowEdge, FlowNode } from "../workflow/types/react-flow-cots";
+import { syncService } from "./sync-service";
+import type {
+  SessionData,
+  SyncPullResponse,
+  TestResultData,
+  WorkflowData,
+} from "./sync-types";
 
 interface HydrationResult {
   success: boolean;
@@ -93,7 +99,9 @@ export async function hydrateFromServer(): Promise<HydrationResult> {
 /**
  * Build hierarchical maps for quick lookups
  */
-function buildHierarchicalStructure(pullResponse: any): HydrationStats {
+function buildHierarchicalStructure(
+  pullResponse: SyncPullResponse,
+): HydrationStats {
   const stats: HydrationStats = {
     workflows: new Map(),
     sessions: new Map(),
@@ -254,9 +262,12 @@ function hydrateTestResults(stats: HydrationStats): number {
  * Deserialize workflow from API format to store format
  */
 function deserializeWorkflow(data: WorkflowData): Workflow {
-  const nodes = parseJSON<any[]>(data.nodes_config, []);
-  const edges = parseJSON<any[]>(data.edges_config, []);
-  const metadata = parseJSON<Record<string, any>>(data.metadata, {});
+  const nodes = parseJSON<FlowNode[]>(data.nodes_config, []);
+  const edges = parseJSON<FlowEdge[]>(data.edges_config, []);
+  const metadata = parseJSON<{ customTestOrder?: Record<string, string[]> }>(
+    data.metadata,
+    {},
+  );
 
   return {
     id: data.id,
@@ -279,7 +290,7 @@ function deserializeWorkflow(data: WorkflowData): Workflow {
  */
 function deserializeSession(data: SessionData): WorkflowExecution {
   const logs = parseJSON<string[]>(data.logs, []);
-  const result = parseJSON<any>(data.result, null);
+  const result = parseJSON<unknown>(data.result, null);
 
   return {
     sessionId: data.id,
@@ -308,7 +319,7 @@ function deserializeSession(data: SessionData): WorkflowExecution {
  * FIXED: Now uses data.updated_at instead of data.created_at
  */
 function deserializeTestResult(data: TestResultData): TestResult {
-  const resultData = parseJSON<any>(data.result_data, null);
+  const resultData = parseJSON<unknown>(data.result_data, null);
 
   return {
     id: data.id,
@@ -427,7 +438,7 @@ export function getHydrationStats(): {
 /**
  * Safe JSON parsing with fallback
  */
-function parseJSON<T>(value: any, fallback: T): T {
+function parseJSON<T>(value: unknown, fallback: T): T {
   try {
     if (value === null || value === undefined) return fallback;
     if (typeof value === "string") {

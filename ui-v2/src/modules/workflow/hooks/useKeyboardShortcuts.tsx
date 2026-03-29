@@ -63,7 +63,7 @@ export function useKeyboardShortcuts(
         return;
       }
 
-      for (const [id, config] of Object.entries(handlersRef.current)) {
+      for (const [_id, config] of Object.entries(handlersRef.current)) {
         const { shortcut, handler } = config;
         const {
           key,

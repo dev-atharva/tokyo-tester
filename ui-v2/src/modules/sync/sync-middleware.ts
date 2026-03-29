@@ -1,8 +1,8 @@
-import { StateCreator } from "zustand";
-import { StoreMutatorIdentifier } from "zustand";
-import { ChangeType, EntityType } from "./sync-types";
-import { syncService } from "./sync-service";
+import type { StateCreator, StoreMutatorIdentifier } from "zustand";
+import type { JsonValue } from "../workflow/types/react-flow-cots";
 import { getOrCreateClientId, getUserId } from "./client-id";
+import { syncService } from "./sync-service";
+import type { ChangeType, EntityType } from "./sync-types";
 
 type SyncMiddleware = <
   T,
@@ -24,7 +24,7 @@ export interface SimpleSyncOptions<T> {
   getEntityId: (state: T) => string | null;
 
   /** Serialize the entity for transmission */
-  serializeEntity: (state: T, entityId: string) => any;
+  serializeEntity: (state: T, entityId: string) => JsonValue | null;
 
   /** Optional: disable sync */
   enabled?: boolean;
@@ -54,8 +54,9 @@ class OperationTracker {
 /**
  * Simplified sync middleware - much cleaner!
  */
-export const syncMiddleware: SyncMiddleware =
-  (config, options) => (set: any, get: any, store: any) => {
+export const syncMiddleware: SyncMiddleware = (config, options) => {
+  return (...args: Parameters<StateCreator<T, MpS, McS>>) => {
+    const [set, get, store] = args;
     const {
       enabled = true,
       entityType,
@@ -65,9 +66,7 @@ export const syncMiddleware: SyncMiddleware =
 
     const tracker = new OperationTracker();
 
-    const syncSet: typeof set = (partial: any, replace: any) => {
-      const prevState = get();
-
+    const syncSet: typeof set = (partial, replace) => {
       // Update state first
       set(partial, replace);
 
@@ -85,7 +84,7 @@ export const syncMiddleware: SyncMiddleware =
           if (!changeType) return;
 
           const data = serializeEntity(nextState, entityId);
-          if (!data) return;
+          if (data === null) return;
 
           syncService.queueChange({
             entity_type: entityType,
@@ -100,20 +99,21 @@ export const syncMiddleware: SyncMiddleware =
     };
 
     // Expose tracker for stores to use
-    (store as any).__syncTracker = tracker;
+    (store as { __syncTracker?: OperationTracker }).__syncTracker = tracker;
 
     return config(syncSet, get, store);
   };
+};
 
 /**
  * Helper to track sync operations in stores
  */
 export function trackSync(
-  store: any,
+  store: { __syncTracker?: OperationTracker } | null | undefined,
   entityId: string,
   changeType: ChangeType,
 ): void {
-  const tracker = store.__syncTracker as OperationTracker;
+  const tracker = store?.__syncTracker;
   if (tracker) {
     tracker.track(entityId, changeType);
   }
@@ -122,7 +122,18 @@ export function trackSync(
 /**
  * Add sync metadata to entities
  */
-export function addSyncMetadata<T extends Record<string, any>>(
+type SyncMetadataShape = {
+  version?: number;
+  created_at?: string;
+  updated_at?: string;
+  user_id?: string;
+  client_id?: string;
+  is_deleted?: boolean;
+};
+
+export function addSyncMetadata<
+  T extends Record<string, unknown> & SyncMetadataShape,
+>(
   entity: T,
 ): T & {
   version: number;
@@ -147,7 +158,9 @@ export function addSyncMetadata<T extends Record<string, any>>(
 /**
  * Mark entity as deleted (soft delete)
  */
-export function markAsDeleted<T extends Record<string, any>>(
+export function markAsDeleted<
+  T extends Record<string, unknown> & SyncMetadataShape,
+>(
   entity: T,
 ): T & {
   is_deleted: boolean;

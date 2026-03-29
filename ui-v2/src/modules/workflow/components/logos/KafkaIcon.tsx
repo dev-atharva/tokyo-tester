@@ -6,6 +6,8 @@ const ApacheKafkaIcon = (props: SVGProps<SVGSVGElement>) => {
   return (
     <svg
       {...props}
+      aria-hidden="true"
+      focusable="false"
       viewBox="-78.5 0 413 413"
       xmlnsXlink="http://www.w3.org/1999/xlink"
       preserveAspectRatio="xMidYMid"

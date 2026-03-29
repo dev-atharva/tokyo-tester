@@ -1,12 +1,18 @@
 "use client";
-import React, { useEffect } from "react";
-import { ServiceNodeData, TestDefination } from "../types/react-flow-cots";
-import { useFieldArray, useForm, Controller, useWatch } from "react-hook-form";
-import { Button } from "@/components/ui/button";
 import { IconPlus, IconTrash } from "@tabler/icons-react";
-import { Label } from "@/components/ui/label";
+import React, { useEffect } from "react";
+import {
+  Controller,
+  type Path,
+  type UseFormReturn,
+  useFieldArray,
+  useForm,
+  useWatch,
+} from "react-hook-form";
+import { Button } from "@/components/ui/button";
+import { Form } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -15,7 +21,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Form } from "@/components/ui/form";
+import { Textarea } from "@/components/ui/textarea";
+import type {
+  ExpectedResult,
+  ServiceNodeData,
+  TestDefination,
+} from "../types/react-flow-cots";
 
 interface TestConfigFormProps {
   serviceData: ServiceNodeData;
@@ -225,7 +236,9 @@ export const TestConfigForm: React.FC<TestConfigFormProps> = ({
 
                     <Textarea
                       placeholder="Headers (JSON)"
-                      {...register(`tests.${index}.httpConfig.headers` as any)}
+                      {...register(
+                        `tests.${index}.httpConfig.headers` as Path<TestFormData>,
+                      )}
                     />
 
                     <Textarea
@@ -341,7 +354,7 @@ export const TestConfigForm: React.FC<TestConfigFormProps> = ({
                             // reset expectedResult when mode changes
                             setValue(
                               `tests.${index}.databaseConfig.expectedResult`,
-                              { mode: value } as any,
+                              { mode: value } as ExpectedResult,
                             );
                           }}
                         >
@@ -823,9 +836,15 @@ export const TestConfigForm: React.FC<TestConfigFormProps> = ({
   );
 };
 
-function ValueListEditor({ control, name }: { control: any; name: string }) {
+function ValueListEditor({
+  control,
+  name,
+}: {
+  control: UseFormReturn<TestFormData>;
+  name: Path<TestFormData>;
+}) {
   const { fields, append, remove } = useFieldArray({
-    control,
+    control: control.control,
     name,
   });
 
@@ -833,7 +852,10 @@ function ValueListEditor({ control, name }: { control: any; name: string }) {
     <div className="space-y-2">
       {fields.map((f, i) => (
         <div key={f.id} className="flex gap-2">
-          <Input placeholder="Value" {...control.register(`${name}.${i}`)} />
+          <Input
+            placeholder="Value"
+            {...control.register(`${name}.${i}` as Path<TestFormData>)}
+          />
           <Button
             type="button"
             size="icon"
@@ -856,8 +878,8 @@ function ColumnRulesEditor({
   control,
   basePath,
 }: {
-  control: any;
-  basePath: string;
+  control: UseFormReturn<TestFormData>["control"];
+  basePath: Path<TestFormData>;
 }) {
   const [draftColumn, setDraftColumn] = React.useState("");
   const [activeColumn, setActiveColumn] = React.useState<string | null>(null);

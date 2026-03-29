@@ -1,4 +1,10 @@
-import { type Node, Edge } from "reactflow";
+import type { Edge, Node } from "reactflow";
+
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue =
+  | JsonPrimitive
+  | { [key: string]: JsonValue }
+  | JsonValue[];
 
 export interface ServiceConfig {
   name: string;
@@ -31,7 +37,7 @@ export interface TestConfig {
   name: string;
   type: "database" | "http" | "shell" | "cache" | "queue";
   depends_on: string[];
-  config: Record<string, any>;
+  config: Record<string, JsonValue>;
 }
 
 export interface CreateServicesRequest {
@@ -62,7 +68,7 @@ export interface TestResult {
   type: string;
   message?: string;
   duration?: number;
-  output?: any;
+  output?: JsonValue;
   container_logs?: Record<string, string>;
 }
 
@@ -122,7 +128,7 @@ export interface TestDefination {
     expectedStatus?: number;
     expectedBody?: {
       mode: "contains" | "json_partial";
-      value: string | Record<string, any>;
+      value: string | Record<string, JsonValue>;
     };
   };
 
@@ -293,6 +299,8 @@ export interface WorkflowLogEvent {
   status?: "running" | "completed" | "failed";
   timestamp: number;
   sequence: number;
-  result?: any;
+  result?: JsonValue;
   error?: string;
 }
+
+export type WorkflowSummary = RunTestsResponse["summary"];
