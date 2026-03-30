@@ -267,7 +267,7 @@ func getIntOrDefault(cfg map[string]any, key string, defaultValue int) int {
 		return val
 	}
 
-	if val, ok := cfg["key"].(float64); ok {
+	if val, ok := cfg[key].(float64); ok {
 		return int(val)
 	}
 	return defaultValue

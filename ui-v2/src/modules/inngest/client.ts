@@ -2,9 +2,11 @@ import { realtimeMiddleware } from "@inngest/realtime/middleware";
 import { Inngest } from "inngest";
 import type {
   RunTestsResponse,
+  ScenarioTestResultEvent,
   ServiceConfig,
   TestConfig,
-  WorkflowInput,
+  WorkflowLogEvent,
+  WorkflowRunInput,
 } from "../workflow/types/react-flow-cots";
 
 export const inngest = new Inngest({
@@ -14,47 +16,56 @@ export const inngest = new Inngest({
 });
 
 export type Events = {
-  "cots/workflow.start": {
-    data: WorkflowInput;
+  "cots/workflow.run.start": {
+    data: WorkflowRunInput;
   };
-  "cots/workflow.completed": {
+  "cots/workflow.run.log": {
+    data: WorkflowLogEvent;
+  };
+  "cots/workflow.run.result": {
     data: {
-      userId?: string;
-      workflowName: string;
-      sessionId: string;
+      workflowRunId: string;
       success: boolean;
-      summary: {
-        total: number;
-        passed: number;
-        failed: number;
-      };
     };
   };
-  "cots/services.provision": {
+  "cots/scenario.services.provision": {
     data: {
+      workflowRunId: string;
+      scenarioId: string;
       services: ServiceConfig[];
     };
   };
-  "cots/services.created": {
+  "cots/scenario.services.created": {
     data: {
-      sessionId: string;
+      workflowRunId: string;
+      scenarioId: string;
+      backendSessionId: string;
     };
   };
-  "cots/tests.execute": {
+  "cots/scenario.tests.execute": {
     data: {
-      sessionId: string;
+      workflowRunId: string;
+      scenarioId: string;
+      backendSessionId: string;
       tests: TestConfig[];
     };
   };
-  "cots/tests.completed": {
+  "cots/scenario.tests.completed": {
     data: {
-      sessionId: string;
+      workflowRunId: string;
+      scenarioId: string;
+      backendSessionId: string;
       results: RunTestsResponse;
     };
   };
-  "cots/cleanup.execute": {
+  "cots/scenario.cleanup.execute": {
     data: {
-      sessionId: string;
+      workflowRunId: string;
+      scenarioId: string;
+      backendSessionId: string;
     };
+  };
+  "cots/scenario.test-results": {
+    data: ScenarioTestResultEvent;
   };
 };

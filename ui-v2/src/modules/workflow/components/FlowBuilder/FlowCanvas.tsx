@@ -5,6 +5,7 @@ import {
   IconKeyboard,
   IconPlus,
   IconRun,
+  IconSitemap,
   IconTerminal2,
 } from "@tabler/icons-react";
 import type React from "react";
@@ -34,6 +35,7 @@ interface FlowCanvasProps {
   onNodeDoubleClick: NodeMouseHandler;
   onExecute: () => void;
   onOpenDrawer: () => void;
+  onOpenScenarios: () => void;
   onOpenLogs: () => void;
   onOpenShortcuts: () => void;
   onOpenHistory: () => void;
@@ -52,6 +54,7 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
   onNodeDoubleClick,
   onExecute,
   onOpenDrawer,
+  onOpenScenarios,
   onOpenLogs,
   onOpenShortcuts,
   onOpenHistory,
@@ -103,6 +106,16 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
           title="Execution history"
         >
           <IconHistory className="size-4" />
+        </Button>
+
+        <Button
+          className="cursor-pointer"
+          variant="secondary"
+          onClick={onOpenScenarios}
+          title="Open scenario configuration"
+        >
+          <IconSitemap className="mr-2 size-4" />
+          Scenarios
         </Button>
 
         <Button

@@ -3,7 +3,15 @@ package dto
 import "github.com/dev-atharva/cots/pkg/config"
 
 type CreateServicesRequest struct {
-	Services []ServiceDTO `json:"services" validate:"required,min=1,dive"`
+	Services         []ServiceDTO         `json:"services" validate:"required,min=1,dive"`
+	ExecutionContext *ExecutionContextDTO `json:"execution_context,omitempty"`
+}
+
+type ExecutionContextDTO struct {
+	WorkflowID    string `json:"workflow_id,omitempty"`
+	WorkflowRunID string `json:"workflow_run_id,omitempty"`
+	ScenarioID    string `json:"scenario_id,omitempty"`
+	ScenarioName  string `json:"scenario_name,omitempty"`
 }
 
 type ServiceDTO struct {

@@ -65,8 +65,16 @@ func (s *Service) ProcessBatch(ctx context.Context, req *types.SyncBatchRequest)
 
 	// Process each change within transaction
 	for _, change := range req.Changes {
-		if err := s.processChangeInTx(ctx, tx, &change, response, req.UserID); err != nil {
-			logger.WarnContext(ctx, "error processing change", "entity_type", change.EntityType, "entity_id", change.EntityID, "error", err)
+		changeCtx := logger.WithFields(
+			ctx,
+			"entity_type", change.EntityType,
+			"entity_id", change.EntityID,
+			"change_type", change.ChangeType,
+		)
+		logger.DebugContext(changeCtx, "processing sync change")
+
+		if err := s.processChangeInTx(changeCtx, tx, &change, response, req.UserID); err != nil {
+			logger.WarnContext(changeCtx, "error processing change", "error", err)
 			response.Errors = append(response.Errors, types.SyncError{
 				EntityType: change.EntityType,
 				EntityID:   change.EntityID,
@@ -74,6 +82,8 @@ func (s *Service) ProcessBatch(ctx context.Context, req *types.SyncBatchRequest)
 			})
 			continue
 		}
+
+		logger.DebugContext(changeCtx, "sync change processed successfully")
 		response.ProcessedCount++
 	}
 
@@ -119,7 +129,11 @@ func (s Service) processChange(ctx context.Context, change *types.SyncChange, re
 	switch change.EntityType {
 	case "workflow":
 		return s.processWorkflowChange(ctx, change, response, userID)
-	case "session":
+	case "scenario":
+		return s.processScenarioChange(ctx, change, response, userID)
+	case "workflow_run":
+		return s.processWorkflowRunChange(ctx, change, response, userID)
+	case "scenario_run", "session":
 		return s.processSessionChange(ctx, change, response, userID)
 	case "test_result":
 		return s.processTestResultChange(ctx, change, response, userID)
@@ -132,7 +146,11 @@ func (s Service) processChangeInTx(ctx context.Context, tx db.Tx, change *types.
 	switch change.EntityType {
 	case "workflow":
 		return s.processWorkflowChangeInTx(ctx, tx, change, response, userID)
-	case "session":
+	case "scenario":
+		return s.processScenarioChangeInTx(ctx, tx, change, response, userID)
+	case "workflow_run":
+		return s.processWorkflowRunChangeInTx(ctx, tx, change, response, userID)
+	case "scenario_run", "session":
 		return s.processSessionChangeInTx(ctx, tx, change, response, userID)
 	case "test_result":
 		return s.processTestResultChangeInTx(ctx, tx, change, response, userID)
@@ -225,6 +243,188 @@ func (s *Service) processWorkflowChangeInTx(ctx context.Context, tx db.Tx, chang
 	}
 }
 
+// --- Scenario Changes ---
+func (s *Service) processScenarioChange(ctx context.Context, change *types.SyncChange, response *types.SyncBatchResponse, userID string) error {
+	switch change.ChangeType {
+	case "insert", "update":
+		var scenarioData types.ScenarioData
+		if err := json.Unmarshal(change.Data, &scenarioData); err != nil {
+			return fmt.Errorf("failed to unmarshal scenario data: %w", err)
+		}
+
+		existing, err := s.db.GetScenario(ctx, scenarioData.ID)
+		if err == nil && existing.UpdatedAt.After(change.ClientTime) {
+			response.Conflicts = append(response.Conflicts, types.ConflictInfo{
+				EntityType: "scenario",
+				EntityID:   scenarioData.ID,
+				Resolution: "server_wins",
+				Message: fmt.Sprintf("Server version (updated at: %s) is newer than client (updated at: %s)",
+					existing.UpdatedAt.Format(time.RFC3339), change.ClientTime.Format(time.RFC3339)),
+			})
+			return nil
+		}
+
+		scenario := &db.Scenario{
+			ID:          scenarioData.ID,
+			WorkflowID:  scenarioData.WorkflowID,
+			Name:        scenarioData.Name,
+			Description: scenarioData.Description,
+			TestsConfig: string(scenarioData.TestsConfig),
+			TestOrder:   string(scenarioData.TestOrder),
+			Metadata:    string(scenarioData.Metadata),
+			Version:     scenarioData.Version,
+			CreatedAt:   scenarioData.CreatedAt,
+			UpdatedAt:   scenarioData.UpdatedAt,
+			ClientID:    scenarioData.ClientID,
+			UserID:      userID,
+			IsDeleted:   scenarioData.IsDeleted,
+		}
+
+		return s.db.UpsertScenario(ctx, scenario)
+	case "delete":
+		return s.db.DeleteScenario(ctx, change.EntityID)
+	default:
+		return fmt.Errorf("unknown scenario change type: %s", change.ChangeType)
+	}
+}
+
+func (s *Service) processScenarioChangeInTx(ctx context.Context, tx db.Tx, change *types.SyncChange, response *types.SyncBatchResponse, userID string) error {
+	switch change.ChangeType {
+	case "insert", "update":
+		var scenarioData types.ScenarioData
+		if err := json.Unmarshal(change.Data, &scenarioData); err != nil {
+			return fmt.Errorf("failed to unmarshal scenario data: %w", err)
+		}
+
+		existing, err := tx.GetScenario(ctx, scenarioData.ID)
+		if err == nil && existing.UpdatedAt.After(change.ClientTime) {
+			response.Conflicts = append(response.Conflicts, types.ConflictInfo{
+				EntityType: "scenario",
+				EntityID:   scenarioData.ID,
+				Resolution: "server_wins",
+				Message: fmt.Sprintf("Server version (updated at: %s) is newer than client (updated at: %s)",
+					existing.UpdatedAt.Format(time.RFC3339), change.ClientTime.Format(time.RFC3339)),
+			})
+			return nil
+		}
+
+		scenario := &db.Scenario{
+			ID:          scenarioData.ID,
+			WorkflowID:  scenarioData.WorkflowID,
+			Name:        scenarioData.Name,
+			Description: scenarioData.Description,
+			TestsConfig: string(scenarioData.TestsConfig),
+			TestOrder:   string(scenarioData.TestOrder),
+			Metadata:    string(scenarioData.Metadata),
+			Version:     scenarioData.Version,
+			CreatedAt:   scenarioData.CreatedAt,
+			UpdatedAt:   scenarioData.UpdatedAt,
+			ClientID:    scenarioData.ClientID,
+			UserID:      userID,
+			IsDeleted:   scenarioData.IsDeleted,
+		}
+
+		return tx.UpsertScenario(ctx, scenario)
+	case "delete":
+		return tx.DeleteScenario(ctx, change.EntityID)
+	default:
+		return fmt.Errorf("unknown scenario change type: %s", change.ChangeType)
+	}
+}
+
+// --- Workflow Run Changes ---
+func (s *Service) processWorkflowRunChange(ctx context.Context, change *types.SyncChange, response *types.SyncBatchResponse, userID string) error {
+	switch change.ChangeType {
+	case "insert", "update":
+		var workflowRunData types.WorkflowRunData
+		if err := json.Unmarshal(change.Data, &workflowRunData); err != nil {
+			return fmt.Errorf("failed to unmarshal workflow run data: %w", err)
+		}
+
+		existing, err := s.db.GetWorkflowRun(ctx, workflowRunData.ID)
+		if err == nil && existing.UpdatedAt.After(change.ClientTime) {
+			response.Conflicts = append(response.Conflicts, types.ConflictInfo{
+				EntityType: "workflow_run",
+				EntityID:   workflowRunData.ID,
+				Resolution: "server_wins",
+				Message: fmt.Sprintf("Server version (updated at: %s) is newer than client (updated at: %s)",
+					existing.UpdatedAt.Format(time.RFC3339), change.ClientTime.Format(time.RFC3339)),
+			})
+			return nil
+		}
+
+		workflowRun := &db.WorkflowRun{
+			ID:          workflowRunData.ID,
+			WorkflowID:  workflowRunData.WorkflowID,
+			Status:      workflowRunData.Status,
+			Summary:     string(workflowRunData.Summary),
+			Logs:        string(workflowRunData.Logs),
+			Error:       workflowRunData.Error,
+			StartedAt:   workflowRunData.StartedAt,
+			CompletedAt: workflowRunData.CompletedAt,
+			Metadata:    string(workflowRunData.Metadata),
+			Version:     workflowRunData.Version,
+			CreatedAt:   workflowRunData.CreatedAt,
+			UpdatedAt:   workflowRunData.UpdatedAt,
+			ClientID:    workflowRunData.ClientID,
+			UserID:      userID,
+			IsDeleted:   workflowRunData.IsDeleted,
+		}
+
+		return s.db.UpsertWorkflowRun(ctx, workflowRun)
+	case "delete":
+		return s.db.DeleteWorkflowRun(ctx, change.EntityID)
+	default:
+		return fmt.Errorf("unknown workflow run change type: %s", change.ChangeType)
+	}
+}
+
+func (s *Service) processWorkflowRunChangeInTx(ctx context.Context, tx db.Tx, change *types.SyncChange, response *types.SyncBatchResponse, userID string) error {
+	switch change.ChangeType {
+	case "insert", "update":
+		var workflowRunData types.WorkflowRunData
+		if err := json.Unmarshal(change.Data, &workflowRunData); err != nil {
+			return fmt.Errorf("failed to unmarshal workflow run data: %w", err)
+		}
+
+		existing, err := tx.GetWorkflowRun(ctx, workflowRunData.ID)
+		if err == nil && existing.UpdatedAt.After(change.ClientTime) {
+			response.Conflicts = append(response.Conflicts, types.ConflictInfo{
+				EntityType: "workflow_run",
+				EntityID:   workflowRunData.ID,
+				Resolution: "server_wins",
+				Message: fmt.Sprintf("Server version (updated at: %s) is newer than client (updated at: %s)",
+					existing.UpdatedAt.Format(time.RFC3339), change.ClientTime.Format(time.RFC3339)),
+			})
+			return nil
+		}
+
+		workflowRun := &db.WorkflowRun{
+			ID:          workflowRunData.ID,
+			WorkflowID:  workflowRunData.WorkflowID,
+			Status:      workflowRunData.Status,
+			Summary:     string(workflowRunData.Summary),
+			Logs:        string(workflowRunData.Logs),
+			Error:       workflowRunData.Error,
+			StartedAt:   workflowRunData.StartedAt,
+			CompletedAt: workflowRunData.CompletedAt,
+			Metadata:    string(workflowRunData.Metadata),
+			Version:     workflowRunData.Version,
+			CreatedAt:   workflowRunData.CreatedAt,
+			UpdatedAt:   workflowRunData.UpdatedAt,
+			ClientID:    workflowRunData.ClientID,
+			UserID:      userID,
+			IsDeleted:   workflowRunData.IsDeleted,
+		}
+
+		return tx.UpsertWorkflowRun(ctx, workflowRun)
+	case "delete":
+		return tx.DeleteWorkflowRun(ctx, change.EntityID)
+	default:
+		return fmt.Errorf("unknown workflow run change type: %s", change.ChangeType)
+	}
+}
+
 // --- Session Changes ---
 func (s *Service) processSessionChange(ctx context.Context, change *types.SyncChange, response *types.SyncBatchResponse, userID string) error {
 	switch change.ChangeType {
@@ -247,21 +447,25 @@ func (s *Service) processSessionChange(ctx context.Context, change *types.SyncCh
 		}
 
 		sess := &db.Session{
-			ID:           sessionData.ID,
-			WorkflowID:   sessionData.WorkflowID,
-			Status:       sessionData.Status,
-			Result:       string(sessionData.Result),
-			ContainerIDs: string(sessionData.ContainerIDs),
-			Logs:         string(sessionData.Logs),
-			Error:        sessionData.Error,
-			StartedAt:    sessionData.StartedAt,
-			CompletedAt:  sessionData.CompletedAt,
-			Version:      sessionData.Version,
-			CreatedAt:    sessionData.CreatedAt,
-			UpdatedAt:    sessionData.UpdatedAt,
-			ClientID:     sessionData.ClientID,
-			UserID:       userID,
-			IsDeleted:    sessionData.IsDeleted,
+			ID:               sessionData.ID,
+			WorkflowRunID:    sessionData.WorkflowRunID,
+			WorkflowID:       sessionData.WorkflowID,
+			ScenarioID:       sessionData.ScenarioID,
+			ScenarioName:     sessionData.ScenarioName,
+			BackendSessionID: sessionData.BackendSessionID,
+			Status:           sessionData.Status,
+			Result:           string(sessionData.Result),
+			ContainerIDs:     string(sessionData.ContainerIDs),
+			Logs:             string(sessionData.Logs),
+			Error:            sessionData.Error,
+			StartedAt:        sessionData.StartedAt,
+			CompletedAt:      sessionData.CompletedAt,
+			Version:          sessionData.Version,
+			CreatedAt:        sessionData.CreatedAt,
+			UpdatedAt:        sessionData.UpdatedAt,
+			ClientID:         sessionData.ClientID,
+			UserID:           userID,
+			IsDeleted:        sessionData.IsDeleted,
 		}
 
 		return s.db.UpsertSession(ctx, sess)
@@ -291,20 +495,25 @@ func (s *Service) processSessionChangeInTx(ctx context.Context, tx db.Tx, change
 		}
 
 		sess := &db.Session{
-			ID:           sessionData.ID,
-			WorkflowID:   sessionData.WorkflowID,
-			Status:       sessionData.Status,
-			Result:       string(sessionData.Result),
-			ContainerIDs: string(sessionData.ContainerIDs),
-			Logs:         string(sessionData.Logs),
-			Error:        sessionData.Error,
-			StartedAt:    sessionData.StartedAt,
-			CompletedAt:  sessionData.CompletedAt,
-			Version:      sessionData.Version,
-			CreatedAt:    sessionData.CreatedAt,
-			UpdatedAt:    sessionData.UpdatedAt,
-			ClientID:     sessionData.ClientID,
-			IsDeleted:    sessionData.IsDeleted,
+			ID:               sessionData.ID,
+			WorkflowRunID:    sessionData.WorkflowRunID,
+			WorkflowID:       sessionData.WorkflowID,
+			ScenarioID:       sessionData.ScenarioID,
+			ScenarioName:     sessionData.ScenarioName,
+			BackendSessionID: sessionData.BackendSessionID,
+			Status:           sessionData.Status,
+			Result:           string(sessionData.Result),
+			ContainerIDs:     string(sessionData.ContainerIDs),
+			Logs:             string(sessionData.Logs),
+			Error:            sessionData.Error,
+			StartedAt:        sessionData.StartedAt,
+			CompletedAt:      sessionData.CompletedAt,
+			Version:          sessionData.Version,
+			CreatedAt:        sessionData.CreatedAt,
+			UpdatedAt:        sessionData.UpdatedAt,
+			ClientID:         sessionData.ClientID,
+			UserID:           userID,
+			IsDeleted:        sessionData.IsDeleted,
 		}
 		return tx.UpsertSession(ctx, sess)
 	case "delete":
@@ -352,20 +561,23 @@ func (s *Service) processTestResultChange(
 	}
 
 	result := &db.TestResult{
-		ID:         testData.ID,
-		SessionID:  testData.SessionID,
-		WorkflowID: testData.WorkflowID,
-		TestName:   testData.TestName,
-		TestType:   testData.TestType,
-		Status:     testData.Status,
-		ResultData: testData.ResultData,
-		DurationMs: testData.DurationMs,
-		ExecutedAt: testData.ExecutedAt,
-		CreatedAt:  testData.CreatedAt,
-		UpdatedAt:  testData.UpdatedAt,
-		ClientID:   testData.ClientID,
-		UserID:     userID,
-		IsDeleted:  testData.IsDeleted,
+		ID:            testData.ID,
+		SessionID:     testData.SessionID,
+		WorkflowRunID: testData.WorkflowRunID,
+		WorkflowID:    testData.WorkflowID,
+		ScenarioID:    testData.ScenarioID,
+		ScenarioName:  testData.ScenarioName,
+		TestName:      testData.TestName,
+		TestType:      testData.TestType,
+		Status:        testData.Status,
+		ResultData:    testData.ResultData,
+		DurationMs:    testData.DurationMs,
+		ExecutedAt:    testData.ExecutedAt,
+		CreatedAt:     testData.CreatedAt,
+		UpdatedAt:     testData.UpdatedAt,
+		ClientID:      testData.ClientID,
+		UserID:        userID,
+		IsDeleted:     testData.IsDeleted,
 	}
 
 	// Upsert the test result - always accept the client's version
@@ -473,20 +685,23 @@ func (s *Service) processTestResultChangeInTx(ctx context.Context, tx db.Tx, cha
 	}
 
 	result := &db.TestResult{
-		ID:         testData.ID,
-		SessionID:  testData.SessionID,
-		WorkflowID: testData.WorkflowID,
-		TestName:   testData.TestName,
-		TestType:   testData.TestType,
-		Status:     testData.Status,
-		ResultData: testData.ResultData,
-		DurationMs: testData.DurationMs,
-		ExecutedAt: testData.ExecutedAt,
-		CreatedAt:  testData.CreatedAt,
-		UpdatedAt:  testData.UpdatedAt,
-		ClientID:   testData.ClientID,
-		UserID:     userID,
-		IsDeleted:  testData.IsDeleted,
+		ID:            testData.ID,
+		SessionID:     testData.SessionID,
+		WorkflowRunID: testData.WorkflowRunID,
+		WorkflowID:    testData.WorkflowID,
+		ScenarioID:    testData.ScenarioID,
+		ScenarioName:  testData.ScenarioName,
+		TestName:      testData.TestName,
+		TestType:      testData.TestType,
+		Status:        testData.Status,
+		ResultData:    testData.ResultData,
+		DurationMs:    testData.DurationMs,
+		ExecutedAt:    testData.ExecutedAt,
+		CreatedAt:     testData.CreatedAt,
+		UpdatedAt:     testData.UpdatedAt,
+		ClientID:      testData.ClientID,
+		UserID:        userID,
+		IsDeleted:     testData.IsDeleted,
 	}
 
 	if err := tx.UpsertTestResult(ctx, result); err != nil {
@@ -593,15 +808,29 @@ func (s *Service) PullChanges(ctx context.Context, userID string) (*types.SyncPu
 	logger.InfoContext(ctx, "pulling changes for user", "user_id", userID)
 
 	response := &types.SyncPullResponse{
-		Workflows:   []types.WorkflowData{},
-		Sessions:    []types.SessionData{},
-		TestResults: []types.TestResultData{},
+		Workflows:    []types.WorkflowData{},
+		Scenarios:    []types.ScenarioData{},
+		WorkflowRuns: []types.WorkflowRunData{},
+		Sessions:     []types.SessionData{},
+		TestResults:  []types.TestResultData{},
 	}
 
 	workflows, err := s.db.ListWorkflows(ctx, userID)
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to list workflows", "error", err, "user_id", userID)
 		return nil, fmt.Errorf("failed to list workflows: %w", err)
+	}
+
+	scenarios, err := s.db.ListScenariosByUserId(ctx, userID)
+	if err != nil {
+		logger.ErrorContext(ctx, "failed to list scenarios", "error", err, "user_id", userID)
+		return nil, fmt.Errorf("failed to list scenarios: %w", err)
+	}
+
+	workflowRuns, err := s.db.ListWorkflowRunsByUserId(ctx, userID)
+	if err != nil {
+		logger.ErrorContext(ctx, "failed to list workflow runs", "error", err, "user_id", userID)
+		return nil, fmt.Errorf("failed to list workflow runs: %w", err)
 	}
 
 	sessions, err := s.db.ListSessionsByUserId(ctx, userID)
@@ -632,44 +861,91 @@ func (s *Service) PullChanges(ctx context.Context, userID string) (*types.SyncPu
 		})
 	}
 
+	for _, scenario := range scenarios {
+		response.Scenarios = append(response.Scenarios, types.ScenarioData{
+			ID:          scenario.ID,
+			WorkflowID:  scenario.WorkflowID,
+			UserID:      scenario.UserID,
+			Name:        scenario.Name,
+			Description: scenario.Description,
+			TestsConfig: json.RawMessage(scenario.TestsConfig),
+			TestOrder:   json.RawMessage(scenario.TestOrder),
+			Metadata:    json.RawMessage(scenario.Metadata),
+			Version:     scenario.Version,
+			CreatedAt:   scenario.CreatedAt,
+			UpdatedAt:   scenario.UpdatedAt,
+			ClientID:    scenario.ClientID,
+			IsDeleted:   scenario.IsDeleted,
+		})
+	}
+
+	for _, workflowRun := range workflowRuns {
+		response.WorkflowRuns = append(response.WorkflowRuns, types.WorkflowRunData{
+			ID:          workflowRun.ID,
+			WorkflowID:  workflowRun.WorkflowID,
+			UserID:      workflowRun.UserID,
+			Status:      workflowRun.Status,
+			Summary:     json.RawMessage(workflowRun.Summary),
+			Logs:        json.RawMessage(workflowRun.Logs),
+			Error:       workflowRun.Error,
+			StartedAt:   workflowRun.StartedAt,
+			CompletedAt: workflowRun.CompletedAt,
+			Metadata:    json.RawMessage(workflowRun.Metadata),
+			Version:     workflowRun.Version,
+			CreatedAt:   workflowRun.CreatedAt,
+			UpdatedAt:   workflowRun.UpdatedAt,
+			ClientID:    workflowRun.ClientID,
+			IsDeleted:   workflowRun.IsDeleted,
+		})
+	}
+
 	for _, sess := range sessions {
 		response.Sessions = append(response.Sessions, types.SessionData{
-			ID:           sess.ID,
-			UserID:       sess.UserID,
-			WorkflowID:   sess.WorkflowID,
-			Status:       sess.Status,
-			Result:       json.RawMessage(sess.Result),
-			ContainerIDs: json.RawMessage(sess.ContainerIDs),
-			Logs:         json.RawMessage(sess.Logs),
-			Error:        sess.Error,
-			StartedAt:    sess.StartedAt,
-			CompletedAt:  sess.CompletedAt,
-			CreatedAt:    sess.CreatedAt,
-			UpdatedAt:    sess.UpdatedAt,
-			ClientID:     sess.ClientID,
-			IsDeleted:    sess.IsDeleted,
+			ID:               sess.ID,
+			UserID:           sess.UserID,
+			WorkflowRunID:    sess.WorkflowRunID,
+			WorkflowID:       sess.WorkflowID,
+			ScenarioID:       sess.ScenarioID,
+			ScenarioName:     sess.ScenarioName,
+			BackendSessionID: sess.BackendSessionID,
+			Status:           sess.Status,
+			Result:           json.RawMessage(sess.Result),
+			ContainerIDs:     json.RawMessage(sess.ContainerIDs),
+			Logs:             json.RawMessage(sess.Logs),
+			Error:            sess.Error,
+			StartedAt:        sess.StartedAt,
+			CompletedAt:      sess.CompletedAt,
+			Version:          sess.Version,
+			CreatedAt:        sess.CreatedAt,
+			UpdatedAt:        sess.UpdatedAt,
+			ClientID:         sess.ClientID,
+			IsDeleted:        sess.IsDeleted,
 		})
 	}
 
 	for _, testres := range testResults {
 		response.TestResults = append(response.TestResults, types.TestResultData{
-			ID:         testres.ID,
-			SessionID:  testres.SessionID,
-			WorkflowID: testres.WorkflowID,
-			TestName:   testres.TestName,
-			TestType:   testres.TestType,
-			Status:     testres.Status,
-			ResultData: testres.ResultData,
-			DurationMs: testres.DurationMs,
-			ExecutedAt: testres.ExecutedAt,
-			CreatedAt:  testres.CreatedAt,
-			UpdatedAt:  testres.UpdatedAt,
-			ClientID:   testres.ClientID,
-			IsDeleted:  testres.IsDeleted,
+			ID:            testres.ID,
+			UserID:        testres.UserID,
+			SessionID:     testres.SessionID,
+			WorkflowRunID: testres.WorkflowRunID,
+			WorkflowID:    testres.WorkflowID,
+			ScenarioID:    testres.ScenarioID,
+			ScenarioName:  testres.ScenarioName,
+			TestName:      testres.TestName,
+			TestType:      testres.TestType,
+			Status:        testres.Status,
+			ResultData:    testres.ResultData,
+			DurationMs:    testres.DurationMs,
+			ExecutedAt:    testres.ExecutedAt,
+			CreatedAt:     testres.CreatedAt,
+			UpdatedAt:     testres.UpdatedAt,
+			ClientID:      testres.ClientID,
+			IsDeleted:     testres.IsDeleted,
 		})
 	}
 
-	logger.InfoContext(ctx, "changes pulled successfully", "user_id", userID, "workflows_count", len(response.Workflows), "sessions_count", len(response.Sessions), "test_results_count", len(response.TestResults))
+	logger.InfoContext(ctx, "changes pulled successfully", "user_id", userID, "workflows_count", len(response.Workflows), "scenarios_count", len(response.Scenarios), "workflow_runs_count", len(response.WorkflowRuns), "sessions_count", len(response.Sessions), "test_results_count", len(response.TestResults))
 
 	return response, nil
 }

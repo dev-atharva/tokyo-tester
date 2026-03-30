@@ -75,11 +75,11 @@ export function SyncDebugPanel() {
         </Button>
       </div>
 
-      {debugInfo?.queue && debugInfo.queue.length > 0 && (
+      {debugInfo?.queueSnapshot && debugInfo.queueSnapshot.length > 0 && (
         <div className="mt-4">
           <h4 className="font-semibold text-xs mb-1">Queue:</h4>
           <pre className="text-xs bg-gray-100 p-2 rounded overflow-auto max-h-32">
-            {JSON.stringify(debugInfo.queue, null, 2)}
+            {JSON.stringify(debugInfo.queueSnapshot, null, 2)}
           </pre>
         </div>
       )}

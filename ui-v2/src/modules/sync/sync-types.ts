@@ -4,7 +4,12 @@ import type {
   JsonValue,
 } from "../workflow/types/react-flow-cots";
 
-export type EntityType = "workflow" | "session" | "test_result";
+export type EntityType =
+  | "workflow"
+  | "scenario"
+  | "workflow_run"
+  | "scenario_run"
+  | "test_result";
 export type ChangeType = "insert" | "update" | "delete";
 
 export interface SyncChange {
@@ -65,9 +70,47 @@ export interface WorkflowData {
   is_deleted: boolean;
 }
 
+export interface ScenarioData {
+  id: string;
+  workflow_id: string;
+  name: string;
+  description?: string;
+  tests_config: JsonValue;
+  test_order: string[];
+  metadata?: Record<string, JsonValue>;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  user_id: string;
+  client_id: string;
+  is_deleted: boolean;
+}
+
+export interface WorkflowRunData {
+  id: string;
+  workflow_id: string;
+  status: string;
+  summary?: JsonValue;
+  logs?: string[];
+  error?: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  metadata?: Record<string, JsonValue>;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  user_id: string;
+  client_id: string;
+  is_deleted: boolean;
+}
+
 export interface SessionData {
   id: string;
+  workflow_run_id?: string;
   workflow_id?: string;
+  scenario_id?: string;
+  scenario_name?: string;
+  backend_session_id?: string;
   status: string;
   result?: JsonValue;
   container_ids?: string[];
@@ -85,7 +128,10 @@ export interface SessionData {
 export interface TestResultData {
   id: string;
   session_id: string;
+  workflow_run_id?: string;
   workflow_id: string;
+  scenario_id?: string;
+  scenario_name?: string;
   test_name: string;
   test_type: string;
   status: string;
@@ -101,6 +147,8 @@ export interface TestResultData {
 
 export interface SyncPullResponse {
   workflows?: WorkflowData[];
+  scenarios?: ScenarioData[];
+  workflow_runs?: WorkflowRunData[];
   sessions?: SessionData[];
   test_results?: TestResultData[];
 }

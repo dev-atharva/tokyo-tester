@@ -15,8 +15,16 @@ type Session struct {
 	Orchestrator *orchestrator.Orchestrator
 	Context      context.Context
 	Cancel       context.CancelFunc
+	Execution    *ExecutionContext
 	TestResults  map[string]any
 	resultsMu    sync.RWMutex
+}
+
+type ExecutionContext struct {
+	WorkflowID    string
+	WorkflowRunID string
+	ScenarioID    string
+	ScenarioName  string
 }
 
 type Manager struct {
@@ -31,7 +39,7 @@ func NewManager() *Manager {
 }
 
 // Create new session with unique id
-func (m *Manager) Create(orch *orchestrator.Orchestrator) string {
+func (m *Manager) Create(orch *orchestrator.Orchestrator, execution *ExecutionContext) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -43,6 +51,7 @@ func (m *Manager) Create(orch *orchestrator.Orchestrator) string {
 		Orchestrator: orch,
 		Context:      ctx,
 		Cancel:       cancel,
+		Execution:    execution,
 		TestResults:  make(map[string]any),
 	}
 

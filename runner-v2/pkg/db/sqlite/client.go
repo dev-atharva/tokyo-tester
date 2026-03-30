@@ -161,15 +161,205 @@ func (c *Client) ListWorkflows(ctx context.Context, userID string) ([]*db.Workfl
 	return workflows, nil
 }
 
+func (c *Client) UpsertScenario(ctx context.Context, scenario *db.Scenario) error {
+	query := `
+		INSERT INTO scenarios (id, workflow_id, name, description, tests_config, test_order, metadata, version, created_at, updated_at, client_id, user_id, is_deleted)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(id) DO UPDATE SET
+			workflow_id = excluded.workflow_id,
+			name = excluded.name,
+			description = excluded.description,
+			tests_config = excluded.tests_config,
+			test_order = excluded.test_order,
+			metadata = excluded.metadata,
+			version = excluded.version,
+			updated_at = excluded.updated_at,
+			client_id = excluded.client_id,
+			user_id = excluded.user_id,
+			is_deleted = excluded.is_deleted
+	`
+	_, err := c.conn.ExecContext(ctx, query,
+		scenario.ID, scenario.WorkflowID, scenario.Name, scenario.Description,
+		scenario.TestsConfig, scenario.TestOrder, scenario.Metadata, scenario.Version,
+		scenario.CreatedAt, scenario.UpdatedAt, scenario.ClientID, scenario.UserID, scenario.IsDeleted,
+	)
+	return err
+}
+
+func (c *Client) GetScenario(ctx context.Context, id string) (*db.Scenario, error) {
+	query := `
+		SELECT id, workflow_id, name, description, tests_config, test_order, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+		FROM scenarios WHERE id = ? AND is_deleted = 0
+	`
+	var sc db.Scenario
+	err := c.conn.QueryRowContext(ctx, query, id).Scan(
+		&sc.ID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
+		&sc.Metadata, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt, &sc.ClientID, &sc.UserID, &sc.IsDeleted,
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("scenario not found: %s", id)
+	}
+	return &sc, err
+}
+
+func (c *Client) DeleteScenario(ctx context.Context, id string) error {
+	_, err := c.conn.ExecContext(ctx, `UPDATE scenarios SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_deleted = 0`, id)
+	return err
+}
+
+func (c *Client) ListScenariosByWorkflow(ctx context.Context, workflowID string) ([]*db.Scenario, error) {
+	rows, err := c.conn.QueryContext(ctx, `
+		SELECT id, workflow_id, name, description, tests_config, test_order, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+		FROM scenarios WHERE workflow_id = ? AND is_deleted = 0 ORDER BY updated_at DESC
+	`, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var scenarios []*db.Scenario
+	for rows.Next() {
+		var sc db.Scenario
+		if err := rows.Scan(
+			&sc.ID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
+			&sc.Metadata, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt, &sc.ClientID, &sc.UserID, &sc.IsDeleted,
+		); err != nil {
+			return nil, err
+		}
+		scenarios = append(scenarios, &sc)
+	}
+	return scenarios, nil
+}
+
+func (c *Client) ListScenariosByUserId(ctx context.Context, userID string) ([]*db.Scenario, error) {
+	rows, err := c.conn.QueryContext(ctx, `
+		SELECT id, workflow_id, name, description, tests_config, test_order, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+		FROM scenarios WHERE user_id = ? AND is_deleted = 0 ORDER BY updated_at DESC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var scenarios []*db.Scenario
+	for rows.Next() {
+		var sc db.Scenario
+		if err := rows.Scan(
+			&sc.ID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
+			&sc.Metadata, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt, &sc.ClientID, &sc.UserID, &sc.IsDeleted,
+		); err != nil {
+			return nil, err
+		}
+		scenarios = append(scenarios, &sc)
+	}
+	return scenarios, nil
+}
+
+func (c *Client) UpsertWorkflowRun(ctx context.Context, workflowRun *db.WorkflowRun) error {
+	query := `
+		INSERT INTO workflow_runs (id, workflow_id, status, summary, logs, error, started_at, completed_at, metadata, version, created_at, updated_at, client_id, user_id, is_deleted)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(id) DO UPDATE SET
+			workflow_id = excluded.workflow_id,
+			status = excluded.status,
+			summary = excluded.summary,
+			logs = excluded.logs,
+			error = excluded.error,
+			started_at = excluded.started_at,
+			completed_at = excluded.completed_at,
+			metadata = excluded.metadata,
+			version = excluded.version,
+			updated_at = excluded.updated_at,
+			client_id = excluded.client_id,
+			user_id = excluded.user_id,
+			is_deleted = excluded.is_deleted
+	`
+	_, err := c.conn.ExecContext(ctx, query,
+		workflowRun.ID, workflowRun.WorkflowID, workflowRun.Status, workflowRun.Summary, workflowRun.Logs,
+		workflowRun.Error, workflowRun.StartedAt, workflowRun.CompletedAt, workflowRun.Metadata, workflowRun.Version,
+		workflowRun.CreatedAt, workflowRun.UpdatedAt, workflowRun.ClientID, workflowRun.UserID, workflowRun.IsDeleted,
+	)
+	return err
+}
+
+func (c *Client) GetWorkflowRun(ctx context.Context, id string) (*db.WorkflowRun, error) {
+	query := `
+		SELECT id, workflow_id, status, summary, logs, error, started_at, completed_at, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+		FROM workflow_runs WHERE id = ? AND is_deleted = 0
+	`
+	var wr db.WorkflowRun
+	err := c.conn.QueryRowContext(ctx, query, id).Scan(
+		&wr.ID, &wr.WorkflowID, &wr.Status, &wr.Summary, &wr.Logs, &wr.Error,
+		&wr.StartedAt, &wr.CompletedAt, &wr.Metadata, &wr.Version, &wr.CreatedAt, &wr.UpdatedAt, &wr.ClientID, &wr.UserID, &wr.IsDeleted,
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("workflow run not found: %s", id)
+	}
+	return &wr, err
+}
+
+func (c *Client) DeleteWorkflowRun(ctx context.Context, id string) error {
+	_, err := c.conn.ExecContext(ctx, `UPDATE workflow_runs SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_deleted = 0`, id)
+	return err
+}
+
+func (c *Client) ListWorkflowRunsByWorkflow(ctx context.Context, workflowID string) ([]*db.WorkflowRun, error) {
+	rows, err := c.conn.QueryContext(ctx, `
+		SELECT id, workflow_id, status, summary, logs, error, started_at, completed_at, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+		FROM workflow_runs WHERE workflow_id = ? AND is_deleted = 0 ORDER BY created_at DESC
+	`, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var runs []*db.WorkflowRun
+	for rows.Next() {
+		var wr db.WorkflowRun
+		if err := rows.Scan(
+			&wr.ID, &wr.WorkflowID, &wr.Status, &wr.Summary, &wr.Logs, &wr.Error,
+			&wr.StartedAt, &wr.CompletedAt, &wr.Metadata, &wr.Version, &wr.CreatedAt, &wr.UpdatedAt, &wr.ClientID, &wr.UserID, &wr.IsDeleted,
+		); err != nil {
+			return nil, err
+		}
+		runs = append(runs, &wr)
+	}
+	return runs, nil
+}
+
+func (c *Client) ListWorkflowRunsByUserId(ctx context.Context, userID string) ([]*db.WorkflowRun, error) {
+	rows, err := c.conn.QueryContext(ctx, `
+		SELECT id, workflow_id, status, summary, logs, error, started_at, completed_at, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+		FROM workflow_runs WHERE user_id = ? AND is_deleted = 0 ORDER BY created_at DESC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var runs []*db.WorkflowRun
+	for rows.Next() {
+		var wr db.WorkflowRun
+		if err := rows.Scan(
+			&wr.ID, &wr.WorkflowID, &wr.Status, &wr.Summary, &wr.Logs, &wr.Error,
+			&wr.StartedAt, &wr.CompletedAt, &wr.Metadata, &wr.Version, &wr.CreatedAt, &wr.UpdatedAt, &wr.ClientID, &wr.UserID, &wr.IsDeleted,
+		); err != nil {
+			return nil, err
+		}
+		runs = append(runs, &wr)
+	}
+	return runs, nil
+}
+
 func (c *Client) UpsertSession(ctx context.Context, session *db.Session) error {
 	query := `
 		INSERT INTO sessions (
-			id, workflow_id, status, result, container_ids, logs, error,
+			id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
 			started_at, completed_at, created_at, updated_at, client_id, user_id, is_deleted
 		)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
+			workflow_run_id = excluded.workflow_run_id,
 			workflow_id = excluded.workflow_id,
+			scenario_id = excluded.scenario_id,
+			scenario_name = excluded.scenario_name,
+			backend_session_id = excluded.backend_session_id,
 			status = excluded.status,
 			result = excluded.result,
 			container_ids = excluded.container_ids,
@@ -184,7 +374,11 @@ func (c *Client) UpsertSession(ctx context.Context, session *db.Session) error {
 	`
 	_, err := c.conn.ExecContext(ctx, query,
 		session.ID,
+		session.WorkflowRunID,
 		session.WorkflowID,
+		session.ScenarioID,
+		session.ScenarioName,
+		session.BackendSessionID,
 		session.Status,
 		session.Result,
 		session.ContainerIDs,
@@ -203,7 +397,7 @@ func (c *Client) UpsertSession(ctx context.Context, session *db.Session) error {
 
 func (c *Client) GetSession(ctx context.Context, id string) (*db.Session, error) {
 	query := `
-		SELECT id, workflow_id, status, result, container_ids, logs, error,
+		SELECT id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
 			started_at, completed_at, created_at, updated_at, client_id, user_id, is_deleted
 		FROM sessions
 		WHERE id = ? AND is_deleted = 0
@@ -211,7 +405,11 @@ func (c *Client) GetSession(ctx context.Context, id string) (*db.Session, error)
 	var s db.Session
 	err := c.conn.QueryRowContext(ctx, query, id).Scan(
 		&s.ID,
+		&s.WorkflowRunID,
 		&s.WorkflowID,
+		&s.ScenarioID,
+		&s.ScenarioName,
+		&s.BackendSessionID,
 		&s.Status,
 		&s.Result,
 		&s.ContainerIDs,
@@ -243,7 +441,7 @@ func (c *Client) DeleteSession(ctx context.Context, id string) error {
 
 func (c *Client) ListSessions(ctx context.Context, workflowID string) ([]*db.Session, error) {
 	query := `
-		SELECT id, workflow_id, status, result, container_ids, logs, error,
+		SELECT id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
 			started_at, completed_at, created_at, updated_at, client_id, user_id, is_deleted
 		FROM sessions
 		WHERE workflow_id = ? AND is_deleted = 0
@@ -260,7 +458,11 @@ func (c *Client) ListSessions(ctx context.Context, workflowID string) ([]*db.Ses
 		var s db.Session
 		if err := rows.Scan(
 			&s.ID,
+			&s.WorkflowRunID,
 			&s.WorkflowID,
+			&s.ScenarioID,
+			&s.ScenarioName,
+			&s.BackendSessionID,
 			&s.Status,
 			&s.Result,
 			&s.ContainerIDs,
@@ -283,7 +485,7 @@ func (c *Client) ListSessions(ctx context.Context, workflowID string) ([]*db.Ses
 
 func (c *Client) ListSessionsByUserId(ctx context.Context, userID string) ([]*db.Session, error) {
 	query := `
-		SELECT id, workflow_id, status, result, container_ids, logs, error,
+		SELECT id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
 			started_at, completed_at, created_at, updated_at, client_id, user_id, is_deleted
 		FROM sessions
 		WHERE user_id = ? AND is_deleted = 0
@@ -300,7 +502,11 @@ func (c *Client) ListSessionsByUserId(ctx context.Context, userID string) ([]*db
 		var s db.Session
 		if err := rows.Scan(
 			&s.ID,
+			&s.WorkflowRunID,
 			&s.WorkflowID,
+			&s.ScenarioID,
+			&s.ScenarioName,
+			&s.BackendSessionID,
 			&s.Status,
 			&s.Result,
 			&s.ContainerIDs,
@@ -324,16 +530,16 @@ func (c *Client) ListSessionsByUserId(ctx context.Context, userID string) ([]*db
 func (c *Client) InsertTestResult(ctx context.Context, tr *db.TestResult) error {
 	query := `
 		INSERT INTO test_results (
-			id, session_id, workflow_id, test_name, test_type,
+			id, session_id, workflow_run_id, workflow_id, scenario_id, scenario_name, test_name, test_type,
 			status, result_data, duration_ms,
-			executed_at, created_at, client_id, user_id, is_deleted
+			executed_at, created_at, updated_at, client_id, user_id, is_deleted
 		)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 	`
 	_, err := c.conn.ExecContext(ctx, query,
-		tr.ID, tr.SessionID, tr.WorkflowID, tr.TestName, tr.TestType,
+		tr.ID, tr.SessionID, tr.WorkflowRunID, tr.WorkflowID, tr.ScenarioID, tr.ScenarioName, tr.TestName, tr.TestType,
 		tr.Status, tr.ResultData, tr.DurationMs, tr.ExecutedAt,
-		tr.CreatedAt, tr.ClientID, tr.UserID, tr.IsDeleted,
+		tr.CreatedAt, tr.UpdatedAt, tr.ClientID, tr.UserID, tr.IsDeleted,
 	)
 	return err
 }
@@ -341,11 +547,15 @@ func (c *Client) InsertTestResult(ctx context.Context, tr *db.TestResult) error 
 func (c *Client) UpsertTestResult(ctx context.Context, result *db.TestResult) error {
 	query := `
 		INSERT INTO test_results (
-			id, session_id, workflow_id, test_name, test_type, status, result_data,
+			id, session_id, workflow_run_id, workflow_id, scenario_id, scenario_name, test_name, test_type, status, result_data,
 			duration_ms, executed_at, created_at, updated_at, client_id, user_id, is_deleted
 		)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
+			workflow_run_id = excluded.workflow_run_id,
+			workflow_id = excluded.workflow_id,
+			scenario_id = excluded.scenario_id,
+			scenario_name = excluded.scenario_name,
 			status = excluded.status,
 			result_data = excluded.result_data,
 			duration_ms = excluded.duration_ms,
@@ -358,7 +568,10 @@ func (c *Client) UpsertTestResult(ctx context.Context, result *db.TestResult) er
 	_, err := c.conn.ExecContext(ctx, query,
 		result.ID,
 		result.SessionID,
+		result.WorkflowRunID,
 		result.WorkflowID,
+		result.ScenarioID,
+		result.ScenarioName,
 		result.TestName,
 		result.TestType,
 		result.Status,
@@ -376,7 +589,7 @@ func (c *Client) UpsertTestResult(ctx context.Context, result *db.TestResult) er
 
 func (c *Client) GetTestResult(ctx context.Context, id string) (*db.TestResult, error) {
 	query := `
-		SELECT id, session_id, workflow_id, test_name, test_type, status, result_data,
+		SELECT id, session_id, workflow_run_id, workflow_id, scenario_id, scenario_name, test_name, test_type, status, result_data,
 			duration_ms, executed_at, created_at, updated_at, client_id, user_id, is_deleted
 		FROM test_results
 		WHERE id = ? AND is_deleted = 0
@@ -385,7 +598,10 @@ func (c *Client) GetTestResult(ctx context.Context, id string) (*db.TestResult, 
 	err := c.conn.QueryRowContext(ctx, query, id).Scan(
 		&tr.ID,
 		&tr.SessionID,
+		&tr.WorkflowRunID,
 		&tr.WorkflowID,
+		&tr.ScenarioID,
+		&tr.ScenarioName,
 		&tr.TestName,
 		&tr.TestType,
 		&tr.Status,
@@ -416,7 +632,7 @@ func (c *Client) DeleteTestResult(ctx context.Context, id string) error {
 
 func (c *Client) ListTestResults(ctx context.Context, sessionID string) ([]*db.TestResult, error) {
 	query := `
-		SELECT id, session_id, workflow_id, test_name, test_type, status, result_data,
+		SELECT id, session_id, workflow_run_id, workflow_id, scenario_id, scenario_name, test_name, test_type, status, result_data,
 			duration_ms, executed_at, created_at, updated_at, client_id, user_id, is_deleted
 		FROM test_results
 		WHERE session_id = ? AND is_deleted = 0
@@ -434,7 +650,10 @@ func (c *Client) ListTestResults(ctx context.Context, sessionID string) ([]*db.T
 		if err := rows.Scan(
 			&tr.ID,
 			&tr.SessionID,
+			&tr.WorkflowRunID,
 			&tr.WorkflowID,
+			&tr.ScenarioID,
+			&tr.ScenarioName,
 			&tr.TestName,
 			&tr.TestType,
 			&tr.Status,
@@ -456,7 +675,7 @@ func (c *Client) ListTestResults(ctx context.Context, sessionID string) ([]*db.T
 
 func (c *Client) ListTestResultsByUserId(ctx context.Context, userID string) ([]*db.TestResult, error) {
 	query := `
-		SELECT id, session_id, workflow_id, test_name, test_type, status, result_data,
+		SELECT id, session_id, workflow_run_id, workflow_id, scenario_id, scenario_name, test_name, test_type, status, result_data,
 			duration_ms, executed_at, created_at, updated_at, client_id, user_id, is_deleted
 		FROM test_results
 		WHERE user_id = ? AND is_deleted = 0
@@ -474,7 +693,10 @@ func (c *Client) ListTestResultsByUserId(ctx context.Context, userID string) ([]
 		if err := rows.Scan(
 			&tr.ID,
 			&tr.SessionID,
+			&tr.WorkflowRunID,
 			&tr.WorkflowID,
+			&tr.ScenarioID,
+			&tr.ScenarioName,
 			&tr.TestName,
 			&tr.TestType,
 			&tr.Status,
@@ -623,16 +845,112 @@ func (t *SQLiteTx) DeleteWorkflow(ctx context.Context, id string) error {
 	return err
 }
 
-func (t *SQLiteTx) UpsertSession(ctx context.Context, s *db.Session) error {
+func (t *SQLiteTx) UpsertScenario(ctx context.Context, scenario *db.Scenario) error {
 	query := `
-		INSERT INTO sessions (
-			id, workflow_id, status, result, container_ids, logs, error,
-			started_at, completed_at, version, created_at, updated_at,
-			client_id, user_id, is_deleted
-		)
+		INSERT INTO scenarios (id, workflow_id, name, description, tests_config, test_order, metadata, version, created_at, updated_at, client_id, user_id, is_deleted)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(id) DO UPDATE SET
+			workflow_id = excluded.workflow_id,
+			name = excluded.name,
+			description = excluded.description,
+			tests_config = excluded.tests_config,
+			test_order = excluded.test_order,
+			metadata = excluded.metadata,
+			version = excluded.version,
+			updated_at = excluded.updated_at,
+			client_id = excluded.client_id,
+			user_id = excluded.user_id,
+			is_deleted = excluded.is_deleted
+	`
+	_, err := t.tx.ExecContext(ctx, query,
+		scenario.ID, scenario.WorkflowID, scenario.Name, scenario.Description,
+		scenario.TestsConfig, scenario.TestOrder, scenario.Metadata, scenario.Version,
+		scenario.CreatedAt, scenario.UpdatedAt, scenario.ClientID, scenario.UserID, scenario.IsDeleted,
+	)
+	return err
+}
+
+func (t *SQLiteTx) GetScenario(ctx context.Context, id string) (*db.Scenario, error) {
+	var sc db.Scenario
+	err := t.tx.QueryRowContext(ctx, `
+		SELECT id, workflow_id, name, description, tests_config, test_order, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+		FROM scenarios WHERE id = ? AND is_deleted = 0
+	`, id).Scan(
+		&sc.ID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
+		&sc.Metadata, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt, &sc.ClientID, &sc.UserID, &sc.IsDeleted,
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("scenario not found: %s", id)
+	}
+	return &sc, err
+}
+
+func (t *SQLiteTx) DeleteScenario(ctx context.Context, id string) error {
+	_, err := t.tx.ExecContext(ctx, `UPDATE scenarios SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_deleted = 0`, id)
+	return err
+}
+
+func (t *SQLiteTx) UpsertWorkflowRun(ctx context.Context, workflowRun *db.WorkflowRun) error {
+	query := `
+		INSERT INTO workflow_runs (id, workflow_id, status, summary, logs, error, started_at, completed_at, metadata, version, created_at, updated_at, client_id, user_id, is_deleted)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			workflow_id = excluded.workflow_id,
+			status = excluded.status,
+			summary = excluded.summary,
+			logs = excluded.logs,
+			error = excluded.error,
+			started_at = excluded.started_at,
+			completed_at = excluded.completed_at,
+			metadata = excluded.metadata,
+			version = excluded.version,
+			updated_at = excluded.updated_at,
+			client_id = excluded.client_id,
+			user_id = excluded.user_id,
+			is_deleted = excluded.is_deleted
+	`
+	_, err := t.tx.ExecContext(ctx, query,
+		workflowRun.ID, workflowRun.WorkflowID, workflowRun.Status, workflowRun.Summary, workflowRun.Logs,
+		workflowRun.Error, workflowRun.StartedAt, workflowRun.CompletedAt, workflowRun.Metadata, workflowRun.Version,
+		workflowRun.CreatedAt, workflowRun.UpdatedAt, workflowRun.ClientID, workflowRun.UserID, workflowRun.IsDeleted,
+	)
+	return err
+}
+
+func (t *SQLiteTx) GetWorkflowRun(ctx context.Context, id string) (*db.WorkflowRun, error) {
+	var wr db.WorkflowRun
+	err := t.tx.QueryRowContext(ctx, `
+		SELECT id, workflow_id, status, summary, logs, error, started_at, completed_at, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+		FROM workflow_runs WHERE id = ? AND is_deleted = 0
+	`, id).Scan(
+		&wr.ID, &wr.WorkflowID, &wr.Status, &wr.Summary, &wr.Logs, &wr.Error,
+		&wr.StartedAt, &wr.CompletedAt, &wr.Metadata, &wr.Version, &wr.CreatedAt, &wr.UpdatedAt, &wr.ClientID, &wr.UserID, &wr.IsDeleted,
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("workflow run not found: %s", id)
+	}
+	return &wr, err
+}
+
+func (t *SQLiteTx) DeleteWorkflowRun(ctx context.Context, id string) error {
+	_, err := t.tx.ExecContext(ctx, `UPDATE workflow_runs SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_deleted = 0`, id)
+	return err
+}
+
+func (t *SQLiteTx) UpsertSession(ctx context.Context, s *db.Session) error {
+	query := `
+		INSERT INTO sessions (
+			id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
+			started_at, completed_at, version, created_at, updated_at,
+			client_id, user_id, is_deleted
+		)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(id) DO UPDATE SET
+			workflow_run_id = excluded.workflow_run_id,
+			workflow_id = excluded.workflow_id,
+			scenario_id = excluded.scenario_id,
+			scenario_name = excluded.scenario_name,
+			backend_session_id = excluded.backend_session_id,
 			status = excluded.status,
 			result = excluded.result,
 			container_ids = excluded.container_ids,
@@ -648,7 +966,7 @@ func (t *SQLiteTx) UpsertSession(ctx context.Context, s *db.Session) error {
 		WHERE sessions.version = excluded.version - 1
 	`
 	result, err := t.tx.ExecContext(ctx, query,
-		s.ID, s.WorkflowID, s.Status, s.Result,
+		s.ID, s.WorkflowRunID, s.WorkflowID, s.ScenarioID, s.ScenarioName, s.BackendSessionID, s.Status, s.Result,
 		s.ContainerIDs, s.Logs, s.Error,
 		s.StartedAt, s.CompletedAt, s.Version,
 		s.CreatedAt, s.UpdatedAt,
@@ -669,7 +987,7 @@ func (t *SQLiteTx) UpsertSession(ctx context.Context, s *db.Session) error {
 
 func (t *SQLiteTx) GetSession(ctx context.Context, id string) (*db.Session, error) {
 	query := `
-		SELECT id, workflow_id, status, result, container_ids, logs, error,
+		SELECT id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
 			started_at, completed_at, version, created_at, updated_at,
 			client_id, user_id, is_deleted
 		FROM sessions
@@ -677,7 +995,7 @@ func (t *SQLiteTx) GetSession(ctx context.Context, id string) (*db.Session, erro
 	`
 	var s db.Session
 	err := t.tx.QueryRowContext(ctx, query, id).Scan(
-		&s.ID, &s.WorkflowID, &s.Status, &s.Result, &s.ContainerIDs, &s.Logs,
+		&s.ID, &s.WorkflowRunID, &s.WorkflowID, &s.ScenarioID, &s.ScenarioName, &s.BackendSessionID, &s.Status, &s.Result, &s.ContainerIDs, &s.Logs,
 		&s.Error, &s.StartedAt, &s.CompletedAt, &s.Version,
 		&s.CreatedAt, &s.UpdatedAt,
 		&s.ClientID, &s.UserID, &s.IsDeleted,
@@ -700,7 +1018,7 @@ func (t *SQLiteTx) DeleteSession(ctx context.Context, id string) error {
 
 func (t *SQLiteTx) ListTestResult(ctx context.Context, sessionID string) ([]*db.TestResult, error) {
 	query := `
-		SELECT id, session_id, workflow_id, test_name, test_type, status, result_data,
+		SELECT id, session_id, workflow_run_id, workflow_id, scenario_id, scenario_name, test_name, test_type, status, result_data,
 			duration_ms, executed_at, created_at, updated_at, client_id, user_id, is_deleted
 		FROM test_results
 		WHERE session_id = ? AND is_deleted = 0
@@ -716,7 +1034,7 @@ func (t *SQLiteTx) ListTestResult(ctx context.Context, sessionID string) ([]*db.
 	for rows.Next() {
 		var tr db.TestResult
 		if err := rows.Scan(
-			&tr.ID, &tr.SessionID, &tr.WorkflowID, &tr.TestName, &tr.TestType,
+			&tr.ID, &tr.SessionID, &tr.WorkflowRunID, &tr.WorkflowID, &tr.ScenarioID, &tr.ScenarioName, &tr.TestName, &tr.TestType,
 			&tr.Status, &tr.ResultData, &tr.DurationMs, &tr.ExecutedAt,
 			&tr.CreatedAt, &tr.UpdatedAt, &tr.ClientID, &tr.UserID, &tr.IsDeleted,
 		); err != nil {
@@ -730,11 +1048,15 @@ func (t *SQLiteTx) ListTestResult(ctx context.Context, sessionID string) ([]*db.
 func (t *SQLiteTx) UpsertTestResult(ctx context.Context, result *db.TestResult) error {
 	query := `
 		INSERT INTO test_results (
-			id, session_id, workflow_id, test_name, test_type, status, result_data,
+			id, session_id, workflow_run_id, workflow_id, scenario_id, scenario_name, test_name, test_type, status, result_data,
 			duration_ms, executed_at, created_at, updated_at, client_id, user_id, is_deleted
 		)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
+			workflow_run_id = excluded.workflow_run_id,
+			workflow_id = excluded.workflow_id,
+			scenario_id = excluded.scenario_id,
+			scenario_name = excluded.scenario_name,
 			status = excluded.status,
 			result_data = excluded.result_data,
 			duration_ms = excluded.duration_ms,
@@ -745,7 +1067,7 @@ func (t *SQLiteTx) UpsertTestResult(ctx context.Context, result *db.TestResult) 
 			is_deleted = excluded.is_deleted
 	`
 	_, err := t.tx.ExecContext(ctx, query,
-		result.ID, result.SessionID, result.WorkflowID, result.TestName, result.TestType,
+		result.ID, result.SessionID, result.WorkflowRunID, result.WorkflowID, result.ScenarioID, result.ScenarioName, result.TestName, result.TestType,
 		result.Status, result.ResultData, result.DurationMs, result.ExecutedAt,
 		result.CreatedAt, result.UpdatedAt, result.ClientID, result.UserID, result.IsDeleted,
 	)
@@ -754,14 +1076,14 @@ func (t *SQLiteTx) UpsertTestResult(ctx context.Context, result *db.TestResult) 
 
 func (t *SQLiteTx) GetTestResult(ctx context.Context, id string) (*db.TestResult, error) {
 	query := `
-		SELECT id, session_id, workflow_id, test_name, test_type, status, result_data,
+		SELECT id, session_id, workflow_run_id, workflow_id, scenario_id, scenario_name, test_name, test_type, status, result_data,
 			duration_ms, executed_at, created_at, updated_at, client_id, user_id, is_deleted
 		FROM test_results
 		WHERE id = ? AND is_deleted = 0
 	`
 	var tr db.TestResult
 	err := t.tx.QueryRowContext(ctx, query, id).Scan(
-		&tr.ID, &tr.SessionID, &tr.WorkflowID, &tr.TestName, &tr.TestType,
+		&tr.ID, &tr.SessionID, &tr.WorkflowRunID, &tr.WorkflowID, &tr.ScenarioID, &tr.ScenarioName, &tr.TestName, &tr.TestType,
 		&tr.Status, &tr.ResultData, &tr.DurationMs, &tr.ExecutedAt,
 		&tr.CreatedAt, &tr.UpdatedAt, &tr.ClientID, &tr.UserID, &tr.IsDeleted,
 	)

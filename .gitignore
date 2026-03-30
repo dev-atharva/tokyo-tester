@@ -11,3 +11,7 @@ node_modules/
 # Compiled API binary
 runner-v2/cots-api
 
+# Local Go caches
+runner-v2/.gocache/
+runner-v2/.gomodcache/
+

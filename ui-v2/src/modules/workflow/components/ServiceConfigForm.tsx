@@ -32,8 +32,8 @@ interface ServiceConfigFormProps {
   onChange: (data: ServiceNodeData) => void;
   availableServices: Array<{
     name: string;
-    ports: string[];
-    envVars: string[];
+    ports: { hostPort: string; containerPort: string }[];
+    envVars: { key: string; value: string }[];
   }>;
 }
 
@@ -49,6 +49,19 @@ interface ServiceFormData {
   waitStratergyTarget?: string;
   waitStratergyTimeout?: number;
   initScripts: InitScript[];
+}
+
+function toReferenceToken(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (typeof value === "number") {
+    return String(value);
+  }
+
+  return null;
 }
 
 const EnvVariableValueInput = ({
@@ -68,27 +81,33 @@ const EnvVariableValueInput = ({
   const [suggestions, setSuggestions] = useState<string[]>([]);
 
   useEffect(() => {
-    const allSuggestions: string[] = [];
+    const allSuggestions = new Set<string>();
 
     availableServices.forEach((service) => {
-      if (!service.name) return; // skip undefined
-      const serviceName = service.name.trim();
+      const serviceName = toReferenceToken(service.name);
+      if (!serviceName) return;
 
       // Host reference
-      allSuggestions.push(`\${${serviceName}.host}`);
+      allSuggestions.add(`\${${serviceName}.host}`);
 
       // Ports
       (service.ports || []).forEach((port) => {
-        if (port) allSuggestions.push(`\${${serviceName}.port.${port}}`);
+        const containerPort = toReferenceToken(port?.containerPort);
+        if (containerPort) {
+          allSuggestions.add(`\${${serviceName}.port.${containerPort}}`);
+        }
       });
 
       // Env vars
       (service.envVars || []).forEach((envVar) => {
-        if (envVar) allSuggestions.push(`\${${serviceName}.env.${envVar}}`);
+        const envKey = toReferenceToken(envVar?.key);
+        if (envKey) {
+          allSuggestions.add(`\${${serviceName}.env.${envKey}}`);
+        }
       });
     });
 
-    setSuggestions(allSuggestions);
+    setSuggestions(Array.from(allSuggestions));
   }, [availableServices]);
 
   const filteredSuggestions = suggestions.filter((s) =>
@@ -106,10 +125,10 @@ const EnvVariableValueInput = ({
       />
       {showSuggestions && filteredSuggestions.length > 0 && (
         <div className="absolute z-10 w-full mt-1 bg-secondary  border rounded-md shadow-lg max-h-60 overflow-auto">
-          {filteredSuggestions.map((suggestion) => (
+          {filteredSuggestions.map((suggestion, index) => (
             <button
               type="button"
-              key={suggestion}
+              key={`${suggestion}-${index}`}
               className="w-full px-3 py-2 text-left cursor-pointer"
               onMouseDown={() => {
                 onChange(suggestion);

@@ -1,16 +1,20 @@
 import { channel, topic } from "@inngest/realtime";
 import { z } from "zod";
 import {
-  translateReactFlowToCotsConfig,
-  validateFlow,
-} from "@/modules/utils/react-flow-translator";
+  translateScenarioToExecutionBundle,
+  translateWorkflowGraphToServiceGraph,
+  validateScenario,
+  validateWorkflowGraph,
+} from "@/modules/utils/scenario-translator";
 import type {
   CreateServicesResponse,
+  JsonValue,
   RunTestsResponse,
-  WorkflowInput,
+  ScenarioExecutionResult,
+  ScenarioTestResultEvent,
   WorkflowLogEvent,
   WorkflowResult,
-  WorkflowState,
+  WorkflowRunInput,
 } from "@/modules/workflow/types/react-flow-cots";
 import { inngest } from "../client";
 
@@ -23,8 +27,6 @@ type WorkflowErrorResponse = {
   container_logs?: Record<string, string>;
 };
 
-/* ---------------- Realtime Channel ---------------- */
-
 export const logsChannel = channel("logs").addTopic(
   topic("workflowlog").type<WorkflowLogEvent>(),
 );
@@ -32,8 +34,11 @@ export const logsChannel = channel("logs").addTopic(
 export const testResultChannel = channel("testResult").addTopic(
   topic("testresult").schema(
     z.object({
-      sessionId: z.string(),
+      workflowRunId: z.string(),
       workflowId: z.string(),
+      scenarioId: z.string(),
+      scenarioName: z.string(),
+      backendSessionId: z.string().optional(),
       bulkId: z.string(),
       timestamp: z.number(),
       results: z.array(
@@ -50,43 +55,32 @@ export const testResultChannel = channel("testResult").addTopic(
           sequence: z.number(),
         }),
       ),
-    }),
+    }) satisfies z.ZodType<ScenarioTestResultEvent>,
   ),
 );
 
-/* ---------------- Workflow ---------------- */
-
 export const cotsWorkFlow = inngest.createFunction(
   {
-    id: "cots-workflow",
-    name: "COTS Test Workflow",
+    id: "cots-workflow-run",
+    name: "COTS Scenario Workflow Run",
     retries: 0,
   },
-  { event: "cots/workflow.start" },
+  { event: "cots/workflow.run.start" },
   async ({ event, step, publish }) => {
-    const input = event.data as WorkflowInput;
-    const { sessionId, workflowId } = input;
-
-    const state: WorkflowState = {
-      servicesCreated: false,
-      testsExecuted: false,
-      cleanUp: false,
-      errors: [],
-    };
-
+    const input = event.data as WorkflowRunInput;
+    const { workflowRunId, workflowId, workflowName } = input;
     let logSequence = 0;
-    let testResultSequence = 0;
-
-    /* ---------- Helpers ---------- */
+    let testSequence = 0;
 
     const log = async (
       message: string,
       status: WorkflowLogEvent["status"] = "running",
       extra?: Partial<WorkflowLogEvent>,
-    ) => {
-      return publish(
+    ) =>
+      publish(
         logsChannel().workflowlog({
-          sessionId,
+          workflowRunId,
+          workflowId,
           message,
           status,
           timestamp: Date.now(),
@@ -94,341 +88,347 @@ export const cotsWorkFlow = inngest.createFunction(
           ...extra,
         }),
       );
-    };
 
-    const emitTestResultsBulk = async (
-      results: Array<{
-        testResultId: string;
-        testName: string;
-        testType?: string;
-        status: string;
-        resultData?: unknown;
-        durationMs?: number;
-        executedAt?: string;
-        action: "create" | "update";
-        containerLogs?: Record<string, string>;
-      }>,
+    const emitScenarioTestResults = async (
+      scenarioId: string,
+      scenarioName: string,
+      backendSessionId: string | undefined,
+      results: ScenarioTestResultEvent["results"],
     ) => {
-      if (results.length === 0) return;
+      if (results.length === 0) {
+        return;
+      }
 
-      console.log(`Emitting ${results.length} test results in bulk`);
-
-      const bulkId = `${sessionId}:${Date.now()}`;
-      const timestamp = Date.now();
-
-      const payload = {
-        sessionId,
-        workflowId,
-        bulkId,
-        timestamp,
-        results: results.map((r) => ({
-          testResultId: r.testResultId,
-          testName: r.testName,
-          testType: r.testType || "database",
-          status: r.status,
-          resultData: r.resultData ?? null,
-          durationMs: r.durationMs ?? 0,
-          executedAt: r.executedAt || new Date().toISOString(),
-          action: r.action,
-          containerLogs: r.containerLogs,
-          sequence: testResultSequence++,
-        })),
-      };
-
-      console.log("Bulk payload:", JSON.stringify(payload, null, 2));
-
-      return publish(testResultChannel().testresult(payload));
+      return publish(
+        testResultChannel().testresult({
+          workflowRunId,
+          workflowId,
+          scenarioId,
+          scenarioName,
+          backendSessionId,
+          bulkId: `${workflowRunId}:${scenarioId}:${Date.now()}`,
+          timestamp: Date.now(),
+          results: results.map((result) => ({
+            ...result,
+            sequence: testSequence++,
+          })),
+        }),
+      );
     };
 
-    const formatContainerLogs = (logs?: Record<string, string>): string => {
-      if (!logs || Object.keys(logs).length === 0) return "";
-      const logEntries = Object.entries(logs)
-        .map(([service, log]) => `[${service}]\n${log}`)
+    const formatContainerLogs = (logs?: Record<string, string>) => {
+      if (!logs || Object.keys(logs).length === 0) {
+        return "";
+      }
+
+      return Object.entries(logs)
+        .map(([service, serviceLogs]) => `[${service}]\n${serviceLogs}`)
         .join("\n\n");
-      return `\n\n📋 Container Logs:\n${logEntries}`;
     };
 
-    try {
-      await log(`Starting workflow: ${input.workflowName}`);
-      await log(
-        `Workflow contains ${input.nodes.length} nodes and ${input.edges.length} connections`,
-      );
+    await log(`Starting workflow run: ${workflowName}`);
 
-      /* ---------- Validate ---------- */
-      await step.run("validate-flow", async () => {
-        await log("Validating workflow structure...");
-        const result = validateFlow(input.nodes, input.edges);
-
-        if (!result.valid) {
-          throw new Error(result.errors.map((e) => e.message).join(", "));
-        }
-
-        await log("Workflow validation passed");
-      });
-
-      /* ---------- Translate ---------- */
-      const { services, tests } = await step.run(
-        "translate-config",
-        async () => {
-          await log("Translating workflow diagram to COTS configuration...");
-
-          const customTestOrder = input.customTestOrder
-            ? new Map<string, string[]>(input.customTestOrder)
-            : undefined;
-
-          const config = translateReactFlowToCotsConfig(
-            input.nodes,
-            input.edges,
-            customTestOrder,
-          );
-
-          await log(
-            `Generated ${config.services.length} service(s) and ${config.tests.length} test(s)`,
-          );
-
-          return config;
-        },
-      );
-
-      /* ---------- Provision ---------- */
-      const cotsSessionId = await step.run("provision-services", async () => {
-        await log("Provisioning services...");
-
-        const res = await fetch(`${COTS_API_BASE_URL}/services`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ services }),
-        });
-
-        if (!res.ok) {
-          const errorText = await res.text();
-          let errorData: WorkflowErrorResponse | undefined;
-          try {
-            errorData = JSON.parse(errorText) as WorkflowErrorResponse;
-          } catch (_error) {
-            throw new Error(errorText);
-          }
-          const logs = errorData?.details || errorData?.container_logs;
-          if (logs) {
-            const logsFormatted = formatContainerLogs(logs);
-            await log(
-              `Service provisioning failed: ${errorData?.error ?? errorText}${logsFormatted}`,
-              "failed",
-            );
-          }
-          throw new Error(errorData?.error || errorText);
-        }
-
-        const data: CreateServicesResponse = await res.json();
-        state.servicesCreated = true;
-        state.sessionId = data.session_id;
-
-        await log(
-          `Services provisioned (Session: ${data.session_id.slice(0, 8)}...)`,
-        );
-
-        return data.session_id;
-      });
-
-      /* ---------- Wait ---------- */
-      await log("Waiting for services to be ready...");
-      await step.sleep("wait-for-services", "3s");
-      await log("Services are ready");
-
-      /* ---------- Execute Tests ---------- */
-      const testResults = await step.run(
-        "execute-tests-with-tracking",
-        async () => {
-          await log(`📝 Creating ${tests.length} test result placeholder(s)`);
-
-          // 1️⃣ Create placeholders for all tests in bulk
-          const placeholders = tests.map((test) => ({
-            testResultId: `${sessionId}_${test.name}`,
-            testName: test.name,
-            testType: test.type || "database",
-            status: "pending",
-            durationMs: 0,
-            executedAt: new Date().toISOString(),
-            resultData: null,
-            action: "create" as const,
-          }));
-
-          await emitTestResultsBulk(placeholders);
-
-          await log(`🧪 Executing ${tests.length} test(s)...`);
-
-          const runningUpdates = tests.map((test) => ({
-            testResultId: `${sessionId}_${test.name}`,
-            testName: test.name,
-            testType: test.type || "database",
-            status: "running",
-            durationMs: 0,
-            executedAt: new Date().toISOString(),
-            resultData: null,
-            action: "update" as const,
-          }));
-
-          await emitTestResultsBulk(runningUpdates);
-
-          const res = await fetch(
-            `${COTS_API_BASE_URL}/tests/${cotsSessionId}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ tests }),
-            },
-          );
-
-          if (!res.ok) {
-            const errorText = await res.text();
-            let errorData: WorkflowErrorResponse | undefined;
-
-            try {
-              errorData = JSON.parse(errorText) as WorkflowErrorResponse;
-            } catch (_error) {
-              throw new Error(errorText);
-            }
-
-            if (errorData?.container_logs) {
-              const logsFormatted = formatContainerLogs(
-                errorData.container_logs,
-              );
-              await log(
-                `Test execution failed: ${errorData?.error ?? errorText}${logsFormatted}`,
-                "failed",
-              );
-            }
-            throw new Error(errorData?.error || errorText);
-          }
-
-          const data: RunTestsResponse = await res.json();
-          state.testsExecuted = true;
-
-          console.log("RAW API RESPONSE:", JSON.stringify(data, null, 2));
-          console.log("Number of results:", data.results.length);
-          console.log(
-            "Result names:",
-            data.results.map((r) => r.name),
-          );
-
-          await log(
-            `Tests completed: ${data.summary.passed} passed, ${data.summary.failed} failed`,
-          );
-
-          // Collect all final results
-          const finalResults = data.results
-            .map((result) => {
-              const test = tests.find((t) => t.name === result.name);
-              if (!test || !test.name) {
-                console.warn("Missing test for result:", result.name);
-                return null;
-              }
-
-              return {
-                testResultId: `${sessionId}_${test.name}`,
-                testName: result.name,
-                testType: result.type || "database",
-                status: result.passed ? "passed" : "failed",
-                durationMs: result.duration || 0,
-                executedAt: new Date().toISOString(),
-                resultData: result,
-                containerLogs: result.container_logs,
-                action: "update" as const,
-              };
-            })
-            .filter((r): r is NonNullable<typeof r> => r !== null);
-
-          console.log(
-            `Prepared ${finalResults.length} final results for emission`,
-          );
-
-          // Emit all final results in bulk
-          await emitTestResultsBulk(finalResults);
-
-          // Log individual test results
-          for (const result of data.results) {
-            let logMessage = `${result.name}: ${result.passed ? "passed" : "failed"}`;
-            if (result.duration) {
-              logMessage += ` (${result.duration}ms)`;
-            }
-            if (!result.passed && result.container_logs) {
-              const logsFormatted = formatContainerLogs(result.container_logs);
-              logMessage += logsFormatted;
-            }
-            await log(logMessage, result.passed ? "running" : "failed");
-          }
-
-          return data;
-        },
-      );
-
-      await step.sleep("wait-for-emissions", "500ms");
-
-      /* ---------- Cleanup ---------- */
-      await step.run("cleanup", async () => {
-        await log("Cleaning up resources...");
-        const cleanupRes = await fetch(
-          `${COTS_API_BASE_URL}/cleanup/${cotsSessionId}`,
-          {
-            method: "DELETE",
-          },
-        );
-
-        if (!cleanupRes.ok) {
-          console.warn("Cleanup warning:", await cleanupRes.text());
-        }
-
-        state.cleanUp = true;
-        await log("Cleanup complete");
-      });
-
-      const finalMessage =
-        testResults.summary.failed === 0
-          ? "🎉 Workflow completed successfully!"
-          : `⚠️ Workflow completed with ${testResults.summary.failed} failed test(s)`;
-
-      await log(finalMessage, "completed", { result: testResults });
-
-      return {
-        success: testResults.summary.failed === 0,
-        sessionId: cotsSessionId,
-        testResults,
-      } satisfies WorkflowResult;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-
-      await log(`Workflow failed: ${message}`, "failed", {
+    const workflowValidation = validateWorkflowGraph(input.nodes, input.edges);
+    if (!workflowValidation.valid) {
+      const message = workflowValidation.errors.map((error) => error.message).join(", ");
+      await log(`Workflow validation failed: ${message}`, "failed", {
+        stage: "validation",
         error: message,
       });
+      throw new Error(message);
+    }
 
-      if (state.servicesCreated && state.sessionId) {
-        try {
-          const logsRes = await fetch(
-            `${COTS_API_BASE_URL}/sessions/${state.sessionId}/logs`,
-          );
+    const serviceGraph = translateWorkflowGraphToServiceGraph(
+      input.nodes,
+      input.edges,
+      input.registrySecrets,
+    );
 
-          if (logsRes.ok) {
-            const logsData = await logsRes.json();
-            if (logsData.logs) {
-              const logsFormatted = formatContainerLogs(logsData.logs);
-              await log(`Container logs at failure:${logsFormatted}`, "failed");
+    const scenarioResults = await step.run("execute-scenarios", async () => {
+      return Promise.all(
+        input.scenarios.map(async (scenario): Promise<ScenarioExecutionResult> => {
+          await log(`Preparing scenario "${scenario.name}"`, "running", {
+            scenarioId: scenario.id,
+            scenarioName: scenario.name,
+            stage: "validation",
+          });
+
+          const validation = validateScenario(serviceGraph, scenario);
+          if (!validation.valid) {
+            const error = validation.errors.map((item) => item.message).join(", ");
+            await log(`Scenario "${scenario.name}" failed validation: ${error}`, "failed", {
+              scenarioId: scenario.id,
+              scenarioName: scenario.name,
+              stage: "validation",
+              error,
+            });
+
+            return {
+              scenarioId: scenario.id,
+              scenarioName: scenario.name,
+              success: false,
+              status: "failed",
+              error,
+            };
+          }
+
+          const translated = translateScenarioToExecutionBundle(serviceGraph, scenario);
+          let backendSessionId: string | undefined;
+
+          try {
+            await log(
+              `Scenario "${scenario.name}" translated service bundle`,
+              "running",
+              {
+                scenarioId: scenario.id,
+                scenarioName: scenario.name,
+                stage: "provision",
+                result: JSON.parse(
+                  JSON.stringify({
+                    services: translated.services,
+                    tests: translated.tests,
+                  }),
+                ) as JsonValue,
+              },
+            );
+
+            await log(
+              `Provisioning ${translated.services.length} services for "${scenario.name}"`,
+              "running",
+              {
+                scenarioId: scenario.id,
+                scenarioName: scenario.name,
+                stage: "provision",
+              },
+            );
+
+            const provisionRes = await fetch(`${COTS_API_BASE_URL}/services`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                services: translated.services,
+                execution_context: {
+                  workflow_id: workflowId,
+                  workflow_run_id: workflowRunId,
+                  scenario_id: scenario.id,
+                  scenario_name: scenario.name,
+                },
+              }),
+            });
+
+            if (!provisionRes.ok) {
+              const body = await provisionRes.text();
+              throw new Error(body);
+            }
+
+            const provisionData: CreateServicesResponse = await provisionRes.json();
+            backendSessionId = provisionData.session_id;
+
+            await emitScenarioTestResults(
+              scenario.id,
+              scenario.name,
+              backendSessionId,
+              translated.tests.map((test) => ({
+                testResultId: `${workflowRunId}_${scenario.id}_${test.name}`,
+                testName: test.name,
+                testType: test.type,
+                status: "pending",
+                resultData: null,
+                durationMs: 0,
+                executedAt: new Date().toISOString(),
+                action: "create",
+                sequence: 0,
+              })),
+            );
+
+            await log(`Executing ${translated.tests.length} tests for "${scenario.name}"`, "running", {
+              scenarioId: scenario.id,
+              scenarioName: scenario.name,
+              backendSessionId,
+              stage: "execution",
+            });
+
+            await emitScenarioTestResults(
+              scenario.id,
+              scenario.name,
+              backendSessionId,
+              translated.tests.map((test) => ({
+                testResultId: `${workflowRunId}_${scenario.id}_${test.name}`,
+                testName: test.name,
+                testType: test.type,
+                status: "running",
+                resultData: null,
+                durationMs: 0,
+                executedAt: new Date().toISOString(),
+                action: "update",
+                sequence: 0,
+              })),
+            );
+
+            const testRes = await fetch(`${COTS_API_BASE_URL}/tests/${backendSessionId}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                tests: translated.tests,
+                execution_context: {
+                  workflow_id: workflowId,
+                  workflow_run_id: workflowRunId,
+                  scenario_id: scenario.id,
+                  scenario_name: scenario.name,
+                },
+              }),
+            });
+
+            if (!testRes.ok) {
+              const body = await testRes.text();
+              let errorMessage = body;
+              try {
+                const errorData = JSON.parse(body) as WorkflowErrorResponse;
+                errorMessage = errorData.error || body;
+                if (errorData.container_logs) {
+                  await log(
+                    `Scenario "${scenario.name}" failed with container logs:\n${formatContainerLogs(errorData.container_logs)}`,
+                    "failed",
+                    {
+                      scenarioId: scenario.id,
+                      scenarioName: scenario.name,
+                      backendSessionId,
+                      stage: "execution",
+                      error: errorMessage,
+                    },
+                  );
+                }
+              } catch {}
+              throw new Error(errorMessage);
+            }
+
+            const testData: RunTestsResponse = await testRes.json();
+
+            await emitScenarioTestResults(
+              scenario.id,
+              scenario.name,
+              backendSessionId,
+              testData.results.map((result) => ({
+                testResultId: `${workflowRunId}_${scenario.id}_${result.name}`,
+                testName: result.name,
+                testType: result.type,
+                status: result.passed ? "passed" : "failed",
+                resultData: result,
+                durationMs: result.duration || 0,
+                executedAt: new Date().toISOString(),
+                action: "update",
+                containerLogs: result.container_logs,
+                sequence: 0,
+              })),
+            );
+
+            await log(
+              `Scenario "${scenario.name}" finished: ${testData.summary.passed} passed, ${testData.summary.failed} failed`,
+              testData.summary.failed === 0 ? "completed" : "failed",
+              {
+                scenarioId: scenario.id,
+                scenarioName: scenario.name,
+                backendSessionId,
+                stage: "execution",
+              },
+            );
+
+            return {
+              scenarioId: scenario.id,
+              scenarioName: scenario.name,
+              backendSessionId,
+              success: testData.summary.failed === 0,
+              status: testData.summary.failed === 0 ? "completed" : "failed",
+              testResults: testData,
+            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            await log(`Scenario "${scenario.name}" failed: ${message}`, "failed", {
+              scenarioId: scenario.id,
+              scenarioName: scenario.name,
+              backendSessionId,
+              stage: "execution",
+              error: message,
+            });
+
+            return {
+              scenarioId: scenario.id,
+              scenarioName: scenario.name,
+              backendSessionId,
+              success: false,
+              status: "failed",
+              error: message,
+            };
+          } finally {
+            if (backendSessionId) {
+              await fetch(`${COTS_API_BASE_URL}/cleanup/${backendSessionId}`, {
+                method: "DELETE",
+              }).catch(() => undefined);
+
+              await log(`Cleaned up scenario "${scenario.name}"`, "running", {
+                scenarioId: scenario.id,
+                scenarioName: scenario.name,
+                backendSessionId,
+                stage: "cleanup",
+              });
             }
           }
-        } catch (logsErr) {
-          console.error("Failed to retrieve logs:", logsErr);
-        }
-      }
+        }),
+      );
+    });
 
-      if (state.servicesCreated && !state.cleanUp && state.sessionId) {
-        try {
-          await fetch(`${COTS_API_BASE_URL}/cleanup/${state.sessionId}`, {
-            method: "DELETE",
-          });
-        } catch (cleanupErr) {
-          console.error("Failed to cleanup:", cleanupErr);
+    const summary = scenarioResults.reduce(
+      (acc, scenario) => {
+        acc.totalScenarios += 1;
+        if (scenario.success) {
+          acc.passedScenarios += 1;
+        } else {
+          acc.failedScenarios += 1;
         }
-      }
-      throw err;
-    }
+
+        const tests = scenario.testResults?.summary;
+        if (tests) {
+          acc.totalTests += tests.total;
+          acc.passedTests += tests.passed;
+          acc.failedTests += tests.failed;
+        }
+
+        return acc;
+      },
+      {
+        totalScenarios: 0,
+        passedScenarios: 0,
+        failedScenarios: 0,
+        totalTests: 0,
+        passedTests: 0,
+        failedTests: 0,
+      },
+    );
+
+    const success = summary.failedScenarios === 0;
+    const status = success
+      ? "completed"
+      : summary.passedScenarios > 0
+        ? "partial_failed"
+        : "failed";
+
+    await log(
+      `Workflow run complete: ${summary.passedScenarios}/${summary.totalScenarios} scenarios passed`,
+      status === "completed" ? "completed" : "failed",
+      {
+        stage: "aggregation",
+        result: {
+          ...summary,
+          status,
+        },
+      },
+    );
+
+    return {
+      success,
+      workflowRunId,
+      scenarioResults,
+      summary,
+    } satisfies WorkflowResult;
   },
 );

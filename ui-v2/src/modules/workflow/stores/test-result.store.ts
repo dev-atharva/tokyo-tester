@@ -34,7 +34,11 @@ export type TestResultInput = Omit<
 export interface TestResult {
   id: string;
   sessionId: string;
+  workflowRunId?: string;
   workflowId: string;
+  scenarioRunId?: string;
+  scenarioId?: string;
+  scenarioName?: string;
   testName: string;
   testType: string; // database/http/shell/cache/kafka
   status: "pending" | "running" | "passed" | "failed";
@@ -65,6 +69,7 @@ interface TestResultStore {
   hasTestResult: (id: string) => boolean;
   getTestResult: (id: string) => TestResult | null;
   getTestResultsBySession: (sessionId: string) => TestResult[];
+  getTestResultsByScenario: (scenarioId: string) => TestResult[];
   getTestResultsByWorkflow: (workflowId: string) => TestResult[];
   getAllTestResults: () => TestResult[];
 
@@ -115,7 +120,11 @@ export const useTestResultStore = create<TestResultStore>()(
                 [id]: addSyncMetadata({
                   id,
                   sessionId,
+                  workflowRunId: updates.workflowRunId,
                   workflowId,
+                  scenarioRunId: updates.scenarioRunId,
+                  scenarioId: updates.scenarioId,
+                  scenarioName: updates.scenarioName,
                   testName,
                   testType,
                   status: updates.status ?? "pending",
@@ -178,6 +187,12 @@ export const useTestResultStore = create<TestResultStore>()(
           );
         },
 
+        getTestResultsByScenario: (scenarioId) => {
+          return Object.values(get().testResults).filter(
+            (tr) => tr.scenarioId === scenarioId && !tr.is_deleted,
+          );
+        },
+
         getTestResultsByWorkflow: (workflowId) => {
           return Object.values(get().testResults).filter(
             (tr) => tr.workflowId === workflowId && !tr.is_deleted,
@@ -231,7 +246,11 @@ export const useTestResultStore = create<TestResultStore>()(
           return {
             id: result.id,
             session_id: result.sessionId,
+            workflow_run_id: result.workflowRunId,
             workflow_id: result.workflowId,
+            scenario_run_id: result.scenarioRunId,
+            scenario_id: result.scenarioId,
+            scenario_name: result.scenarioName,
             test_name: result.testName,
             test_type: result.testType,
             status: result.status,

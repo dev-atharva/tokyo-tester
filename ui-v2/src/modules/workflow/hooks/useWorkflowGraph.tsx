@@ -31,7 +31,7 @@ export function useWorkflowGraph(workflowId: string) {
       // Set edges from workflow
       setEdges(workflow.edges);
     }
-  }, [workflow?.id, setEdges, workflow.edges, workflow]); // Don't include setNodes to avoid conflicts
+  }, [workflow?.id, setEdges, workflow]); // Don't include setNodes to avoid conflicts
 
   // Delete node
   const deleteNode = useCallback(
@@ -45,18 +45,12 @@ export function useWorkflowGraph(workflowId: string) {
           );
 
           if (workflow) {
-            // Get current test order and remove this node
-            const currentOrder = new Map(
-              Object.entries(workflow.customTestOrder),
-            );
-            currentOrder.delete(nodeId);
-
             console.log("Deleting node, updating graph:", {
               nodes: newNodes.length,
               edges: newEdges.length,
             });
 
-            updateWorkflowGraph(workflow.id, newNodes, newEdges, currentOrder);
+            updateWorkflowGraph(workflow.id, newNodes, newEdges);
           }
 
           return newEdges;
@@ -77,16 +71,12 @@ export function useWorkflowGraph(workflowId: string) {
         );
 
         if (workflow) {
-          const currentOrder = new Map(
-            Object.entries(workflow.customTestOrder),
-          );
-
           console.log("Updating node, saving graph:", {
             nodes: newNodes.length,
             edges: edges.length,
           });
 
-          updateWorkflowGraph(workflow.id, newNodes, edges, currentOrder);
+          updateWorkflowGraph(workflow.id, newNodes, edges);
         }
 
         return newNodes;
@@ -102,16 +92,12 @@ export function useWorkflowGraph(workflowId: string) {
         const newNodes = [...nodes, node];
 
         if (workflow) {
-          const currentOrder = new Map(
-            Object.entries(workflow.customTestOrder),
-          );
-
           console.log("Adding node, saving graph:", {
             nodes: newNodes.length,
             edges: edges.length,
           });
 
-          updateWorkflowGraph(workflow.id, newNodes, edges, currentOrder);
+          updateWorkflowGraph(workflow.id, newNodes, edges);
         }
 
         return newNodes;
@@ -128,16 +114,12 @@ export function useWorkflowGraph(workflowId: string) {
         const newEdges = addEdge(newEdge, eds);
 
         if (workflow) {
-          const currentOrder = new Map(
-            Object.entries(workflow.customTestOrder),
-          );
-
           console.log("Connecting nodes, saving graph:", {
             nodes: nodes.length,
             edges: newEdges.length,
           });
 
-          updateWorkflowGraph(workflow.id, nodes, newEdges, currentOrder);
+          updateWorkflowGraph(workflow.id, nodes, newEdges);
         }
 
         return newEdges;

@@ -1,17 +1,7 @@
-import type { StateCreator, StoreMutatorIdentifier } from "zustand";
-import type { JsonValue } from "../workflow/types/react-flow-cots";
+import type { StateCreator } from "zustand";
 import { getOrCreateClientId, getUserId } from "./client-id";
 import { syncService } from "./sync-service";
 import type { ChangeType, EntityType } from "./sync-types";
-
-type SyncMiddleware = <
-  T,
-  MpS extends [StoreMutatorIdentifier, unknown][] = [],
-  McS extends [StoreMutatorIdentifier, unknown][] = [],
->(
-  config: StateCreator<T, MpS, McS>,
-  options: SimpleSyncOptions<T>,
-) => StateCreator<T, MpS, McS>;
 
 /**
  * Simplified sync options - much easier to use!
@@ -24,7 +14,7 @@ export interface SimpleSyncOptions<T> {
   getEntityId: (state: T) => string | null;
 
   /** Serialize the entity for transmission */
-  serializeEntity: (state: T, entityId: string) => JsonValue | null;
+  serializeEntity: (state: T, entityId: string) => unknown | null;
 
   /** Optional: disable sync */
   enabled?: boolean;
@@ -54,9 +44,11 @@ class OperationTracker {
 /**
  * Simplified sync middleware - much cleaner!
  */
-export const syncMiddleware: SyncMiddleware = (config, options) => {
-  return (...args: Parameters<StateCreator<T, MpS, McS>>) => {
-    const [set, get, store] = args;
+export function syncMiddleware<T extends object>(
+  config: StateCreator<T>,
+  options: SimpleSyncOptions<T>,
+): StateCreator<T> {
+  return (set, get, store) => {
     const {
       enabled = true,
       entityType,
@@ -68,7 +60,11 @@ export const syncMiddleware: SyncMiddleware = (config, options) => {
 
     const syncSet: typeof set = (partial, replace) => {
       // Update state first
-      set(partial, replace);
+      if (typeof replace === "boolean") {
+        set(partial as never, replace as never);
+      } else {
+        set(partial as never);
+      }
 
       const nextState = get();
 
@@ -90,7 +86,7 @@ export const syncMiddleware: SyncMiddleware = (config, options) => {
             entity_type: entityType,
             entity_id: entityId,
             change_type: changeType,
-            data,
+            data: data as never,
           });
         } catch (error) {
           console.error(`[SyncMiddleware:${entityType}]`, error);
@@ -103,17 +99,18 @@ export const syncMiddleware: SyncMiddleware = (config, options) => {
 
     return config(syncSet, get, store);
   };
-};
+}
 
 /**
  * Helper to track sync operations in stores
  */
 export function trackSync(
-  store: { __syncTracker?: OperationTracker } | null | undefined,
+  store: unknown,
   entityId: string,
   changeType: ChangeType,
 ): void {
-  const tracker = store?.__syncTracker;
+  const tracker = (store as { __syncTracker?: OperationTracker } | null | undefined)
+    ?.__syncTracker;
   if (tracker) {
     tracker.track(entityId, changeType);
   }
@@ -132,7 +129,7 @@ type SyncMetadataShape = {
 };
 
 export function addSyncMetadata<
-  T extends Record<string, unknown> & SyncMetadataShape,
+  T extends object & SyncMetadataShape,
 >(
   entity: T,
 ): T & {
@@ -159,7 +156,7 @@ export function addSyncMetadata<
  * Mark entity as deleted (soft delete)
  */
 export function markAsDeleted<
-  T extends Record<string, unknown> & SyncMetadataShape,
+  T extends object & SyncMetadataShape,
 >(
   entity: T,
 ): T & {

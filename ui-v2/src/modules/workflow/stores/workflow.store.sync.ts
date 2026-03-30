@@ -206,7 +206,9 @@ export const useWorkflowStore = create<WorkflowStore>()(
       name: "workflow-store",
       storage: createJSONStorage(() => indexedDBStorage),
       onRehydrateStorage: () => (state) => {
-        state?.setHydrated(true);
+        queueMicrotask(() => {
+          state?.setHydrated(true);
+        });
       },
     },
   ),

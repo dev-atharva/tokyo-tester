@@ -7,6 +7,7 @@ import {
   syncMiddleware,
   trackSync,
 } from "@/modules/sync/sync-middleware";
+import type { WorkflowRunStatus } from "../types/react-flow-cots";
 
 const indexedDBStorage = {
   getItem: async (name: string) => {
@@ -21,19 +22,17 @@ const indexedDBStorage = {
   },
 };
 
-export type ExecutionStatus = "idle" | "running" | "completed" | "failed";
-
 export interface WorkflowExecution {
-  sessionId: string;
+  workflowRunId: string;
   workflowId: string;
-  status: ExecutionStatus;
+  status: WorkflowRunStatus;
   logs: string[];
   result?: unknown;
   error?: string;
   startedAt: number;
   finishedAt?: number;
+  scenarioRunIds: string[];
 
-  // Sync metadata
   version: number;
   created_at: string;
   updated_at: string;
@@ -44,21 +43,25 @@ export interface WorkflowExecution {
 
 interface ExecutionStore {
   executions: Record<string, WorkflowExecution>;
-  activeSessionId: string | null;
+  activeWorkflowRunId: string | null;
   _currentEntityId: string | null;
-
-  startExecution: (workflowId: string, sessionId: string) => void;
-  appendLog: (sessionId: string, message: string) => void;
-  completeExecution: (sessionId: string, result?: unknown) => void;
-  failExecution: (sessionId: string, error: string) => void;
-
-  getExecution: (sessionId: string) => WorkflowExecution | null;
+  startExecution: (
+    workflowId: string,
+    workflowRunId: string,
+    scenarioRunIds: string[],
+  ) => void;
+  appendLog: (workflowRunId: string, message: string) => void;
+  completeExecution: (workflowRunId: string, result?: unknown) => void;
+  failExecution: (workflowRunId: string, error: string) => void;
+  updateExecutionStatus: (
+    workflowRunId: string,
+    status: WorkflowRunStatus,
+    result?: unknown,
+  ) => void;
+  getExecution: (workflowRunId: string) => WorkflowExecution | null;
   getActiveExecution: () => WorkflowExecution | null;
   getWorkflowExecutions: (workflowId: string) => WorkflowExecution[];
-
-  clearExecution: (sessionId: string) => void;
-  clearAllExecutions: () => void;
-
+  clearExecution: (workflowRunId: string) => void;
   upsertExecutionFromSync: (execution: WorkflowExecution) => void;
 }
 
@@ -67,141 +70,135 @@ export const useExecutionStore = create<ExecutionStore>()(
     syncMiddleware(
       (set, get, store) => ({
         executions: {},
-        activeSessionId: null,
+        activeWorkflowRunId: null,
         _currentEntityId: null,
 
-        startExecution: (workflowId, sessionId) => {
-          trackSync(store, sessionId, "insert");
-
+        startExecution: (workflowId, workflowRunId, scenarioRunIds) => {
+          trackSync(store, workflowRunId, "insert");
           const execution: WorkflowExecution = addSyncMetadata({
-            sessionId,
+            workflowRunId,
             workflowId,
-            status: "running" as ExecutionStatus,
+            status: "running" as WorkflowRunStatus,
             logs: [],
             startedAt: Date.now(),
+            scenarioRunIds,
           });
 
           set((state) => ({
-            executions: { ...state.executions, [sessionId]: execution },
-            activeSessionId: sessionId,
-            _currentEntityId: sessionId,
+            executions: {
+              ...state.executions,
+              [workflowRunId]: execution,
+            },
+            activeWorkflowRunId: workflowRunId,
+            _currentEntityId: workflowRunId,
           }));
         },
 
-        appendLog: (sessionId, message) => {
-          trackSync(store, sessionId, "update");
-
+        appendLog: (workflowRunId, message) => {
+          trackSync(store, workflowRunId, "update");
           set((state) => {
-            const execution = state.executions[sessionId];
-            if (!execution) return state;
+            const execution = state.executions[workflowRunId];
+            if (!execution) {
+              return state;
+            }
 
             return {
               executions: {
                 ...state.executions,
-                [sessionId]: addSyncMetadata({
+                [workflowRunId]: addSyncMetadata({
                   ...execution,
                   logs: [...execution.logs, message],
                   version: execution.version + 1,
                 }),
               },
-              _currentEntityId: sessionId,
+              _currentEntityId: workflowRunId,
             };
           });
         },
 
-        completeExecution: (sessionId, result) => {
-          trackSync(store, sessionId, "update");
-
-          set((state) => {
-            const execution = state.executions[sessionId];
-            if (!execution) return state;
-
-            return {
-              executions: {
-                ...state.executions,
-                [sessionId]: addSyncMetadata({
-                  ...execution,
-                  status: "completed" as ExecutionStatus,
-                  result,
-                  finishedAt: Date.now(),
-                  version: execution.version + 1,
-                }),
-              },
-              _currentEntityId: sessionId,
-            };
-          });
+        completeExecution: (workflowRunId, result) => {
+          get().updateExecutionStatus(workflowRunId, "completed", result);
         },
 
-        failExecution: (sessionId, error) => {
-          trackSync(store, sessionId, "update");
-
+        failExecution: (workflowRunId, error) => {
+          trackSync(store, workflowRunId, "update");
           set((state) => {
-            const execution = state.executions[sessionId];
-            if (!execution) return state;
+            const execution = state.executions[workflowRunId];
+            if (!execution) {
+              return state;
+            }
 
             return {
               executions: {
                 ...state.executions,
-                [sessionId]: addSyncMetadata({
+                [workflowRunId]: addSyncMetadata({
                   ...execution,
-                  status: "failed" as ExecutionStatus,
+                  status: "failed" as WorkflowRunStatus,
                   error,
                   finishedAt: Date.now(),
                   version: execution.version + 1,
                 }),
               },
-              _currentEntityId: sessionId,
+              _currentEntityId: workflowRunId,
             };
           });
         },
 
-        getExecution: (sessionId) => {
-          return get().executions[sessionId] || null;
-        },
-
-        getActiveExecution: () => {
-          const { activeSessionId, executions } = get();
-          return activeSessionId ? executions[activeSessionId] || null : null;
-        },
-
-        getWorkflowExecutions: (workflowId) => {
-          return Object.values(get().executions).filter(
-            (e) => e.workflowId === workflowId,
-          );
-        },
-
-        clearExecution: (sessionId) => {
-          trackSync(store, sessionId, "delete");
-
+        updateExecutionStatus: (workflowRunId, status, result) => {
+          trackSync(store, workflowRunId, "update");
           set((state) => {
-            const execution = state.executions[sessionId];
-            if (!execution) return state;
+            const execution = state.executions[workflowRunId];
+            if (!execution) {
+              return state;
+            }
 
             return {
               executions: {
                 ...state.executions,
-                [sessionId]: markAsDeleted(execution),
+                [workflowRunId]: addSyncMetadata({
+                  ...execution,
+                  status,
+                  result: result ?? execution.result,
+                  finishedAt:
+                    status === "running" ? execution.finishedAt : Date.now(),
+                  version: execution.version + 1,
+                }),
               },
-              activeSessionId:
-                state.activeSessionId === sessionId
-                  ? null
-                  : state.activeSessionId,
-              _currentEntityId: sessionId,
+              _currentEntityId: workflowRunId,
             };
           });
         },
 
-        clearAllExecutions: () => {
-          set((state) => {
-            const deletedExecutions: Record<string, WorkflowExecution> = {};
+        getExecution: (workflowRunId) => get().executions[workflowRunId] || null,
 
-            Object.entries(state.executions).forEach(([id, execution]) => {
-              deletedExecutions[id] = markAsDeleted(execution);
-            });
+        getActiveExecution: () => {
+          const { activeWorkflowRunId, executions } = get();
+          return activeWorkflowRunId ? executions[activeWorkflowRunId] || null : null;
+        },
+
+        getWorkflowExecutions: (workflowId) =>
+          Object.values(get().executions).filter(
+            (execution) => execution.workflowId === workflowId,
+          ),
+
+        clearExecution: (workflowRunId) => {
+          trackSync(store, workflowRunId, "delete");
+          set((state) => {
+            const execution = state.executions[workflowRunId];
+            if (!execution) {
+              return state;
+            }
 
             return {
-              executions: deletedExecutions,
-              activeSessionId: null,
+              executions: {
+                ...state.executions,
+                [workflowRunId]: markAsDeleted(execution),
+              },
+              activeWorkflowRunId:
+                state.activeWorkflowRunId === workflowRunId
+                  ? null
+                  : state.activeWorkflowRunId,
+              _currentEntityId: workflowRunId,
             };
           });
         },
@@ -210,33 +207,34 @@ export const useExecutionStore = create<ExecutionStore>()(
           set((state) => ({
             executions: {
               ...state.executions,
-              [execution.sessionId]: execution,
+              [execution.workflowRunId]: execution,
             },
           }));
         },
       }),
-
       {
-        entityType: "session",
+        entityType: "workflow_run",
         getEntityId: (state) => state._currentEntityId,
         serializeEntity: (state, entityId) => {
           const execution = state.executions[entityId];
-          if (!execution) return null;
+          if (!execution) {
+            return null;
+          }
 
           return {
-            id: execution.sessionId,
+            id: execution.workflowRunId,
             workflow_id: execution.workflowId,
             status: execution.status,
-            result: execution.result,
-            container_ids: [],
+            summary: execution.result,
             logs: execution.logs,
             error: execution.error || "",
-            started_at: execution.startedAt
-              ? new Date(execution.startedAt).toISOString()
-              : null,
+            started_at: new Date(execution.startedAt).toISOString(),
             completed_at: execution.finishedAt
               ? new Date(execution.finishedAt).toISOString()
               : null,
+            metadata: {
+              scenario_run_ids: execution.scenarioRunIds,
+            },
             version: execution.version,
             created_at: execution.created_at,
             updated_at: execution.updated_at,

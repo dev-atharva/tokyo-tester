@@ -6,15 +6,23 @@ export type JsonValue =
   | { [key: string]: JsonValue }
   | JsonValue[];
 
+export type ServiceType =
+  | "postgres"
+  | "mysql"
+  | "generic"
+  | "mariadb"
+  | "redis"
+  | "kafka";
+
 export interface ServiceConfig {
   name: string;
-  type: "postgres" | "mysql" | "generic" | "mariadb" | "redis" | "kafka";
+  type: ServiceType;
   image?: string;
   command?: string[];
   env?: Record<string, string>;
   ports?: string[];
   depends_on?: string[];
-  wait_stratergy?: WaitStratergyConfig;
+  wait_strategy?: WaitStratergyConfig;
   init_scripts?: string[];
   registry?: RegistryConfig;
 }
@@ -42,6 +50,7 @@ export interface TestConfig {
 
 export interface CreateServicesRequest {
   services: ServiceConfig[];
+  execution_context?: ExecutionContext;
 }
 
 export interface CreateServicesResponse {
@@ -51,6 +60,14 @@ export interface CreateServicesResponse {
 
 export interface RunTestsRequest {
   tests: TestConfig[];
+  execution_context?: ExecutionContext;
+}
+
+export interface ExecutionContext {
+  workflow_id?: string;
+  workflow_run_id?: string;
+  scenario_id?: string;
+  scenario_name?: string;
 }
 
 export interface RunTestsResponse {
@@ -72,44 +89,34 @@ export interface TestResult {
   container_logs?: Record<string, string>;
 }
 
-// Service node data represents a service with embedded test definations
-// Each node contains : Service defination(compulsory) + test defination (optional)
 export interface ServiceNodeData {
   label: string;
   description?: string;
-
   service: {
-    type: "postgres" | "mysql" | "mariadb" | "generic" | "redis" | "kafka";
-
-    // generic service fields
+    type: ServiceType;
     image?: string;
     command?: string[];
     ports?: PortMapping[];
-
-    // Env variables
     env?: EnvironmentVariable[];
-
     waitStratergy?: {
       enabled: boolean;
       type: "log" | "port" | "exec";
       target?: string;
       timeout?: number;
     };
-
     initScripts?: InitScript[];
   };
-
-  // Optional test configuration for that node
-  tests?: TestDefination[];
-
+  // Kept optional for legacy workflows while scenarios migrate tests out of nodes.
+  tests?: ScenarioTestDefinition[];
   onDelete?: (nodeId: string) => void;
 }
 
-export interface TestDefination {
+export interface ScenarioTestDefinition {
   id: string;
   name: string;
   type: "database" | "http" | "shell" | "cache" | "queue";
-
+  targetServices: string[];
+  dependsOnTestIds?: string[];
   databaseConfig?: {
     driver: "postgres" | "mysql" | "mariadb";
     database: string;
@@ -118,7 +125,6 @@ export interface TestDefination {
     query: string;
     expectedResult?: ExpectedResult;
   };
-
   httpConfig?: {
     method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
     path: string;
@@ -131,13 +137,12 @@ export interface TestDefination {
       value: string | Record<string, JsonValue>;
     };
   };
-
   shellConfig?: {
     command: string;
+    env?: Record<string, string>;
     expectedOutput?: string;
-    workdir?: string;
+    expectedExitCode?: number;
   };
-
   cacheConfig?: {
     service: string;
     cacheType: "redis" | "memcached";
@@ -150,10 +155,9 @@ export interface TestDefination {
     db?: number;
     password?: string;
   };
-
   queueConfig?: {
     service: string;
-    brokerType: "kafka" | "rabbitmq" | "nats";
+    brokerType: "kafka";
     operation:
       | "produce"
       | "consume"
@@ -171,6 +175,37 @@ export interface TestDefination {
     expectedExists?: boolean;
   };
 }
+
+export type TestDefination = ScenarioTestDefinition;
+
+export interface WorkflowGraph {
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+}
+
+export interface Scenario {
+  id: string;
+  workflowId: string;
+  name: string;
+  description?: string;
+  tests: ScenarioTestDefinition[];
+  testOrder: string[];
+  version: number;
+  created_at: string;
+  updated_at: string;
+  user_id: string;
+  client_id: string;
+  is_deleted: boolean;
+}
+
+export type WorkflowRunStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "partial_failed";
+
+export type ScenarioRunStatus = "pending" | "running" | "completed" | "failed";
 
 export interface PortMapping {
   id: string;
@@ -208,15 +243,7 @@ export interface InitScript {
   description?: string;
 }
 
-//React flow types
-
-//Node data included in the official node type
 export type FlowNode = Node<ServiceNodeData>;
-
-// Edge direction respresents data flow
-// source -> target : means data is flowing from source to the target
-// for services : target depends_on source (basically provision source first)
-// for tests : target tests depends_on source tests (run source tests first)
 
 export interface EdgeData {
   label?: string;
@@ -225,7 +252,6 @@ export interface EdgeData {
 
 export type FlowEdge = Edge<EdgeData>;
 
-// Translation result types
 export interface TranslationResult {
   services: ServiceConfig[];
   tests: TestConfig[];
@@ -244,16 +270,19 @@ export interface ValidationResult {
   warnings?: string[];
 }
 
-// Workflow states (used in the inngest)
-export interface WorkflowInput {
-  sessionId: string;
+export interface WorkflowRunInput {
+  workflowRunId: string;
   workflowId: string;
+  workflowName: string;
   nodes: FlowNode[];
   edges: FlowEdge[];
-  workflowName: string;
+  scenarios: Array<
+    Pick<Scenario, "id" | "name" | "description" | "tests" | "testOrder">
+  >;
   userId?: string;
-  customTestOrder?: [string, string[]][];
-
+  executionOptions?: {
+    continueOnFailure?: boolean;
+  };
   registrySecrets?: Record<
     string,
     {
@@ -266,8 +295,10 @@ export interface WorkflowInput {
   >;
 }
 
+export type WorkflowInput = WorkflowRunInput;
+
 export interface WorkflowState {
-  sessionId?: string;
+  workflowRunId?: string;
   servicesCreated: boolean;
   testsExecuted: boolean;
   cleanUp: boolean;
@@ -277,14 +308,31 @@ export interface WorkflowState {
 
 export interface WorkflowResult {
   success: boolean;
-  sessionId: string;
-  testResults?: RunTestsResponse;
+  workflowRunId: string;
+  scenarioResults: ScenarioExecutionResult[];
+  summary: {
+    totalScenarios: number;
+    passedScenarios: number;
+    failedScenarios: number;
+    totalTests: number;
+    passedTests: number;
+    failedTests: number;
+  };
   errors?: string[];
   duration?: number;
 }
 
-export type NodeMap = Map<string, FlowNode>;
+export interface ScenarioExecutionResult {
+  scenarioId: string;
+  scenarioName: string;
+  backendSessionId?: string;
+  success: boolean;
+  status: ScenarioRunStatus;
+  testResults?: RunTestsResponse;
+  error?: string;
+}
 
+export type NodeMap = Map<string, FlowNode>;
 export type DependencyGraph = Map<string, string[]>;
 
 export interface ExecutionOrder {
@@ -294,13 +342,46 @@ export interface ExecutionOrder {
 }
 
 export interface WorkflowLogEvent {
-  sessionId: string;
+  workflowRunId: string;
+  workflowId: string;
+  scenarioId?: string;
+  scenarioName?: string;
+  backendSessionId?: string;
   message: string;
   status?: "running" | "completed" | "failed";
+  stage?:
+    | "validation"
+    | "translation"
+    | "provision"
+    | "execution"
+    | "cleanup"
+    | "aggregation";
   timestamp: number;
   sequence: number;
   result?: JsonValue;
   error?: string;
+}
+
+export interface ScenarioTestResultEvent {
+  workflowRunId: string;
+  workflowId: string;
+  scenarioId: string;
+  scenarioName: string;
+  backendSessionId?: string;
+  bulkId: string;
+  timestamp: number;
+  results: Array<{
+    testResultId: string;
+    testName: string;
+    testType?: string;
+    status: string;
+    resultData?: unknown;
+    durationMs?: number;
+    executedAt?: string;
+    action: "create" | "update";
+    containerLogs?: Record<string, string>;
+    sequence: number;
+  }>;
 }
 
 export type WorkflowSummary = RunTestsResponse["summary"];

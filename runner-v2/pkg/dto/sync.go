@@ -15,7 +15,7 @@ type SyncBatchRequestDTO struct {
 }
 
 type SyncChangeDTO struct {
-	EntityType    string          `json:"entity_type" validate:"required,oneof=workflow session test_result"`
+	EntityType    string          `json:"entity_type" validate:"required,oneof=workflow scenario workflow_run scenario_run test_result"`
 	EntityID      string          `json:"entity_id" validate:"required,min=1"`
 	ChangeType    string          `json:"change_type" validate:"required,oneof=insert update delete"`
 	Data          json.RawMessage `json:"data" validate:"required_unless=ChangeType delete"`
@@ -108,9 +108,11 @@ func FromTypesSyncStatusResponse(resp *types.SyncStatusResponse) *SyncStatusResp
 }
 
 type SyncPullResponse struct {
-	Workflows   []WorkflowData   `json:"workflows,omitempty"`
-	Sessions    []SessionData    `json:"sessions,omitempty"`
-	TestResults []TestResultData `json:"test_results,omitempty"`
+	Workflows    []WorkflowData    `json:"workflows,omitempty"`
+	Scenarios    []ScenarioData    `json:"scenarios,omitempty"`
+	WorkflowRuns []WorkflowRunData `json:"workflow_runs,omitempty"`
+	Sessions     []SessionData     `json:"sessions,omitempty"`
+	TestResults  []TestResultData  `json:"test_results,omitempty"`
 }
 
 type WorkflowData struct {
@@ -128,39 +130,80 @@ type WorkflowData struct {
 	IsDeleted   bool            `json:"is_deleted"`
 }
 
+type ScenarioData struct {
+	ID          string          `json:"id"`
+	WorkflowID  string          `json:"workflow_id"`
+	UserID      string          `json:"user_id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	TestsConfig json.RawMessage `json:"tests_config"`
+	TestOrder   json.RawMessage `json:"test_order"`
+	Metadata    json.RawMessage `json:"metadata,omitempty"`
+	Version     int             `json:"version"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	ClientID    string          `json:"client_id"`
+	IsDeleted   bool            `json:"is_deleted"`
+}
+
+type WorkflowRunData struct {
+	ID          string          `json:"id"`
+	WorkflowID  string          `json:"workflow_id"`
+	UserID      string          `json:"user_id"`
+	Status      string          `json:"status"`
+	Summary     json.RawMessage `json:"summary,omitempty"`
+	Logs        json.RawMessage `json:"logs,omitempty"`
+	Error       string          `json:"error,omitempty"`
+	StartedAt   *time.Time      `json:"started_at,omitempty"`
+	CompletedAt *time.Time      `json:"completed_at,omitempty"`
+	Metadata    json.RawMessage `json:"metadata,omitempty"`
+	Version     int             `json:"version"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	ClientID    string          `json:"client_id"`
+	IsDeleted   bool            `json:"is_deleted"`
+}
+
 type SessionData struct {
-	ID           string          `json:"id"`
-	UserID       string          `json:"user_id"`
-	WorkflowID   string          `json:"workflow_id,omitempty"`
-	Status       string          `json:"status"`
-	Result       json.RawMessage `json:"result,omitempty"`
-	ContainerIDs json.RawMessage `json:"container_ids,omitempty"`
-	Logs         json.RawMessage `json:"logs,omitempty"`
-	Error        string          `json:"error,omitempty"`
-	StartedAt    *time.Time      `json:"started_at,omitempty"`
-	CompletedAt  *time.Time      `json:"completed_at,omitempty"`
-	Version      int             `json:"version"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"update_at"`
-	ClientID     string          `json:"client_id"`
-	IsDeleted    bool            `json:"is_deleted"`
+	ID               string          `json:"id"`
+	UserID           string          `json:"user_id"`
+	WorkflowRunID    string          `json:"workflow_run_id,omitempty"`
+	WorkflowID       string          `json:"workflow_id,omitempty"`
+	ScenarioID       string          `json:"scenario_id,omitempty"`
+	ScenarioName     string          `json:"scenario_name,omitempty"`
+	BackendSessionID string          `json:"backend_session_id,omitempty"`
+	Status           string          `json:"status"`
+	Result           json.RawMessage `json:"result,omitempty"`
+	ContainerIDs     json.RawMessage `json:"container_ids,omitempty"`
+	Logs             json.RawMessage `json:"logs,omitempty"`
+	Error            string          `json:"error,omitempty"`
+	StartedAt        *time.Time      `json:"started_at,omitempty"`
+	CompletedAt      *time.Time      `json:"completed_at,omitempty"`
+	Version          int             `json:"version"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"update_at"`
+	ClientID         string          `json:"client_id"`
+	IsDeleted        bool            `json:"is_deleted"`
 }
 
 type TestResultData struct {
-	ID         string    `json:"id"`
-	UserID     string    `json:"user_id"`
-	SessionID  string    `json:"session_id"`
-	WorkflowID string    `json:"workflow_id"`
-	TestName   string    `json:"test_name"`
-	TestType   string    `json:"test_type"`
-	Status     string    `json:"status"`
-	ResultData string    `json:"result_data,omitempty"`
-	DurationMs int       `json:"duration_ms,omitempty"`
-	ExecutedAt time.Time `json:"executed_at"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
-	ClientID   string    `json:"client_id"`
-	IsDeleted  bool      `json:"is_deleted"`
+	ID            string    `json:"id"`
+	UserID        string    `json:"user_id"`
+	SessionID     string    `json:"session_id"`
+	WorkflowRunID string    `json:"workflow_run_id,omitempty"`
+	WorkflowID    string    `json:"workflow_id"`
+	ScenarioID    string    `json:"scenario_id,omitempty"`
+	ScenarioName  string    `json:"scenario_name,omitempty"`
+	TestName      string    `json:"test_name"`
+	TestType      string    `json:"test_type"`
+	Status        string    `json:"status"`
+	ResultData    string    `json:"result_data,omitempty"`
+	DurationMs    int       `json:"duration_ms,omitempty"`
+	ExecutedAt    time.Time `json:"executed_at"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	ClientID      string    `json:"client_id"`
+	IsDeleted     bool      `json:"is_deleted"`
 }
 
 func FromTypesSyncPullResponse(resp *types.SyncPullResponse) *SyncPullResponse {
@@ -182,51 +225,100 @@ func FromTypesSyncPullResponse(resp *types.SyncPullResponse) *SyncPullResponse {
 		}
 	}
 
+	scenarios := make([]ScenarioData, len(resp.Scenarios))
+	for i, sc := range resp.Scenarios {
+		scenarios[i] = ScenarioData{
+			ID:          sc.ID,
+			WorkflowID:  sc.WorkflowID,
+			UserID:      sc.UserID,
+			Name:        sc.Name,
+			Description: sc.Description,
+			TestsConfig: sc.TestsConfig,
+			TestOrder:   sc.TestOrder,
+			Metadata:    sc.Metadata,
+			Version:     sc.Version,
+			CreatedAt:   sc.CreatedAt,
+			UpdatedAt:   sc.UpdatedAt,
+			ClientID:    sc.ClientID,
+			IsDeleted:   sc.IsDeleted,
+		}
+	}
+
+	workflowRuns := make([]WorkflowRunData, len(resp.WorkflowRuns))
+	for i, wr := range resp.WorkflowRuns {
+		workflowRuns[i] = WorkflowRunData{
+			ID:          wr.ID,
+			WorkflowID:  wr.WorkflowID,
+			UserID:      wr.UserID,
+			Status:      wr.Status,
+			Summary:     wr.Summary,
+			Logs:        wr.Logs,
+			Error:       wr.Error,
+			StartedAt:   wr.StartedAt,
+			CompletedAt: wr.CompletedAt,
+			Metadata:    wr.Metadata,
+			Version:     wr.Version,
+			CreatedAt:   wr.CreatedAt,
+			UpdatedAt:   wr.UpdatedAt,
+			ClientID:    wr.ClientID,
+			IsDeleted:   wr.IsDeleted,
+		}
+	}
+
 	session := make([]SessionData, len(resp.Sessions))
 	for i, sess := range resp.Sessions {
 		session[i] = SessionData{
-			ID:           sess.ID,
-			UserID:       sess.UserID,
-			WorkflowID:   sess.WorkflowID,
-			Status:       sess.Status,
-			Result:       sess.Result,
-			ContainerIDs: sess.ContainerIDs,
-			Logs:         sess.Logs,
-			Error:        sess.Error,
-			StartedAt:    sess.StartedAt,
-			CompletedAt:  sess.CompletedAt,
-			Version:      sess.Version,
-			CreatedAt:    sess.CreatedAt,
-			UpdatedAt:    sess.UpdatedAt,
-			ClientID:     sess.ClientID,
-			IsDeleted:    sess.IsDeleted,
+			ID:               sess.ID,
+			UserID:           sess.UserID,
+			WorkflowRunID:    sess.WorkflowRunID,
+			WorkflowID:       sess.WorkflowID,
+			ScenarioID:       sess.ScenarioID,
+			ScenarioName:     sess.ScenarioName,
+			BackendSessionID: sess.BackendSessionID,
+			Status:           sess.Status,
+			Result:           sess.Result,
+			ContainerIDs:     sess.ContainerIDs,
+			Logs:             sess.Logs,
+			Error:            sess.Error,
+			StartedAt:        sess.StartedAt,
+			CompletedAt:      sess.CompletedAt,
+			Version:          sess.Version,
+			CreatedAt:        sess.CreatedAt,
+			UpdatedAt:        sess.UpdatedAt,
+			ClientID:         sess.ClientID,
+			IsDeleted:        sess.IsDeleted,
 		}
 	}
 
 	testResults := make([]TestResultData, len(resp.TestResults))
 	for i, tr := range resp.TestResults {
 		testResults[i] = TestResultData{
-			ID:         tr.ID,
-			UserID:     tr.UserID,
-			SessionID:  tr.SessionID,
-			WorkflowID: tr.WorkflowID,
-			TestName:   tr.TestName,
-			TestType:   tr.TestType,
-			Status:     tr.Status,
-			ResultData: tr.ResultData,
-			DurationMs: tr.DurationMs,
-			ExecutedAt: tr.ExecutedAt,
-			CreatedAt:  tr.CreatedAt,
-			UpdatedAt:  tr.UpdatedAt,
-			ClientID:   tr.ClientID,
-			IsDeleted:  tr.IsDeleted,
+			ID:            tr.ID,
+			UserID:        tr.UserID,
+			SessionID:     tr.SessionID,
+			WorkflowRunID: tr.WorkflowRunID,
+			WorkflowID:    tr.WorkflowID,
+			ScenarioID:    tr.ScenarioID,
+			ScenarioName:  tr.ScenarioName,
+			TestName:      tr.TestName,
+			TestType:      tr.TestType,
+			Status:        tr.Status,
+			ResultData:    tr.ResultData,
+			DurationMs:    tr.DurationMs,
+			ExecutedAt:    tr.ExecutedAt,
+			CreatedAt:     tr.CreatedAt,
+			UpdatedAt:     tr.UpdatedAt,
+			ClientID:      tr.ClientID,
+			IsDeleted:     tr.IsDeleted,
 		}
 	}
 
 	return &SyncPullResponse{
-		Workflows:   workflows,
-		Sessions:    session,
-		TestResults: testResults,
+		Workflows:    workflows,
+		Scenarios:    scenarios,
+		WorkflowRuns: workflowRuns,
+		Sessions:     session,
+		TestResults:  testResults,
 	}
 }
 

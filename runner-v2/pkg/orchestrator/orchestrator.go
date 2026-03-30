@@ -37,13 +37,13 @@ func (o *Orchestrator) ProvisionServices(ctx context.Context, services []config.
 		return fmt.Errorf("registry authentication failed : %w", err)
 	}
 
-	logger.Info("creating shared Docker network")
+	logger.InfoContext(ctx, "creating shared Docker network")
 	dockerNetwork, err := network.New(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create the docker network ")
 	}
 	o.network = dockerNetwork
-	logger.Info("Docker network created", "network_name", dockerNetwork.Name)
+	logger.InfoContext(ctx, "Docker network created", "network_name", dockerNetwork.Name)
 
 	graph := NewDependencyGraph()
 	serviceMap := make(map[string]config.ServiceConfig)
@@ -59,7 +59,7 @@ func (o *Orchestrator) ProvisionServices(ctx context.Context, services []config.
 	}
 
 	for levelIdx, level := range levels {
-		logger.Info("provisioning service level", "level", levelIdx+1, "services", level)
+		logger.InfoContext(ctx, "provisioning service level", "level", levelIdx+1, "services", level)
 		if err := o.provisionlevel(ctx, level, serviceMap); err != nil {
 			return o.WrapErrorWithLogs(ctx, err, "", true)
 		}
@@ -79,7 +79,7 @@ func (o *Orchestrator) authenticateRegisteries(ctx context.Context, services []c
 		return nil
 	}
 
-	logger.Info("authenticating with custom container registries", "count", len(uniqueRegisteries))
+	logger.InfoContext(ctx, "authenticating with custom container registries", "count", len(uniqueRegisteries))
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return fmt.Errorf("failed to create Docker client: %w", err)
@@ -87,11 +87,11 @@ func (o *Orchestrator) authenticateRegisteries(ctx context.Context, services []c
 	defer dockerClient.Close()
 
 	for url, reg := range uniqueRegisteries {
-		logger.Debug("authenticating with regsitry", "registry_url", url)
+		logger.DebugContext(ctx, "authenticating with regsitry", "registry_url", url)
 		if err := registry.AuthenticateRegistry(ctx, dockerClient, reg); err != nil {
-			logger.Warn("failed to authenticate with registry, falling back to docker hub", "registry_url", url, "error", err)
+			logger.WarnContext(ctx, "failed to authenticate with registry, falling back to docker hub", "registry_url", url, "error", err)
 		} else {
-			logger.Info("successfully authenticated with registry", "registry_url", url)
+			logger.InfoContext(ctx, "successfully authenticated with registry", "registry_url", url)
 		}
 	}
 	return nil
@@ -136,8 +136,9 @@ func (o *Orchestrator) provisionlevel(ctx context.Context, serviceNames []string
 			}
 
 			// Provision with interpolated config
-			logger.Debug("provisioning service", "service_name", serviceName, "service_type", finalCfg.Type)
-			container, runtime, err := providerInst.Provision(ctx, finalCfg, o.network)
+			serviceCtx := logger.WithFields(ctx, "service_name", serviceName, "service_type", finalCfg.Type)
+			logger.DebugContext(serviceCtx, "provisioning service")
+			container, runtime, err := providerInst.Provision(serviceCtx, finalCfg, o.network)
 			if err != nil {
 				if container != nil {
 					o.mu.Lock()
@@ -183,8 +184,9 @@ func (o *Orchestrator) CleanUp(ctx context.Context) error {
 		wg.Add(1)
 		go func(serviceName string, cont testcontainers.Container) {
 			defer wg.Done()
-			logger.Info("cleaning up service", "service_name", serviceName)
-			if err := cont.Terminate(ctx); err != nil {
+			serviceCtx := logger.WithFields(ctx, "service_name", serviceName)
+			logger.InfoContext(serviceCtx, "cleaning up service")
+			if err := cont.Terminate(serviceCtx); err != nil {
 				errorChan <- fmt.Errorf("failed to cleanup %s: %w", serviceName, err)
 			}
 		}(name, container)
@@ -196,7 +198,7 @@ func (o *Orchestrator) CleanUp(ctx context.Context) error {
 		errors = append(errors, err)
 	}
 	if o.network != nil {
-		logger.Info("removing Docker network", "network_name", o.network.Name)
+		logger.InfoContext(ctx, "removing Docker network", "network_name", o.network.Name)
 		if err := o.network.Remove(ctx); err != nil {
 			errors = append(errors, fmt.Errorf("failed to remove network: %w", err))
 		}

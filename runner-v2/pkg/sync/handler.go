@@ -139,7 +139,15 @@ func (h *Handler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger.InfoContext(ctx, "sync changes pulled successfully", "workflows", len(response.Workflows), "sessions", len(response.Sessions), "test_results", len(response.TestResults))
+	logger.InfoContext(
+		ctx,
+		"sync changes pulled successfully",
+		"workflows", len(response.Workflows),
+		"scenarios", len(response.Scenarios),
+		"workflow_runs", len(response.WorkflowRuns),
+		"sessions", len(response.Sessions),
+		"test_results", len(response.TestResults),
+	)
 
 	dtoResponse := dto.FromTypesSyncPullResponse(response)
 

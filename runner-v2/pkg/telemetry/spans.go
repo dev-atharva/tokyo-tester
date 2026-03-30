@@ -66,6 +66,26 @@ func SessionIDAttr(sessionID string) attribute.KeyValue {
 	return attribute.String("session.id", sessionID)
 }
 
+func WorkflowIDAttr(workflowID string) attribute.KeyValue {
+	return attribute.String("workflow.id", workflowID)
+}
+
+func WorkflowRunIDAttr(workflowRunID string) attribute.KeyValue {
+	return attribute.String("workflow_run.id", workflowRunID)
+}
+
+func ScenarioIDAttr(scenarioID string) attribute.KeyValue {
+	return attribute.String("scenario.id", scenarioID)
+}
+
+func ScenarioNameAttr(scenarioName string) attribute.KeyValue {
+	return attribute.String("scenario.name", scenarioName)
+}
+
+func BackendSessionIDAttr(backendSessionID string) attribute.KeyValue {
+	return attribute.String("backend_session.id", backendSessionID)
+}
+
 func ContainerIDAttr(containerID string) attribute.KeyValue {
 	return attribute.String("container.id", containerID)
 }

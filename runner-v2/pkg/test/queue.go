@@ -74,7 +74,7 @@ func (e *QueueExecutor) executeKafka(ctx context.Context, testCfg config.TestCon
 		return e.kafkaConsume(ctx, brokers, testCfg)
 	case "produce_and_consume":
 		return e.kafkaProduceAndConsume(ctx, brokers, testCfg)
-	case "check_type":
+	case "check_type", "check_topic":
 		return e.kafkaCheckTopic(ctx, brokers, testCfg)
 	case "list_topics":
 		return e.kafkaListTopics(ctx, brokers, testCfg)

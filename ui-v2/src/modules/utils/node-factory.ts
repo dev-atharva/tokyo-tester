@@ -42,6 +42,7 @@ export function createPostgresNode(
       id: `test-${idx}`,
       name: test.name,
       type: "database",
+      targetServices: [id],
       databaseConfig: {
         driver: "postgres",
         database: options.database || "testdb",
@@ -98,6 +99,7 @@ export function createMySqlNode(
       id: `test-${idx}`,
       name: test.name,
       type: "database",
+      targetServices: [id],
       databaseConfig: {
         driver: "mysql",
         database: options.database || "testdb",
@@ -153,6 +155,7 @@ export function createMariaDbNode(
       id: `test-${idx}`,
       name: test.name,
       type: "database",
+      targetServices: [id],
       databaseConfig: {
         driver: "mariadb",
         database: options.database || "testdb",
@@ -220,6 +223,7 @@ export function createRedisNode(
         id: `test-${idx}`,
         name: test.name,
         type: test.type,
+        targetServices: [id],
       };
 
       if (test.type === "cache" && test.cacheConfig) {
@@ -304,6 +308,7 @@ export function createKafkaNode(
         id: `test-${idx}`,
         name: test.name,
         type: test.type,
+        targetServices: [id],
       };
       if (test.type === "queue" && test.queueConfig) {
         testDef.queueConfig = {
@@ -399,6 +404,7 @@ export function createGenericServiceNode(
         id: `test-${index}`,
         name: test.name,
         type: test.type,
+        targetServices: [id],
       };
 
       if (test.type === "http" && test.httpConfig) {

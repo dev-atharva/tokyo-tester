@@ -1,4 +1,5 @@
 "use client";
+
 import { useInngestSubscription } from "@inngest/realtime/hooks";
 import { useEffect, useRef } from "react";
 import {
@@ -6,9 +7,12 @@ import {
   fetchTestResultRealtimeSubscriptionToken,
 } from "@/modules/utils/get-subscribe-token";
 import { useExecutionStore } from "../stores/execution.store.sync";
+import { useScenarioRunStore } from "../stores/scenario-run.store.sync";
 import { useTestResultStore } from "../stores/test-result.store";
-
-type TestStatus = "pending" | "running" | "passed" | "failed";
+import type {
+  ScenarioRunStatus,
+  WorkflowRunStatus,
+} from "../types/react-flow-cots";
 
 interface UseRealtimeLogsProps {
   onComplete?: (result: unknown) => void;
@@ -22,125 +26,176 @@ export function useRealtimeLogs({
   const { latestData: latestLogData } = useInngestSubscription({
     refreshToken: fetchLogsRealtimeSubscriptionToken,
   });
-
   const { latestData: latestResultData } = useInngestSubscription({
     refreshToken: fetchTestResultRealtimeSubscriptionToken,
   });
 
-  const appendLog = useExecutionStore((s) => s.appendLog);
-  const completeExecution = useExecutionStore((s) => s.completeExecution);
-  const failExecution = useExecutionStore((s) => s.failExecution);
-
-  const _addTestResult = useTestResultStore((s) => s.addTestResult);
-  const updateTestResult = useTestResultStore((s) => s.updateTestResult);
-  const _hasTestResult = useTestResultStore((s) => s.hasTestResult);
+  const appendLog = useExecutionStore((state) => state.appendLog);
+  const updateExecutionStatus = useExecutionStore((state) => state.updateExecutionStatus);
+  const failExecution = useExecutionStore((state) => state.failExecution);
+  const appendScenarioLog = useScenarioRunStore((state) => state.appendScenarioLog);
+  const updateScenarioRun = useScenarioRunStore((state) => state.updateScenarioRun);
+  const scenarioRuns = useScenarioRunStore((state) => state.scenarioRuns);
+  const updateTestResult = useTestResultStore((state) => state.updateTestResult);
 
   const processedEventIds = useRef(new Set<string>());
 
-  const onCompleteRef = useRef(onComplete);
-  const onErrorRef = useRef(onError);
-
   useEffect(() => {
-    onCompleteRef.current = onComplete;
-    onErrorRef.current = onError;
-  }, [onComplete, onError]);
+    if (!latestLogData || latestLogData.topic !== "workflowlog") {
+      return;
+    }
 
-  /* ---------------- Workflow Logs ---------------- */
-  useEffect(() => {
-    if (!latestLogData) return;
+    const {
+      workflowRunId,
+      scenarioId,
+      message,
+      status,
+      result,
+      error,
+      timestamp,
+      sequence,
+      backendSessionId,
+    } = latestLogData.data;
+    const eventId = `workflowlog:${workflowRunId}:${scenarioId || "workflow"}:${timestamp}:${sequence}`;
+    if (processedEventIds.current.has(eventId)) {
+      return;
+    }
+    processedEventIds.current.add(eventId);
 
-    if (latestLogData.topic === "workflowlog") {
-      const { sessionId, message, status, result, error, timestamp, sequence } =
-        latestLogData.data;
-      const eventId = `workflowlog:${sessionId}:${timestamp}:${sequence}`;
+    appendLog(workflowRunId, message);
 
-      if (processedEventIds.current.has(eventId)) return;
-      processedEventIds.current.add(eventId);
+    if (scenarioId) {
+      const scenarioRun = Object.values(scenarioRuns).find(
+        (run) => run.workflowRunId === workflowRunId && run.scenarioId === scenarioId,
+      );
+      if (scenarioRun) {
+        let nextStatus: ScenarioRunStatus | undefined;
 
-      appendLog(sessionId, message);
+        if (status === "failed") {
+          nextStatus = "failed";
+        } else if (status === "completed") {
+          nextStatus = "completed";
+        } else if (
+          scenarioRun.status !== "completed" &&
+          scenarioRun.status !== "failed"
+        ) {
+          nextStatus = "running";
+        }
 
-      if (status === "completed") {
-        completeExecution(sessionId, result);
-        onComplete?.(result);
-      }
-
-      if (status === "failed") {
-        failExecution(sessionId, error ?? "Workflow execution failed");
-        onError?.(error ?? "Workflow execution failed");
+        appendScenarioLog(scenarioRun.id, message);
+        updateScenarioRun(scenarioRun.id, {
+          backendSessionId,
+          status: nextStatus,
+          error: error ?? scenarioRun.error,
+        });
       }
     }
 
-    // prevent unbounded growth
-    if (processedEventIds.current.size > 2000) {
-      const entries = Array.from(processedEventIds.current);
-      processedEventIds.current = new Set(entries.slice(1000));
+    const aggregatedStatus =
+      !scenarioId &&
+      result &&
+      typeof result === "object" &&
+      "status" in result &&
+      typeof result.status === "string"
+        ? (result.status as WorkflowRunStatus)
+        : undefined;
+
+    if (!scenarioId && aggregatedStatus) {
+      updateExecutionStatus(workflowRunId, aggregatedStatus, result);
+      if (aggregatedStatus === "completed") {
+        onComplete?.(result);
+      }
+      return;
+    }
+
+    if (status === "completed") {
+      updateExecutionStatus(workflowRunId, "completed", result);
+      onComplete?.(result);
+    }
+
+    if (status === "failed" && !scenarioId) {
+      failExecution(workflowRunId, error ?? "Workflow execution failed");
+      onError?.(error ?? "Workflow execution failed");
     }
   }, [
     latestLogData,
     appendLog,
-    completeExecution,
-    failExecution,
+    appendScenarioLog,
+    updateScenarioRun,
+    scenarioRuns,
+    updateExecutionStatus,
     onComplete,
+    failExecution,
     onError,
   ]);
 
-  /* ---------------- Bulk Test Results ---------------- */
   useEffect(() => {
-    if (!latestResultData) return;
+    if (!latestResultData || latestResultData.topic !== "testresult") {
+      return;
+    }
 
-    if (latestResultData.topic === "testresult") {
-      const { sessionId, workflowId, results, bulkId } = latestResultData.data;
+    const {
+      workflowRunId,
+      workflowId,
+      scenarioId,
+      scenarioName,
+      backendSessionId,
+      results,
+      bulkId,
+    } = latestResultData.data;
 
-      console.log(`Received bulk update with ${results.length} test results`);
+    if (processedEventIds.current.has(bulkId)) {
+      return;
+    }
+    processedEventIds.current.add(bulkId);
 
-      if (processedEventIds.current.has(bulkId)) {
-        return;
-      }
-      processedEventIds.current.add(bulkId);
-
-      const sortedResults = [...results].sort(
-        (a, b) => a.sequence - b.sequence,
+    const scenarioRun = Object.values(scenarioRuns).find(
+      (run) => run.workflowRunId === workflowRunId && run.scenarioId === scenarioId,
+    );
+    if (scenarioRun) {
+      const hasRunning = results.some(
+        (result) => result.status === "running" || result.status === "pending",
       );
+      const hasFailed = results.some((result) => result.status === "failed");
+      const hasPassed = results.length > 0 && results.every((result) => result.status === "passed");
 
-      // Process each result in the bulk payload
-      sortedResults.forEach((result) => {
-        const {
-          testResultId,
-          testName,
-          testType,
-          status,
-          resultData,
-          durationMs,
-          executedAt,
-          containerLogs,
-        } = result;
+      let nextScenarioStatus = scenarioRun.status;
+      if (hasFailed) {
+        nextScenarioStatus = "failed";
+      } else if (hasPassed) {
+        nextScenarioStatus = "completed";
+      } else if (
+        hasRunning &&
+        scenarioRun.status !== "completed" &&
+        scenarioRun.status !== "failed"
+      ) {
+        nextScenarioStatus = "running";
+      }
 
-        const normalizedStatus = status as TestStatus;
-
-        const basePayload = {
-          id: testResultId,
-          sessionId,
-          workflowId,
-          testName,
-          testType: testType || "database",
-          status: normalizedStatus,
-          resultData: resultData ?? null,
-          durationMs: durationMs ?? 0,
-          executedAt: executedAt ?? new Date().toISOString(),
-          containerLogs: containerLogs,
-        };
-
-        updateTestResult(testResultId, basePayload);
+      updateScenarioRun(scenarioRun.id, {
+        backendSessionId,
+        status: nextScenarioStatus,
       });
     }
 
-    // prevent unbounded growth
-    if (processedEventIds.current.size > 2000) {
-      const entries = Array.from(processedEventIds.current);
-      processedEventIds.current = new Set(entries.slice(1000));
-      processedEventIds.current.clear();
+    for (const result of [...results].sort((left, right) => left.sequence - right.sequence)) {
+      updateTestResult(result.testResultId, {
+        sessionId: backendSessionId || scenarioRun?.backendSessionId || scenarioRun?.id || scenarioId,
+        workflowRunId,
+        workflowId,
+        scenarioRunId: scenarioRun?.id,
+        scenarioId,
+        scenarioName,
+        testName: result.testName,
+        testType: result.testType || "database",
+        status: result.status as "pending" | "running" | "passed" | "failed",
+        resultData: result.resultData ?? null,
+        durationMs: result.durationMs ?? 0,
+        executedAt: result.executedAt ?? new Date().toISOString(),
+        containerLogs: result.containerLogs,
+      });
     }
-  }, [updateTestResult, latestResultData]);
+  }, [latestResultData, updateScenarioRun, scenarioRuns, updateTestResult]);
 
   return {
     isConnected: !!(latestLogData && latestResultData),

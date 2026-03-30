@@ -29,9 +29,11 @@ type SyncStatusResponse struct {
 }
 
 type SyncPullResponse struct {
-	Workflows   []WorkflowData   `json:"workflows,omitempty"`
-	Sessions    []SessionData    `json:"sessions,omitempty"`
-	TestResults []TestResultData `json:"test_results,omitempty"`
+	Workflows    []WorkflowData    `json:"workflows,omitempty"`
+	Scenarios    []ScenarioData    `json:"scenarios,omitempty"`
+	WorkflowRuns []WorkflowRunData `json:"workflow_runs,omitempty"`
+	Sessions     []SessionData     `json:"sessions,omitempty"`
+	TestResults  []TestResultData  `json:"test_results,omitempty"`
 }
 
 // --- Conflict and Error Info ---
@@ -77,41 +79,82 @@ type WorkflowData struct {
 	IsDeleted   bool            `json:"is_deleted"`
 }
 
+type ScenarioData struct {
+	ID          string          `json:"id"`
+	WorkflowID  string          `json:"workflow_id"`
+	UserID      string          `json:"user_id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	TestsConfig json.RawMessage `json:"tests_config"`
+	TestOrder   json.RawMessage `json:"test_order"`
+	Metadata    json.RawMessage `json:"metadata,omitempty"`
+	Version     int             `json:"version"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	ClientID    string          `json:"client_id"`
+	IsDeleted   bool            `json:"is_deleted"`
+}
+
+type WorkflowRunData struct {
+	ID          string          `json:"id"`
+	WorkflowID  string          `json:"workflow_id"`
+	UserID      string          `json:"user_id"`
+	Status      string          `json:"status"`
+	Summary     json.RawMessage `json:"summary,omitempty"`
+	Logs        json.RawMessage `json:"logs,omitempty"`
+	Error       string          `json:"error,omitempty"`
+	StartedAt   *time.Time      `json:"started_at,omitempty"`
+	CompletedAt *time.Time      `json:"completed_at,omitempty"`
+	Metadata    json.RawMessage `json:"metadata,omitempty"`
+	Version     int             `json:"version"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	ClientID    string          `json:"client_id"`
+	IsDeleted   bool            `json:"is_deleted"`
+}
+
 // --- Session Data ---
 
 type SessionData struct {
-	ID           string          `json:"id"`
-	UserID       string          `json:"user_id"`
-	WorkflowID   string          `json:"workflow_id,omitempty"`
-	Status       string          `json:"status"`                  // pending,running,completed,failed
-	Result       json.RawMessage `json:"result,omitempty"`        // JSON
-	ContainerIDs json.RawMessage `json:"container_ids,omitempty"` // JSON array
-	Logs         json.RawMessage `json:"logs,omitempty"`          // JSON array
-	Error        string          `json:"error,omitempty"`
-	StartedAt    *time.Time      `json:"started_at,omitempty"`
-	CompletedAt  *time.Time      `json:"completed_at,omitempty"`
-	Version      int             `json:"version"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	ClientID     string          `json:"client_id"`
-	IsDeleted    bool            `json:"is_deleted"`
+	ID               string          `json:"id"`
+	UserID           string          `json:"user_id"`
+	WorkflowRunID    string          `json:"workflow_run_id,omitempty"`
+	WorkflowID       string          `json:"workflow_id,omitempty"`
+	ScenarioID       string          `json:"scenario_id,omitempty"`
+	ScenarioName     string          `json:"scenario_name,omitempty"`
+	BackendSessionID string          `json:"backend_session_id,omitempty"`
+	Status           string          `json:"status"`                  // pending,running,completed,failed
+	Result           json.RawMessage `json:"result,omitempty"`        // JSON
+	ContainerIDs     json.RawMessage `json:"container_ids,omitempty"` // JSON array
+	Logs             json.RawMessage `json:"logs,omitempty"`          // JSON array
+	Error            string          `json:"error,omitempty"`
+	StartedAt        *time.Time      `json:"started_at,omitempty"`
+	CompletedAt      *time.Time      `json:"completed_at,omitempty"`
+	Version          int             `json:"version"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
+	ClientID         string          `json:"client_id"`
+	IsDeleted        bool            `json:"is_deleted"`
 }
 
 // --- Test Result Data ---
 
 type TestResultData struct {
-	ID         string    `json:"id"`
-	UserID     string    `json:"user_id"`
-	SessionID  string    `json:"session_id"`
-	WorkflowID string    `json:"workflow_id"`
-	TestName   string    `json:"test_name"`
-	TestType   string    `json:"test_type"` // database/http/shell/cache/kafka
-	Status     string    `json:"status"`
-	ResultData string    `json:"result_data,omitempty"` // JSON string
-	DurationMs int       `json:"duration_ms,omitempty"`
-	ExecutedAt time.Time `json:"executed_at"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
-	ClientID   string    `json:"client_id"`
-	IsDeleted  bool      `json:"is_deleted"`
+	ID            string    `json:"id"`
+	UserID        string    `json:"user_id"`
+	SessionID     string    `json:"session_id"`
+	WorkflowRunID string    `json:"workflow_run_id,omitempty"`
+	WorkflowID    string    `json:"workflow_id"`
+	ScenarioID    string    `json:"scenario_id,omitempty"`
+	ScenarioName  string    `json:"scenario_name,omitempty"`
+	TestName      string    `json:"test_name"`
+	TestType      string    `json:"test_type"` // database/http/shell/cache/kafka
+	Status        string    `json:"status"`
+	ResultData    string    `json:"result_data,omitempty"` // JSON string
+	DurationMs    int       `json:"duration_ms,omitempty"`
+	ExecutedAt    time.Time `json:"executed_at"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	ClientID      string    `json:"client_id"`
+	IsDeleted     bool      `json:"is_deleted"`
 }

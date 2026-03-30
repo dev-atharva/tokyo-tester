@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -17,7 +18,69 @@ import (
 	"github.com/dev-atharva/cots/pkg/telemetry"
 	"github.com/dev-atharva/cots/pkg/test"
 	"github.com/go-chi/chi/v5"
+	"go.opentelemetry.io/otel/attribute"
 )
+
+func withExecutionContext(ctx context.Context, execution *dto.ExecutionContextDTO) context.Context {
+	if execution == nil {
+		return ctx
+	}
+
+	args := make([]any, 0, 8)
+	attrs := make([]attribute.KeyValue, 0, 4)
+
+	if execution.WorkflowID != "" {
+		args = append(args, "workflow_id", execution.WorkflowID)
+		attrs = append(attrs, telemetry.WorkflowIDAttr(execution.WorkflowID))
+	}
+	if execution.WorkflowRunID != "" {
+		args = append(args, "workflow_run_id", execution.WorkflowRunID)
+		attrs = append(attrs, telemetry.WorkflowRunIDAttr(execution.WorkflowRunID))
+	}
+	if execution.ScenarioID != "" {
+		args = append(args, "scenario_id", execution.ScenarioID)
+		attrs = append(attrs, telemetry.ScenarioIDAttr(execution.ScenarioID))
+	}
+	if execution.ScenarioName != "" {
+		args = append(args, "scenario_name", execution.ScenarioName)
+		attrs = append(attrs, telemetry.ScenarioNameAttr(execution.ScenarioName))
+	}
+
+	if len(attrs) > 0 {
+		telemetry.AddSpanAttributes(ctx, attrs...)
+	}
+	if len(args) > 0 {
+		return logger.WithFields(ctx, args...)
+	}
+
+	return ctx
+}
+
+func toSessionExecutionContext(execution *dto.ExecutionContextDTO) *session.ExecutionContext {
+	if execution == nil {
+		return nil
+	}
+
+	return &session.ExecutionContext{
+		WorkflowID:    execution.WorkflowID,
+		WorkflowRunID: execution.WorkflowRunID,
+		ScenarioID:    execution.ScenarioID,
+		ScenarioName:  execution.ScenarioName,
+	}
+}
+
+func executionContextFromSession(sess *session.Session) *dto.ExecutionContextDTO {
+	if sess == nil || sess.Execution == nil {
+		return nil
+	}
+
+	return &dto.ExecutionContextDTO{
+		WorkflowID:    sess.Execution.WorkflowID,
+		WorkflowRunID: sess.Execution.WorkflowRunID,
+		ScenarioID:    sess.Execution.ScenarioID,
+		ScenarioName:  sess.Execution.ScenarioName,
+	}
+}
 
 type Handler struct {
 	sessionManager *session.Manager
@@ -57,6 +120,8 @@ func (h *Handler) CreateServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx = withExecutionContext(ctx, req.ExecutionContext)
+
 	if err := dto.Validate(req); err != nil {
 		fieldErrors := dto.FormatValidationErrors(err)
 		logger.WarnContext(ctx, "validation failed", "errors", fieldErrors)
@@ -89,12 +154,14 @@ func (h *Handler) CreateServices(w http.ResponseWriter, r *http.Request) {
 	}
 
 	orch := orchestrator.NewOrchestrator(h.providers)
-	sessionID := h.sessionManager.Create(orch)
+	sessionID := h.sessionManager.Create(orch, toSessionExecutionContext(req.ExecutionContext))
 	telemetry.AddSpanAttributes(ctx, telemetry.SessionIDAttr(sessionID))
+	ctx = logger.WithFields(ctx, "session_id", sessionID)
 
 	sess, _ := h.sessionManager.Get(sessionID)
-	if err := orch.ProvisionServices(sess.Context, services); err != nil {
-		logger.ErrorContext(ctx, "service provisioning failed", "error", err, "session_id", sessionID)
+	provisionCtx := withExecutionContext(ctx, req.ExecutionContext)
+	if err := orch.ProvisionServices(logger.WithContext(sess.Context, logger.FromContext(provisionCtx)), services); err != nil {
+		logger.ErrorContext(ctx, "service provisioning failed", "error", err)
 
 		var containerLogs map[string]string
 		if enhancedErr, ok := err.(*orchestrator.EnhancedError); ok {
@@ -118,7 +185,7 @@ func (h *Handler) CreateServices(w http.ResponseWriter, r *http.Request) {
 		errors.ResponseWithError(w, appErr)
 		return
 	}
-	logger.InfoContext(ctx, "services provisioned successfully", "session_id", sessionID, "count", len(services))
+	logger.InfoContext(ctx, "services provisioned successfully", "count", len(services))
 
 	respondJson(w, http.StatusCreated, dto.CreateServicesResponse{
 		SessionID: sessionID,
@@ -145,6 +212,8 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx = withExecutionContext(ctx, req.ExecutionContext)
+
 	if err := dto.Validate(req); err != nil {
 		fieldErros := dto.FormatValidationErrors(err)
 		logger.WarnContext(ctx, "validation failed", "errors", fieldErros)
@@ -158,6 +227,7 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 		errors.RespondNotFound(w, "session")
 		return
 	}
+	ctx = withExecutionContext(ctx, executionContextFromSession(sess))
 
 	tests := req.ToConfigList()
 	telemetry.AddSpanAttributes(ctx, telemetry.TestNameAttr(fmt.Sprintf("%d tests", len(tests))))
@@ -171,8 +241,9 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 	for _, testCfg := range tests {
 
 		testCtx, testSpan := telemetry.StartSpan(ctx, "test.execute", telemetry.TestNameAttr(testCfg.Name), telemetry.TestTypeAttr(testCfg.Type))
+		testCtx = logger.WithFields(testCtx, "test_name", testCfg.Name, "test_type", testCfg.Type)
 
-		logger.DebugContext(ctx, "executing test", "test_name", testCfg.Name, "test_type", testCfg.Type)
+		logger.DebugContext(testCtx, "executing test")
 
 		interpolatedConfig, err := test.InterpolateTestConfig(testCfg.Config, sess)
 		if err != nil {
@@ -231,7 +302,7 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 				"type":   testCfg.Type,
 			})
 
-			logger.InfoContext(ctx, "test passed", "test_name", testCfg.Name)
+			logger.InfoContext(testCtx, "test passed")
 			results = append(results, dto.TestResult{
 				Name:   testCfg.Name,
 				Type:   testCfg.Type,
@@ -241,7 +312,7 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 		}
 		testSpan.End()
 	}
-	logger.InfoContext(ctx, "tests completed", "session_id", sessionId, "total", len(tests), "passed", passed, "failed", failed)
+	logger.InfoContext(ctx, "tests completed", "total", len(tests), "passed", passed, "failed", failed)
 
 	respondJson(w, http.StatusOK, dto.RunTestReponse{
 		SessionID: sessionId,
@@ -262,6 +333,10 @@ func (h *Handler) CleanUpSession(w http.ResponseWriter, r *http.Request) {
 	defer span.End()
 
 	logger.InfoContext(ctx, "cleaning up session", "session_id", sessionID)
+
+	if sess, err := h.sessionManager.Get(sessionID); err == nil {
+		ctx = withExecutionContext(ctx, executionContextFromSession(sess))
+	}
 
 	if err := h.sessionManager.Delete(sessionID); err != nil {
 		logger.WarnContext(ctx, "session not found for cleanup", "session_id", sessionID)

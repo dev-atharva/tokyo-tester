@@ -3,7 +3,8 @@ package dto
 import "github.com/dev-atharva/cots/pkg/config"
 
 type RunTestRequest struct {
-	Tests []TestDTO `json:"tests" validate:"required,min=1,dive"`
+	Tests            []TestDTO            `json:"tests" validate:"required,min=1,dive"`
+	ExecutionContext *ExecutionContextDTO `json:"execution_context,omitempty"`
 }
 
 type TestDTO struct {

@@ -19,7 +19,6 @@ import {
 } from "../../hooks/useKeyboardShortcuts";
 import { useRealtimeTestResults } from "../../hooks/useRealTimeTestReults";
 import { useRealtimeLogs } from "../../hooks/useRealtimeLogs";
-import { useTestOrderManager } from "../../hooks/useTestOrderManager";
 import { useWorkflowExecution } from "../../hooks/useWorkflowExecution";
 import { useWorkflowGraph } from "../../hooks/useWorkflowGraph";
 import { useExecutionStore } from "../../stores/execution.store.sync";
@@ -29,13 +28,14 @@ import { ExecutionHistory } from "../ExecutionHistory";
 import { ShortcutsDialog } from "../KeyboardShortCutsDialog";
 import { NodeConfigDialog } from "../NodeConfigDialog";
 import { NodeDrawer } from "../NodeDrawer";
+import { ScenarioDialog } from "../ScenarioDialog";
 import { ServiceNode } from "../ServiceNode";
 import { WorkflowLogsDrawer } from "../WorkflowLogsDrawer";
 import { FlowCanvas } from "./FlowCanvas";
 
 interface FlowBuilderProps {
   workflowId: string;
-  onWorkflowStart?: (sessionId: string) => void;
+  onWorkflowStart?: (workflowRunId: string) => void;
   onWorkComplete?: (results: unknown) => void;
   onError?: (error: string) => void;
 }
@@ -50,13 +50,20 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
 
   // Stores
   const updateWorkflowName = useWorkflowStore((s) => s.updateWorkflowName);
-  const activeExecution = useExecutionStore((s) => s.getActiveExecution());
+  const activeWorkflowRunId = useExecutionStore((s) => s.activeWorkflowRunId);
+  const executions = useExecutionStore((s) => s.executions);
   const hydrated = useWorkflowStore((s) => s.hydrated);
+  const activeExecution = useMemo(
+    () =>
+      activeWorkflowRunId ? executions[activeWorkflowRunId] ?? null : null,
+    [activeWorkflowRunId, executions],
+  );
 
   // UI State
   const {
     isDrawerOpen,
     isNodeConfigOpen,
+    isScenarioDialogOpen,
     isLogsOpen,
     isShortcutsOpen,
     selectedNode,
@@ -64,6 +71,8 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
     closeDrawer,
     openNodeConfig,
     closeNodeConfig,
+    openScenarios,
+    closeScenarios,
     openLogs,
     closeLogs,
     openShortcuts,
@@ -86,16 +95,12 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
     connectNodes,
   } = useWorkflowGraph(workflowId);
 
-  // Test order management
-  const { customTestOrder, updateTestOrder } = useTestOrderManager(workflowId);
-
   // Execution
   const { execute, isExecuting, canExecute } = useWorkflowExecution({
     workflowId,
     workflowName: workflow?.name || "",
     nodes,
     edges,
-    customTestOrder,
     onStart: onWorkflowStart,
     onComplete: onWorkComplete,
     onError,
@@ -121,15 +126,21 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           duration: 3000,
         });
       } else if (testResult.status === "failed") {
+        const failureMessage =
+          testResult.resultData &&
+          typeof testResult.resultData === "object" &&
+          "message" in testResult.resultData
+            ? String(testResult.resultData.message)
+            : "Test failed";
         toast.error(`✗ ${testResult.testName}`, {
-          description: testResult.resultData?.message || "Test failed",
+          description: failureMessage,
           duration: 5000,
         });
       }
     },
-    onAllTestsComplete: (sessionId, testSummary) => {
+    onAllTestsComplete: (workflowRunId, testSummary) => {
       console.log(
-        `[FlowBuilder] All tests complete for session ${sessionId}:`,
+        `[FlowBuilder] All tests complete for workflow run ${workflowRunId}:`,
         testSummary,
       );
 
@@ -279,6 +290,8 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
         handler: () => {
           if (isShortcutsOpen) {
             closeShortcuts();
+          } else if (isScenarioDialogOpen) {
+            closeScenarios();
           } else if (isLogsOpen) {
             closeLogs();
           } else if (isDrawerOpen) {
@@ -329,6 +342,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           onNodeDoubleClick={(_, node) => openNodeConfig(node)}
           onExecute={execute}
           onOpenDrawer={openDrawer}
+          onOpenScenarios={openScenarios}
           onOpenLogs={openLogs}
           onOpenShortcuts={openShortcuts}
           onOpenHistory={() => setIsHistoryOpen(true)}
@@ -338,15 +352,11 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
         />
 
         <NodeDrawer
-          workflowId={workflow.id}
           currentWorkflowName={workflow.name}
           isOpen={isDrawerOpen}
           onClose={closeDrawer}
           onAddNode={handleAddNode}
           onWorkflowNameChange={(name) => updateWorkflowName(workflow.id, name)}
-          nodes={nodes}
-          onTestOrderChange={updateTestOrder}
-          customTestOrder={customTestOrder}
         />
 
         <NodeConfigDialog
@@ -355,6 +365,19 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           nodes={nodes}
           onClose={closeNodeConfig}
           onSave={updateNode}
+        />
+
+        <ScenarioDialog
+          open={isScenarioDialogOpen}
+          onOpenChange={(open) => {
+            if (open) {
+              openScenarios();
+            } else {
+              closeScenarios();
+            }
+          }}
+          workflowId={workflowId}
+          nodes={nodes}
         />
 
         <WorkflowLogsDrawer

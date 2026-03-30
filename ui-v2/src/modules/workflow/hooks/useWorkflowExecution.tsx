@@ -1,23 +1,24 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { inngest } from "@/modules/inngest/client";
-import { validateFlow } from "@/modules/utils/react-flow-translator";
+import {
+  translateWorkflowGraphToServiceGraph,
+  validateScenario,
+  validateWorkflowGraph,
+} from "@/modules/utils/scenario-translator";
 import { useExecutionStore } from "../stores/execution.store.sync";
 import { useRegistrySecretStore } from "../stores/registry-secret-store";
+import { useScenarioRunStore } from "../stores/scenario-run.store.sync";
+import { useScenarioStore } from "../stores/scenario.store.sync";
 import { useUIStore } from "../stores/ui.store";
-import type {
-  FlowEdge,
-  FlowNode,
-  ValidationResult,
-} from "../types/react-flow-cots";
+import type { FlowEdge, FlowNode, ValidationResult } from "../types/react-flow-cots";
 
 interface UseWorkflowExecutionProps {
   workflowId: string;
   workflowName: string;
   nodes: FlowNode[];
   edges: FlowEdge[];
-  customTestOrder: Map<string, string[]>;
-  onStart?: (sessionId: string) => void;
+  onStart?: (workflowRunId: string) => void;
   onComplete?: (result: unknown) => void;
   onError?: (error: string) => void;
 }
@@ -27,61 +28,126 @@ export function useWorkflowExecution({
   workflowName,
   nodes,
   edges,
-  customTestOrder,
   onStart,
   onComplete: _onComplete,
   onError,
 }: UseWorkflowExecutionProps) {
   const [isExecuting, setIsExecuting] = useState(false);
-  const [validationResult, setValidationResult] =
-    useState<ValidationResult | null>(null);
+  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
 
-  const startExecution = useExecutionStore((s) => s.startExecution);
-  const failExecution = useExecutionStore((s) => s.failExecution);
-  const activeExecution = useExecutionStore((s) => s.getActiveExecution());
+  const startExecution = useExecutionStore((state) => state.startExecution);
+  const failExecution = useExecutionStore((state) => state.failExecution);
+  const activeWorkflowRunId = useExecutionStore((state) => state.activeWorkflowRunId);
+  const executions = useExecutionStore((state) => state.executions);
+  const startScenarioRun = useScenarioRunStore((state) => state.startScenarioRun);
+  const scenariosMap = useScenarioStore((state) => state.scenarios);
   const secretStore = useRegistrySecretStore.getState();
   const registrySecrets = secretStore.secrets;
+  const activeExecution = useMemo(
+    () =>
+      activeWorkflowRunId ? executions[activeWorkflowRunId] ?? null : null,
+    [activeWorkflowRunId, executions],
+  );
+  const scenarios = useMemo(
+    () =>
+      Object.values(scenariosMap)
+        .filter(
+          (scenario) =>
+            scenario.workflowId === workflowId && !scenario.is_deleted,
+        )
+        .sort((left, right) => right.updated_at.localeCompare(left.updated_at)),
+    [scenariosMap, workflowId],
+  );
+  const normalizedSecrets = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(registrySecrets).map(([name, secret]) => [
+          name,
+          {
+            ...secret,
+            auth_type: secret.auth_type || "basic",
+          },
+        ]),
+      ),
+    [registrySecrets],
+  );
+  const openLogsDrawer = useUIStore((state) => state.openLogs);
 
-  const openLogsDrawer = useUIStore((s) => s.openLogs);
+  const scenarioValidation = useMemo(() => {
+    const workflowValidation = validateWorkflowGraph(nodes, edges);
+    if (!workflowValidation.valid) {
+      return workflowValidation;
+    }
+
+    const serviceGraph = translateWorkflowGraphToServiceGraph(
+      nodes,
+      edges,
+      normalizedSecrets,
+    );
+
+    if (scenarios.length === 0) {
+      return {
+        valid: false,
+        errors: [{ message: "Create at least one scenario before executing." }],
+        warnings: [],
+      } satisfies ValidationResult;
+    }
+
+    for (const scenario of scenarios) {
+      const result = validateScenario(serviceGraph, scenario);
+      if (!result.valid) {
+        return result;
+      }
+    }
+
+    return workflowValidation;
+  }, [nodes, edges, normalizedSecrets, scenarios]);
 
   const execute = useCallback(async () => {
-    // Validate
-    const result = validateFlow(nodes, edges);
-    setValidationResult(result);
-
-    if (!result.valid) {
-      onError?.("Flow validation failed");
-      toast.error("Flow validation failed");
+    setValidationResult(scenarioValidation);
+    if (!scenarioValidation.valid) {
+      onError?.("Workflow validation failed");
+      toast.error("Workflow validation failed");
       return;
     }
 
     setIsExecuting(true);
 
     try {
-      const sessionId = crypto.randomUUID();
+      const workflowRunId = crypto.randomUUID();
+      const scenarioRunIds = scenarios.map((scenario) =>
+        startScenarioRun(workflowRunId, workflowId, scenario.id, scenario.name),
+      );
 
-      // Start execution in store
-      startExecution(workflowId, sessionId);
-      onStart?.(sessionId);
+      startExecution(workflowId, workflowRunId, scenarioRunIds);
+      onStart?.(workflowRunId);
 
-      // Send to Inngest
       await inngest.send({
-        name: "cots/workflow.start",
+        name: "cots/workflow.run.start",
         data: {
-          sessionId,
+          workflowRunId,
           workflowId,
           workflowName,
           nodes,
           edges,
-          customTestOrder: Array.from(customTestOrder.entries()),
+          scenarios: scenarios.map((scenario) => ({
+            id: scenario.id,
+            name: scenario.name,
+            description: scenario.description,
+            tests: scenario.tests,
+            testOrder: scenario.testOrder,
+          })),
           userId: "demo-user",
-          registrySecrets,
+          registrySecrets: normalizedSecrets,
+          executionOptions: {
+            continueOnFailure: true,
+          },
         },
       });
 
       openLogsDrawer();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
       failExecution("unknown", message);
       onError?.(message);
       toast.error(`Failed to start workflow: ${message}`);
@@ -89,17 +155,19 @@ export function useWorkflowExecution({
       setIsExecuting(false);
     }
   }, [
+    scenarioValidation,
+    onError,
+    scenarios,
+    startScenarioRun,
+    startExecution,
     workflowId,
     workflowName,
     nodes,
     edges,
-    customTestOrder,
-    startExecution,
-    failExecution,
     onStart,
-    onError,
+    normalizedSecrets,
     openLogsDrawer,
-    registrySecrets,
+    failExecution,
   ]);
 
   return {
@@ -107,6 +175,6 @@ export function useWorkflowExecution({
     isExecuting,
     validationResult,
     activeExecution,
-    canExecute: nodes.length > 0 && !isExecuting,
+    canExecute: nodes.length > 0 && scenarios.length > 0 && !isExecuting,
   };
 }

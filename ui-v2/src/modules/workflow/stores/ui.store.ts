@@ -5,6 +5,7 @@ interface UIStore {
   // Drawer and dialog states
   isDrawerOpen: boolean;
   isNodeConfigOpen: boolean;
+  isScenarioDialogOpen: boolean;
   isLogsOpen: boolean;
   isShortcutsOpen: boolean;
 
@@ -18,6 +19,10 @@ interface UIStore {
 
   openNodeConfig: (node: FlowNode) => void;
   closeNodeConfig: () => void;
+
+  openScenarios: () => void;
+  closeScenarios: () => void;
+  toggleScenarios: () => void;
 
   openLogs: () => void;
   closeLogs: () => void;
@@ -34,6 +39,7 @@ interface UIStore {
 export const useUIStore = create<UIStore>((set) => ({
   isDrawerOpen: false,
   isNodeConfigOpen: false,
+  isScenarioDialogOpen: false,
   isLogsOpen: false,
   isShortcutsOpen: false,
   selectedNode: null,
@@ -44,6 +50,11 @@ export const useUIStore = create<UIStore>((set) => ({
 
   openNodeConfig: (node) => set({ isNodeConfigOpen: true, selectedNode: node }),
   closeNodeConfig: () => set({ isNodeConfigOpen: false, selectedNode: null }),
+
+  openScenarios: () => set({ isScenarioDialogOpen: true }),
+  closeScenarios: () => set({ isScenarioDialogOpen: false }),
+  toggleScenarios: () =>
+    set((state) => ({ isScenarioDialogOpen: !state.isScenarioDialogOpen })),
 
   openLogs: () => set({ isLogsOpen: true }),
   closeLogs: () => set({ isLogsOpen: false }),
@@ -58,6 +69,7 @@ export const useUIStore = create<UIStore>((set) => ({
     set({
       isDrawerOpen: false,
       isNodeConfigOpen: false,
+      isScenarioDialogOpen: false,
       isLogsOpen: false,
       isShortcutsOpen: false,
       selectedNode: null,
