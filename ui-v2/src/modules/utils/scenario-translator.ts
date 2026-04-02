@@ -244,6 +244,18 @@ export function buildServiceDependencies(
     }
     const sourceName = sanitizeName(source.data.label);
     const targetName = sanitizeName(target.data.label);
+    const sourceType = source.data.service.type
+    const targetType = source.data.service.type
+
+    const sourceIsInfra = infrastructureTypes.has(sourceType)
+    const targetISInfra = infrastructureTypes.has(targetType)
+
+    if (!sourceIsInfra){
+      graph.set(sourceName,[...(graph.get(sourceName) || []),targetName])
+    }else if(targetISInfra){
+      graph.set(sourceName,[...(graph.get(sourceName),[]),targetName])
+    }
+
     graph.set(sourceName, [...(graph.get(sourceName) || []), targetName]);
   }
 
@@ -261,7 +273,12 @@ export function buildServiceDependencies(
 
     for (const infraService of infrastructureServices) {
       if (infraService !== serviceName) {
-        mergedDependencies.add(infraService);
+        const tempGraph = new Map(graph)
+        tempGraph.set(serviceName,Array.from(new Set([...mergedDependencies,infraService])))
+        const cycles = detectCycles(tempGraph)
+        if (cycles.length === 0){
+          mergedDependencies.add(infraService);
+        } 
       }
     }
 

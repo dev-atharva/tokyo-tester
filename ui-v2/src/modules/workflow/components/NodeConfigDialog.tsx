@@ -20,6 +20,7 @@ import type {
 import { sanitizeName } from "../../utils/scenario-translator";
 import { RegistryConfigForm } from "./RegistryConfigForm";
 import { ServiceConfigForm } from "./ServiceConfigForm";
+import { IconSettings2 } from "@tabler/icons-react";
 
 interface NodeConfigProps {
   isOpen: boolean;
@@ -57,10 +58,12 @@ export const NodeConfigDialog: React.FC<NodeConfigProps> = ({
           hostPort: p.hostPort,
           containerPort: p.containerPort,
         })),
-        envVars: (node.data.service?.env || []).map((e: EnvironmentVariable) => ({
-          key: e.key,
-          value: e.value,
-        })),
+        envVars: (node.data.service?.env || []).map(
+          (e: EnvironmentVariable) => ({
+            key: e.key,
+            value: e.value,
+          }),
+        ),
       }));
   }, [nodes, editedNode]);
 
@@ -84,27 +87,35 @@ export const NodeConfigDialog: React.FC<NodeConfigProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className=" h-[80vh] min-w-[80vw] overflow-hidden p-0">
-        <DialogHeader className="border-b px-6 py-5">
-          <DialogTitle>Service Configuration</DialogTitle>
-          <DialogDescription>
-            Configure the service definition and registry settings for this node.
-          </DialogDescription>
+      <DialogContent className="h-[80vh] min-w-[80vw] overflow-hidden p-0">
+        <DialogHeader className="border-b bg-muted/30 px-6 py-5">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+              <IconSettings2 className="size-4" />
+            </div>
+            <div>
+              <DialogTitle>Service Configuration</DialogTitle>
+              <DialogDescription>
+                Configure the service definition and registry settings for this
+                node.
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
         <Tabs
           value={activeTab}
           onValueChange={(v) => SetactiveTab(v as "service" | "registry")}
           className="flex h-full flex-col overflow-hidden"
         >
-          <div className="px-6 pt-5">
-            <TabsList>
-            <TabsTrigger value="service">Service</TabsTrigger>
-            <TabsTrigger value="registry">Registry</TabsTrigger>
+          <div className="px-6 pt-5 pb-2">
+            <TabsList className="grid w-72 grid-cols-2">
+              <TabsTrigger value="service">Service</TabsTrigger>
+              <TabsTrigger value="registry">Registry</TabsTrigger>
             </TabsList>
           </div>
           <TabsContent
             value="service"
-            className="mt-4 h-full overflow-auto px-6 pb-5 w-full"
+            className="mt-0 h-full overflow-auto px-6 pb-5 w-full"
           >
             <ServiceConfigForm
               serviceData={editedNode.data}
@@ -114,18 +125,22 @@ export const NodeConfigDialog: React.FC<NodeConfigProps> = ({
           </TabsContent>
           <TabsContent
             value="registry"
-            className="mt-4 h-full overflow-auto px-6 pb-5 w-full"
+            className="mt-0 h-full overflow-auto px-6 pb-5 w-full"
           >
             <RegistryConfigForm
               serviceId={sanitizeName(editedNode.data.label)}
             />
           </TabsContent>
         </Tabs>
-        <DialogFooter className="border-t px-6 py-4">
+        <DialogFooter className="border-t bg-muted/20 px-6 py-3">
           <DialogClose>
-            <Button variant="outline">Cancel</Button>
+            <Button variant="outline" className="shadow-sm">
+              Cancel
+            </Button>
           </DialogClose>
-          <Button onClick={handleSave}>Save changes</Button>
+          <Button onClick={handleSave} className="shadow-sm">
+            Save changes
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

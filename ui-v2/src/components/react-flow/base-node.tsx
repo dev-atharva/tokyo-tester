@@ -8,7 +8,7 @@ export function BaseNode({ className, ...props }: BaseNodeProps) {
   return (
     <div
       className={cn(
-        "bg-card text-card-foreground relative rounded-sm border-muted-foreground hover:bg-accent border",
+        "bg-card text-card-foreground relative rounded-md border-2 border-border/60 hover:border-primary/50 shadow-lg hover:shadow-xl transition-all duration-200",
         className,
       )}
       {...props}
@@ -63,7 +63,7 @@ export function BaseNodeContent({
   return (
     <div
       data-slot="base-node-content"
-      className={cn("flex flex-col gap-y-2 p-3", className)}
+      className={cn("flex flex-col gap-y-2 p-2.5", className)}
       {...props}
     />
   );

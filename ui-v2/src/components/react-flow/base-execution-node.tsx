@@ -38,12 +38,14 @@ export const BaseExecutionNode = memo(
         onSettings={onSettings}
       >
         <BaseNode>
-          <BaseNodeContent>
+          <BaseNodeContent className="items-center justify-center min-w-14 min-h-14">
+          <div className="p-1.5 rounded-lg bg-muted/30">
             {typeof Icon === "string" ? (
-              <Image src={Icon} alt={name} width={16} height={16} />
+              <Image src={Icon} alt={name} width={20} height={20} />
             ) : (
-              <Icon className="size-4 text-muted-foreground" />
+              <Icon className="size-5" />
             )}
+            </div>
             {children}
             <BaseHandle id="target-1" type="target" position={Position.Left} />
             <BaseHandle id="source-1" type="source" position={Position.Right} />

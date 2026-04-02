@@ -122,20 +122,21 @@ const EnvVariableValueInput = ({
         onFocus={() => setShowSuggestions(true)}
         onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
         placeholder="Value or ${service.field}"
+        className="shadow-sm font-mono text-sm"
       />
       {showSuggestions && filteredSuggestions.length > 0 && (
-        <div className="absolute z-10 w-full mt-1 bg-secondary  border rounded-md shadow-lg max-h-60 overflow-auto">
+        <div className="absolute z-10 w-full mt-1 bg-popover border border-border/60 rounded-lg shadow-lg max-h-60 overflow-auto">
           {filteredSuggestions.map((suggestion, index) => (
             <button
               type="button"
               key={`${suggestion}-${index}`}
-              className="w-full px-3 py-2 text-left cursor-pointer"
+              className="w-full px-3 py-2 text-left hover:bg-muted/50 transition-colors first:rounded-t-lg last:rounded-b-lg"
               onMouseDown={() => {
                 onChange(suggestion);
                 setShowSuggestions(false);
               }}
             >
-              <code className="text-sm">{suggestion}</code>
+              <code className="text-xs text-foreground">{suggestion}</code>
             </button>
           ))}
         </div>
@@ -296,47 +297,68 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
 
   return (
     <Form {...form}>
-      <div className="space-y-6">
+      <div className="space-y-8 py-4">
         {/* BASIC INFO */}
-        <div className="space-y-3">
-          <FormItem>
-            <FormLabel>Label</FormLabel>
-            <Input {...register("label")} placeholder="Service label" />
-          </FormItem>
-          <FormItem>
-            <FormLabel>Service Type</FormLabel>
-            <Controller
-              control={control}
-              name="serviceType"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="postgres">PostgreSQL</SelectItem>
-                    <SelectItem value="mysql">MySQL</SelectItem>
-                    <SelectItem value="mariadb">MariaDB</SelectItem>
-                    <SelectItem value="redis">Redis</SelectItem>
-                    <SelectItem value="kafka">Kafka</SelectItem>
-                    <SelectItem value="generic">Generic</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </FormItem>
-          <FormItem>
-            <FormLabel>Docker Image</FormLabel>
-            <Input {...register("image")} placeholder="postgres:15-alpine" />
-          </FormItem>
-        </div>
+        <section className="space-y-4">
+          <h3 className="text-sm font-semibold tracking-tight text-foreground/90 uppercase">
+            Basic Information
+          </h3>
+          <div className="space-y-3">
+            <FormItem>
+              <FormLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Label
+              </FormLabel>
+              <Input
+                {...register("label")}
+                placeholder="Service label"
+                className="shadow-sm"
+              />
+            </FormItem>
+            <FormItem>
+              <FormLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Service Type
+              </FormLabel>
+              <Controller
+                control={control}
+                name="serviceType"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger className="shadow-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="postgres">PostgreSQL</SelectItem>
+                      <SelectItem value="mysql">MySQL</SelectItem>
+                      <SelectItem value="mariadb">MariaDB</SelectItem>
+                      <SelectItem value="redis">Redis</SelectItem>
+                      <SelectItem value="kafka">Kafka</SelectItem>
+                      <SelectItem value="generic">Generic</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </FormItem>
+            <FormItem>
+              <FormLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Docker Image
+              </FormLabel>
+              <Input
+                {...register("image")}
+                placeholder="postgres:15-alpine"
+                className="shadow-sm font-mono text-sm"
+              />
+            </FormItem>
+          </div>
+        </section>
 
         <Separator />
 
         {/* COMMAND ARGUMENTS */}
-        <FormItem>
-          <div className="flex justify-between items-center mb-2">
-            <FormLabel>Command Arguments</FormLabel>
+        <section className="space-y-3">
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-semibold tracking-tight text-foreground/90 uppercase">
+              Command Arguments
+            </h3>
             <Button
               type="button"
               size="sm"
@@ -344,40 +366,52 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
               onClick={() =>
                 appendCommand({ id: crypto.randomUUID(), value: "" })
               }
+              className="shadow-sm"
             >
-              <IconPlus className="h-4 w-4 mr-1" />
+              <IconPlus className="h-4 w-4 mr-1.5" />
               Add
             </Button>
           </div>
-          <FormDescription className="text-xs mb-3">
-            Command-line arguments to pass to the conatiner (e.g.
-            -port=8080,-debug=true)
+          <FormDescription className="text-xs">
+            Command-line arguments to pass to the container (e.g. -port=8080,
+            -debug=true)
           </FormDescription>
-          <div className="space-y-2">
-            {commandFields.map((field, index) => (
-              <div key={field.id} className="flex gap-2">
-                <Input
-                  {...register(`command.${index}.value`)}
-                  placeholder="Argument (e.g. -port=8080)"
-                  className="flex-1"
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="destructive"
-                  onClick={() => removeCommand(index)}
-                >
-                  <IconTrash className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        </FormItem>
+          {commandFields.length === 0 ? (
+            <div className="flex items-center justify-center py-6 rounded-lg border border-dashed border-border/60">
+              <p className="text-xs text-muted-foreground italic">
+                No command arguments
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {commandFields.map((field, index) => (
+                <div key={field.id} className="flex gap-2">
+                  <Input
+                    {...register(`command.${index}.value`)}
+                    placeholder="Argument (e.g. -port=8080)"
+                    className="flex-1 shadow-sm font-mono text-sm"
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="destructive"
+                    onClick={() => removeCommand(index)}
+                    className="shadow-sm"
+                  >
+                    <IconTrash className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         {/* ENV VARS */}
-        <FormItem>
-          <div className="flex justify-between items-center mb-2">
-            <FormLabel>Environment Variables</FormLabel>
+        <section className="space-y-3">
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-semibold tracking-tight text-foreground/90 uppercase">
+              Environment Variables
+            </h3>
             <div className="flex gap-2">
               {currentServiceType !== "generic" && (
                 <Button
@@ -385,8 +419,9 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
                   size="sm"
                   variant="outline"
                   onClick={handleLoadPresets}
+                  className="shadow-sm"
                 >
-                  Load {currentServiceType} Presets
+                  Load Presets
                 </Button>
               )}
               <Button
@@ -396,55 +431,77 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
                 onClick={() =>
                   appendEnv({ id: crypto.randomUUID(), key: "", value: "" })
                 }
+                className="shadow-sm"
               >
-                <IconPlus className="h-4 w-4 mr-1" />
+                <IconPlus className="h-4 w-4 mr-1.5" />
                 Add
               </Button>
             </div>
           </div>
-          <FormDescription className="text-xs mb-3">
-            Use ${"{"}SERVICE_NAME.host{"}"}, ${"{"}
-            SERVICE_NAME.port.CONTAINER_PORT{"}"}, or ${"{"}
-            SERVICE_NAME.env.VAR_NAME{"}"} to reference other services
+          <FormDescription className="text-xs">
+            Use{" "}
+            <code className="text-xs bg-muted px-1 py-0.5 rounded">
+              ${"{"}SERVICE_NAME.host{"}"}
+            </code>
+            ,{" "}
+            <code className="text-xs bg-muted px-1 py-0.5 rounded">
+              ${"{"}SERVICE_NAME.port.PORT{"}"}
+            </code>
+            , or{" "}
+            <code className="text-xs bg-muted px-1 py-0.5 rounded">
+              ${"{"}SERVICE_NAME.env.VAR{"}"}
+            </code>{" "}
+            to reference other services
           </FormDescription>
-          <div className="space-y-2">
-            {envFields.map((field, index) => (
-              <div key={field.id} className="flex gap-2">
-                <Input
-                  {...register(`env.${index}.key`)}
-                  placeholder="Key"
-                  className="w-1/3"
-                />
-                <Controller
-                  control={control}
-                  name={`env.${index}.value`}
-                  render={({ field }) => (
-                    <EnvVariableValueInput
-                      value={field.value || ""}
-                      onChange={field.onChange}
-                      availableServices={availableServices}
-                    />
-                  )}
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="destructive"
-                  onClick={() => removeEnv(index)}
-                >
-                  <IconTrash className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        </FormItem>
+          {envFields.length === 0 ? (
+            <div className="flex items-center justify-center py-6 rounded-lg border border-dashed border-border/60">
+              <p className="text-xs text-muted-foreground italic">
+                No environment variables
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {envFields.map((field, index) => (
+                <div key={field.id} className="flex gap-2">
+                  <Input
+                    {...register(`env.${index}.key`)}
+                    placeholder="Key"
+                    className="w-1/3 shadow-sm font-mono text-sm"
+                  />
+                  <Controller
+                    control={control}
+                    name={`env.${index}.value`}
+                    render={({ field }) => (
+                      <EnvVariableValueInput
+                        value={field.value || ""}
+                        onChange={field.onChange}
+                        availableServices={availableServices}
+                      />
+                    )}
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="destructive"
+                    onClick={() => removeEnv(index)}
+                    className="shadow-sm"
+                  >
+                    <IconTrash className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         <Separator />
 
         {/* PORTS */}
-        <FormItem>
-          <div className="flex justify-between items-center mb-2">
-            <FormLabel>Ports</FormLabel>
+        <section className="space-y-3">
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-semibold tracking-tight text-foreground/90 uppercase">
+              Port Mappings
+            </h3>
             <Button
               type="button"
               size="sm"
@@ -456,97 +513,136 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
                   containerPort: "",
                 })
               }
+              className="shadow-sm"
             >
-              <IconPlus className="h-4 w-4 mr-1" />
+              <IconPlus className="h-4 w-4 mr-1.5" />
               Add
             </Button>
           </div>
-          <FormDescription className="text-xs mb-3">
+          <FormDescription className="text-xs">
             Map container ports to host ports. These ports can be referenced by
             other services.
           </FormDescription>
-          <div className="space-y-2">
-            {portFields.map((field, index) => (
-              <div key={field.id} className="flex gap-2">
-                <Input
-                  {...register(`ports.${index}.hostPort`)}
-                  placeholder="Host Port"
-                />
-                <Input
-                  {...register(`ports.${index}.containerPort`)}
-                  placeholder="Container Port"
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="destructive"
-                  onClick={() => removePort(index)}
-                >
-                  <IconTrash className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        </FormItem>
+          {portFields.length === 0 ? (
+            <div className="flex items-center justify-center py-6 rounded-lg border border-dashed border-border/60">
+              <p className="text-xs text-muted-foreground italic">
+                No port mappings
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {portFields.map((field, index) => (
+                <div key={field.id} className="flex gap-2 items-center">
+                  <Input
+                    {...register(`ports.${index}.hostPort`)}
+                    placeholder="Host Port"
+                    className="flex-1 shadow-sm font-mono text-sm"
+                  />
+                  <span className="text-muted-foreground">→</span>
+                  <Input
+                    {...register(`ports.${index}.containerPort`)}
+                    placeholder="Container Port"
+                    className="flex-1 shadow-sm font-mono text-sm"
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="destructive"
+                    onClick={() => removePort(index)}
+                    className="shadow-sm"
+                  >
+                    <IconTrash className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         <Separator />
 
         {/* WAIT STRATEGY */}
-        <FormItem>
-          <div className="flex items-center gap-2">
-            <Controller
-              control={control}
-              name="waitStratergyEnabled"
-              render={({ field }) => (
-                <Checkbox
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
-                />
-              )}
-            />
-            <Label>Enable Wait Strategy</Label>
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Controller
+                control={control}
+                name="waitStratergyEnabled"
+                render={({ field }) => (
+                  <Checkbox
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                )}
+              />
+              <div>
+                <Label className="text-sm font-semibold">
+                  Enable Wait Strategy
+                </Label>
+                <FormDescription className="text-xs mt-0.5">
+                  Wait for the service to be ready before starting dependent
+                  services
+                </FormDescription>
+              </div>
+            </div>
           </div>
-          <FormDescription className="text-xs">
-            Wait for the service to be ready before starting dependent services
-          </FormDescription>
-        </FormItem>
 
-        {waitEnabled && (
-          <div className="space-y-3 pl-4 border-l">
-            <Controller
-              control={control}
-              name="waitStratergyType"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="log">Log</SelectItem>
-                    <SelectItem value="port">Port</SelectItem>
-                    <SelectItem value="exec">Exec</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            />
-            <Input
-              {...register("waitStratergyTarget")}
-              placeholder="Target (log message / port / command)"
-            />
-            <Input
-              type="number"
-              {...register("waitStratergyTimeout", { valueAsNumber: true })}
-              placeholder="Timeout (seconds)"
-            />
-          </div>
-        )}
+          {waitEnabled && (
+            <div className="space-y-3 pl-6 py-3 border-l-2 border-primary/30 bg-muted/20 rounded-r-lg pr-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Strategy Type
+                </Label>
+                <Controller
+                  control={control}
+                  name="waitStratergyType"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger className="shadow-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="log">Log Message</SelectItem>
+                        <SelectItem value="port">Port Ready</SelectItem>
+                        <SelectItem value="exec">Execute Command</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Target
+                </Label>
+                <Input
+                  {...register("waitStratergyTarget")}
+                  placeholder="Log message / port number / command"
+                  className="shadow-sm font-mono text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Timeout (seconds)
+                </Label>
+                <Input
+                  type="number"
+                  {...register("waitStratergyTimeout", { valueAsNumber: true })}
+                  placeholder="30"
+                  className="shadow-sm"
+                />
+              </div>
+            </div>
+          )}
+        </section>
 
         <Separator />
 
         {/* INIT SCRIPTS */}
-        <FormItem>
-          <div className="flex justify-between items-center mb-2">
-            <FormLabel>Init Scripts</FormLabel>
+        <section className="space-y-3">
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-semibold tracking-tight text-foreground/90 uppercase">
+              Init Scripts
+            </h3>
             <Button
               type="button"
               size="sm"
@@ -559,61 +655,77 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
                   description: "",
                 })
               }
+              className="shadow-sm"
             >
-              <IconPlus className="h-4 w-4 mr-1" />
+              <IconPlus className="h-4 w-4 mr-1.5" />
               Add
             </Button>
           </div>
-          <FormDescription className="text-xs mb-3">
+          <FormDescription className="text-xs">
             Scripts to run when the service starts (executed in order)
             {currentServiceType === "redis" &&
-              " (Redis commands, e.g., SET key value)"}
+              " • Redis commands, e.g., SET key value"}
             {currentServiceType === "kafka" &&
-              " (Kafka CLI commands, e.g., kafka-topics --create --topic orders)"}
+              " • Kafka CLI commands, e.g., kafka-topics --create --topic orders"}
           </FormDescription>
-          <div className="space-y-2">
-            {initScriptFields.map((field, index) => (
-              <div
-                key={field.id}
-                className="flex flex-col gap-2 p-3 border rounded"
-              >
-                <div className="flex gap-2 items-center">
+          {initScriptFields.length === 0 ? (
+            <div className="flex items-center justify-center py-6 rounded-lg border border-dashed border-border/60">
+              <p className="text-xs text-muted-foreground italic">
+                No init scripts
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {initScriptFields.map((field, index) => (
+                <div
+                  key={field.id}
+                  className="flex flex-col gap-2 p-4 border border-border/60 rounded-lg bg-muted/20 shadow-sm"
+                >
+                  <div className="flex gap-2 items-center">
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground">
+                        Order:
+                      </Label>
+                      <Input
+                        type="number"
+                        {...register(`initScripts.${index}.order`, {
+                          valueAsNumber: true,
+                        })}
+                        placeholder="1"
+                        className="w-16 shadow-sm text-center"
+                      />
+                    </div>
+                    <Input
+                      {...register(`initScripts.${index}.description`)}
+                      placeholder="Description (optional)"
+                      className="flex-1 shadow-sm"
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="destructive"
+                      onClick={() => removeInitScript(index)}
+                      className="shadow-sm"
+                    >
+                      <IconTrash className="h-4 w-4" />
+                    </Button>
+                  </div>
                   <Input
-                    type="number"
-                    {...register(`initScripts.${index}.order`, {
-                      valueAsNumber: true,
-                    })}
-                    placeholder="Order"
-                    className="w-20"
+                    {...register(`initScripts.${index}.script`)}
+                    placeholder={
+                      currentServiceType === "redis"
+                        ? "Redis command (e.g., SET mykey myvalue)"
+                        : currentServiceType === "kafka"
+                          ? "Kafka CLI command (e.g., kafka-topics --create --topic orders --partitions 3)"
+                          : "Script content or command"
+                    }
+                    className="shadow-sm font-mono text-sm"
                   />
-                  <Input
-                    {...register(`initScripts.${index}.description`)}
-                    placeholder="Description (optional)"
-                    className="flex-1"
-                  />
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="destructive"
-                    onClick={() => removeInitScript(index)}
-                  >
-                    <IconTrash className="h-4 w-4" />
-                  </Button>
                 </div>
-                <Input
-                  {...register(`initScripts.${index}.script`)}
-                  placeholder={
-                    currentServiceType === "redis"
-                      ? "Redis command (e.g., SET mykey myvalue)"
-                      : currentServiceType === "kafka"
-                        ? "Kafka CLI command (e.g., kafka-topics --create --topic orders --partitions 3)"
-                        : "Script content or command"
-                  }
-                />
-              </div>
-            ))}
-          </div>
-        </FormItem>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </Form>
   );

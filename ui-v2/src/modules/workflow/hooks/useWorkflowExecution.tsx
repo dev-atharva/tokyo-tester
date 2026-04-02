@@ -11,7 +11,12 @@ import { useRegistrySecretStore } from "../stores/registry-secret-store";
 import { useScenarioRunStore } from "../stores/scenario-run.store.sync";
 import { useScenarioStore } from "../stores/scenario.store.sync";
 import { useUIStore } from "../stores/ui.store";
-import type { FlowEdge, FlowNode, ValidationResult } from "../types/react-flow-cots";
+import type {
+  FlowEdge,
+  FlowNode,
+  ValidationResult,
+} from "../types/react-flow-cots";
+import { err } from "inngest/types";
 
 interface UseWorkflowExecutionProps {
   workflowId: string;
@@ -33,19 +38,24 @@ export function useWorkflowExecution({
   onError,
 }: UseWorkflowExecutionProps) {
   const [isExecuting, setIsExecuting] = useState(false);
-  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [validationResult, setValidationResult] =
+    useState<ValidationResult | null>(null);
 
   const startExecution = useExecutionStore((state) => state.startExecution);
   const failExecution = useExecutionStore((state) => state.failExecution);
-  const activeWorkflowRunId = useExecutionStore((state) => state.activeWorkflowRunId);
+  const activeWorkflowRunId = useExecutionStore(
+    (state) => state.activeWorkflowRunId,
+  );
   const executions = useExecutionStore((state) => state.executions);
-  const startScenarioRun = useScenarioRunStore((state) => state.startScenarioRun);
+  const startScenarioRun = useScenarioRunStore(
+    (state) => state.startScenarioRun,
+  );
   const scenariosMap = useScenarioStore((state) => state.scenarios);
   const secretStore = useRegistrySecretStore.getState();
   const registrySecrets = secretStore.secrets;
   const activeExecution = useMemo(
     () =>
-      activeWorkflowRunId ? executions[activeWorkflowRunId] ?? null : null,
+      activeWorkflowRunId ? (executions[activeWorkflowRunId] ?? null) : null,
     [activeWorkflowRunId, executions],
   );
   const scenarios = useMemo(
@@ -106,9 +116,20 @@ export function useWorkflowExecution({
   const execute = useCallback(async () => {
     setValidationResult(scenarioValidation);
     if (!scenarioValidation.valid) {
-      onError?.("Workflow validation failed");
-      toast.error("Workflow validation failed");
+      const errorMessages = scenarioValidation.errors
+        .map((err) => err.message)
+        .join("; ");
+      onError?.(`Workflow validation failed: ${errorMessages}`);
+      toast.error("Workflow validation failed", {
+        description: errorMessages,
+        duration: 7000,
+      });
+      console.error("[Workflow validation]", scenarioValidation.errors);
       return;
+    }
+
+    if (scenarioValidation.warnings && scenarioValidation.warnings.length > 0) {
+      console.warn("[Workflow validation]", scenarioValidation.warnings);
     }
 
     setIsExecuting(true);

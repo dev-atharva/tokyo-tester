@@ -23,9 +23,9 @@ export function WorkflowNode({
   return (
     <>
       {showToolBar && (
-        <NodeToolbar isVisible>
-          <Button size="sm" variant="ghost" onClick={onDelete}>
-            <IconTrash className="size-4" />
+        <NodeToolbar isVisible className="flex gap-1">
+          <Button size="sm" variant="destructive" onClick={onDelete} className="shadow-lg h-7 w-7 p-0">
+            <IconTrash className="size-3.5" />
           </Button>
         </NodeToolbar>
       )}
@@ -34,14 +34,16 @@ export function WorkflowNode({
         <NodeToolbar
           position={Position.Bottom}
           isVisible
-          className="max-w-50 text-center"
+          className="max-w-60 text-center"
         >
-          <p className="font-medium">{name}</p>
+          <div className="px-2.5 py-1.5 rounded-md bg-card/95 border border-border/30 shadow-md backdrop-blur-sm">
+          <p className="font-medium text-xs mb-0.5">{name}</p>
           {description && (
-            <p className="text-muted-foreground truncate text-sm">
+            <p className="text-muted-foreground truncate text-[10px]">
               {description}
             </p>
           )}
+          </div>
         </NodeToolbar>
       )}
     </>

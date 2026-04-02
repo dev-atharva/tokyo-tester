@@ -62,6 +62,13 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
   canExecute,
   hasActiveExecution,
 }) => {
+  const defaultEdgeOptions = {
+    type: "smoothstep",
+    style: {
+      strokeWidth: 2,
+      stroke: "#393028",
+    },
+  };
   return (
     <ReactFlow
       nodes={nodes}
@@ -71,15 +78,16 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}
       onNodeDoubleClick={onNodeDoubleClick}
+      defaultEdgeOptions={defaultEdgeOptions}
       fitView
       snapToGrid
-      snapGrid={[10, 10]}
+      snapGrid={[15, 15]}
       proOptions={{
         hideAttribution: true,
       }}
     >
-      <Background />
-      <Controls />
+      <Background gap={20} size={1.5} />
+      <Controls showInteractive={false} />
 
       {/* Top Left Toolbar */}
       <Panel position="top-left">
@@ -89,7 +97,7 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
       {/* Top Right Toolbar */}
       <Panel className="flex gap-2" position="top-right">
         <Button
-          className="cursor-pointer"
+          className="cursor-pointer shadow-md"
           variant="ghost"
           size="icon"
           onClick={onOpenShortcuts}
@@ -99,7 +107,7 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
         </Button>
 
         <Button
-          className="cursor-pointer"
+          className="cursor-pointer shadow-md"
           variant="ghost"
           size="icon"
           onClick={onOpenHistory}
@@ -109,7 +117,7 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
         </Button>
 
         <Button
-          className="cursor-pointer"
+          className="cursor-pointer shadow-md"
           variant="secondary"
           onClick={onOpenScenarios}
           title="Open scenario configuration"
@@ -119,7 +127,7 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
         </Button>
 
         <Button
-          className="cursor-pointer"
+          className="cursor-pointer shadow-md"
           variant="secondary"
           onClick={onOpenLogs}
           disabled={!hasActiveExecution}
@@ -130,11 +138,11 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
         </Button>
 
         <Button
-          className="cursor-pointer"
+          className="cursor-pointer shadow-md"
           onClick={onOpenDrawer}
           title="Add node (Ctrl+N)"
         >
-          <IconPlus />
+          <IconPlus className="mr-2 size-4" />
           Add Node
         </Button>
       </Panel>
@@ -143,12 +151,12 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
       <Panel position="bottom-center">
         <Button
           disabled={!canExecute}
-          className="cursor-pointer"
+          className="cursor-pointer shadow-lg px-6 h-10 font-semibold"
           onClick={onExecute}
           title="Run workflow (Ctrl+Enter)"
         >
-          <IconRun />
-          {isExecuting ? "Running..." : "Run"}
+          <IconRun className="mr-2 size-4" />
+          {isExecuting ? "Running..." : "Run Workflow"}
         </Button>
       </Panel>
     </ReactFlow>
