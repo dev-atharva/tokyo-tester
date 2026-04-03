@@ -8,9 +8,13 @@
     "start": "next start",
     "lint": "biome check",
     "format": "biome format --write",
-    "inngest": "npx --ignore-scripts=false inngest-cli@latest dev"
+    "inngest": "npx --ignore-scripts=false inngest-cli@latest dev",
+    "db:migrate": "node --import tsx ./src/db/migrate.ts",
+    "db:generate": "drizzle-kit generate",
+    "test": "bun test"
   },
   "dependencies": {
+    "@auth/drizzle-adapter": "^1.11.1",
     "@base-ui/react": "^1.0.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
@@ -19,14 +23,18 @@
     "@tabler/icons-react": "^3.36.0",
     "@types/crypto-js": "^4.2.2",
     "@xyflow/react": "^12.10.0",
+    "better-sqlite3": "^12.8.0",
     "boring-avatars": "^2.0.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "crypto-js": "^4.2.0",
+    "drizzle-orm": "^0.45.2",
     "idb-keyval": "^6.2.2",
     "inngest": "^3.48.1",
     "next": "16.1.0",
+    "next-auth": "^5.0.0-beta.30",
     "next-themes": "^0.4.6",
+    "postgres": "^3.4.8",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-hook-form": "^7.69.0",
@@ -45,6 +53,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
+    "drizzle-kit": "^0.31.10",
     "tailwindcss": "^4",
     "typescript": "^5"
   },
@@ -53,6 +62,7 @@
     "unrs-resolver"
   ],
   "trustedDependencies": [
+    "better-sqlite3",
     "sharp",
     "unrs-resolver"
   ]

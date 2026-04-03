@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Roboto } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "next-themes";
-import { HomeLayout } from "@/modules/home/layouts/home-layout";
-import { SyncProvider } from "@/modules/sync/SyncProvider";
+import { auth } from "@/auth";
+import { AppShell } from "@/modules/auth/components/app-shell";
 
 const roboto = Roboto({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -23,31 +23,27 @@ export const metadata: Metadata = {
     "Its is an end to end testing platform for any kind of application or complex system.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await auth();
+
   return (
     <html lang="en" className={roboto.variable} suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <HomeLayout>
-            <SyncProvider
-              config={{
-                baseUrl:
-                  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080",
-                syncInterval: 3000,
-                maxBatchSize: 100,
-                enabled: true,
-                autoStart: true,
-              }}
-            >
-              {children}
-            </SyncProvider>
-          </HomeLayout>
+          <AppShell
+            userId={session?.user?.id ?? null}
+            userName={session?.user?.name ?? null}
+            userEmail={session?.user?.email ?? null}
+            userRole={session?.user?.role ?? null}
+          >
+            {children}
+          </AppShell>
         </ThemeProvider>
       </body>
     </html>

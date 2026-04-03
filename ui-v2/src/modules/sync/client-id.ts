@@ -1,11 +1,10 @@
+import {
+  getCurrentSessionUserId,
+  setCurrentSessionUserId,
+} from "@/modules/auth/session-user";
+
 const CLIENT_ID_KEY = "cots_client_id";
 const USER_ID_KEY = "cots_user_id";
-
-/**
- * TEMPORARY: Default user for development
- * Replace with actual auth system later
- */
-const DEFAULT_DEV_USER_ID = "dev-user-default";
 
 /**
  * Get or create a client ID (device/browser identifier)
@@ -32,31 +31,23 @@ export function getOrCreateClientId(): string {
 
 /**
  * Get the user ID
- * For now, returns a default dev user
- * Later: Replace with actual authentication
  */
 export function getUserId(): string {
-  if (typeof window === "undefined") {
-    return DEFAULT_DEV_USER_ID;
+  const sessionUserId = getCurrentSessionUserId();
+  if (sessionUserId) {
+    return sessionUserId;
   }
 
   try {
-    // Check if there's an authenticated user
     const userId = localStorage.getItem(USER_ID_KEY);
     if (userId) {
       return userId;
     }
-
-    // For development: use default user
-    console.warn(
-      "[Auth] No authenticated user, using default dev user:",
-      DEFAULT_DEV_USER_ID,
-    );
-    return DEFAULT_DEV_USER_ID;
   } catch (error) {
     console.error("[Auth] Error getting user ID:", error);
-    return DEFAULT_DEV_USER_ID;
   }
+
+  throw new Error("No authenticated session user is available.");
 }
 
 /**
@@ -64,6 +55,7 @@ export function getUserId(): string {
  * Call this after successful login
  */
 export function setUserId(userId: string): void {
+  setCurrentSessionUserId(userId);
   if (typeof window === "undefined") return;
 
   try {
@@ -78,6 +70,7 @@ export function setUserId(userId: string): void {
  * Clear authentication (logout)
  */
 export function clearAuth(): void {
+  setCurrentSessionUserId(null);
   if (typeof window === "undefined") return;
 
   try {
@@ -119,8 +112,7 @@ export function getClientId(): string | null {
  * Check if user is authenticated
  */
 export function isAuthenticated(): boolean {
-  const userId = getUserId();
-  return userId !== DEFAULT_DEV_USER_ID;
+  return Boolean(getCurrentSessionUserId());
 }
 
 /**
@@ -128,9 +120,8 @@ export function isAuthenticated(): boolean {
  */
 export function getAuthInfo() {
   return {
-    userId: getUserId(),
+    userId: getCurrentSessionUserId(),
     clientId: getOrCreateClientId(),
     isAuthenticated: isAuthenticated(),
-    isDevMode: getUserId() === DEFAULT_DEV_USER_ID,
   };
 }

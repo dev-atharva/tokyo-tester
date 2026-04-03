@@ -31,12 +31,14 @@ const SyncContext = createContext<SyncContextValue | undefined>(undefined);
 
 export interface SyncProviderProps {
   children: ReactNode;
+  userId: string | null;
   config?: SyncConfig;
   statusPollingInterval?: number;
 }
 
 export function SyncProvider({
   children,
+  userId,
   config = {},
   statusPollingInterval = 10000,
 }: SyncProviderProps) {
@@ -59,6 +61,12 @@ export function SyncProvider({
   }, []);
 
   useEffect(() => {
+    if (!userId) {
+      setInitialized(false);
+      setIsHydrating(false);
+      return;
+    }
+
     const initialize = async () => {
       try {
         // Initialize sync config
@@ -90,17 +98,18 @@ export function SyncProvider({
     config.enabled,
     config.maxBatchSize,
     config.syncInterval,
+    userId,
   ]);
 
   useEffect(() => {
-    if (!isInitialized || statusPollingInterval <= 0) return;
+    if (!isInitialized || !userId || statusPollingInterval <= 0) return;
 
     const interval = setInterval(() => {
       checkHealth();
     }, statusPollingInterval);
 
     return () => clearInterval(interval);
-  }, [isInitialized, statusPollingInterval, checkHealth]);
+  }, [isInitialized, statusPollingInterval, checkHealth, userId]);
 
   const forceSync = async () => {
     try {
@@ -139,18 +148,17 @@ export function SyncProvider({
 
   return (
     <SyncContext.Provider value={contextValue}>
-      {isHydrating ? (
-        <div className="flex items-center justify-center h-screen">
-          <div className="text-center space-y-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto" />
-            <p className="text-sm text-muted-foreground">
-              Loading data from server...
-            </p>
+      <>
+        {children}
+        {isHydrating ? (
+          <div className="pointer-events-none fixed bottom-4 right-4 z-50 rounded-md border bg-background/90 px-3 py-2 shadow-sm backdrop-blur">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="h-3.5 w-3.5 animate-spin rounded-full border border-border border-t-primary" />
+              <span>Syncing workspace data...</span>
+            </div>
           </div>
-        </div>
-      ) : (
-        children
-      )}
+        ) : null}
+      </>
     </SyncContext.Provider>
   );
 }

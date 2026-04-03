@@ -15,3 +15,6 @@ runner-v2/cots-api
 runner-v2/.gocache/
 runner-v2/.gomodcache/
 
+# ui db
+ui-v2/data/
+

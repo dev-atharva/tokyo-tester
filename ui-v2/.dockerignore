@@ -10,3 +10,4 @@ npm-debug.log*
 *.md
 coverage/
 .turbo
+data/

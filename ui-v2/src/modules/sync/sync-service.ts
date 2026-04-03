@@ -19,6 +19,7 @@ export class SyncService {
   private syncQueue: FastQueue<SyncChange>;
   private _syncInterval: number = 3000;
   private _maxBatchSize: number = 100;
+  private _requestTimeoutMs: number = 8000;
   private intervalId: NodeJS.Timeout | null = null;
   private enabled: boolean = true;
   private flushCount: number = 0;
@@ -54,6 +55,26 @@ export class SyncService {
 
   set maxBatchSize(size: number) {
     this._maxBatchSize = size;
+  }
+
+  private async fetchWithTimeout(
+    input: string,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      this._requestTimeoutMs,
+    );
+
+    try {
+      return await fetch(input, {
+        ...init,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   start(): void {
@@ -153,7 +174,7 @@ export class SyncService {
       `[SyncService] Sending batch for user: ${userId}, client: ${clientId}`,
     );
 
-    const response = await fetch(url, {
+    const response = await this.fetchWithTimeout(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
@@ -168,7 +189,9 @@ export class SyncService {
   }
 
   async getStatus(): Promise<SyncStatusResponse> {
-    const response = await fetch(`${this._baseUrl}/api/v1/sync/status`);
+    const response = await this.fetchWithTimeout(
+      `${this._baseUrl}/api/v1/sync/status`,
+    );
     if (!response.ok) {
       throw new Error(`Status check failed: ${response.status}`);
     }
@@ -184,7 +207,7 @@ export class SyncService {
       `[SyncService] Pulling data for user: ${userId}, client: ${clientId}`,
     );
 
-    const response = await fetch(url);
+    const response = await this.fetchWithTimeout(url);
     if (!response.ok) {
       throw new Error(`Pull failed: ${response.status}`);
     }
@@ -197,7 +220,7 @@ export class SyncService {
 
     const url = `${this._baseUrl}/api/v1/sync/clear/${clientId}?userId=${userId}`;
 
-    const response = await fetch(url, { method: "DELETE" });
+    const response = await this.fetchWithTimeout(url, { method: "DELETE" });
     if (!response.ok) {
       throw new Error(`Clear failed: ${response.status}`);
     }

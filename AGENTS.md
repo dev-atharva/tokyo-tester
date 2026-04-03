@@ -5,6 +5,8 @@
 - ALWAYS make sure to avoid making unnecessery changes.
 - ALWAYS refer official documentation of tools/libraries before implementating any breaking changes(specifically in case of frontend).
 - Try doing Test driven development wherever necessery.
+- Whenever you are doing any UI changes make sure to not change the design the existing commponents by too much.
+- Make sure to always use frontend-design skill when you are making changes to UI.
 
 ## Project Structure & Module Organization
 
