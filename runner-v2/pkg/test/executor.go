@@ -26,6 +26,7 @@ func NewRegistory() *Registry {
 	r.Register("shell", &ShellExecutor{})
 	r.Register("cache", &CacheExecutor{})
 	r.Register("queue", &QueueExecutor{})
+	r.Register("delay", &DelayExecutor{})
 	return r
 }
 

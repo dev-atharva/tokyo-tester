@@ -43,7 +43,7 @@ export interface WaitStratergyConfig {
 
 export interface TestConfig {
   name: string;
-  type: "database" | "http" | "shell" | "cache" | "queue";
+  type: "database" | "http" | "shell" | "cache" | "queue" | "delay";
   depends_on: string[];
   config: Record<string, JsonValue>;
 }
@@ -114,7 +114,7 @@ export interface ServiceNodeData {
 export interface ScenarioTestDefinition {
   id: string;
   name: string;
-  type: "database" | "http" | "shell" | "cache" | "queue";
+  type: "database" | "http" | "shell" | "cache" | "queue" | "delay";
   targetServices: string[];
   dependsOnTestIds?: string[];
   databaseConfig?: {
@@ -173,6 +173,9 @@ export interface ScenarioTestDefinition {
     expectedCount?: number;
     expectedMessage?: string | number;
     expectedExists?: boolean;
+  };
+  delayConfig?: {
+    durationMs: number;
   };
 }
 

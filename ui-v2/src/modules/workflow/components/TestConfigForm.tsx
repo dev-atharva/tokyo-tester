@@ -25,6 +25,8 @@ interface TestConfigFormProps {
   onChange: (tests: ScenarioTestDefinition[]) => void;
 }
 
+type DelayUnit = "ms" | "sec" | "min";
+
 function defaultTest(availableServices: string[]): ScenarioTestDefinition {
   return {
     id: `test-${Date.now()}`,
@@ -174,6 +176,40 @@ function stringifyJSON(value: unknown): string {
   }
 }
 
+function inferDelayUnit(durationMs: number): DelayUnit {
+  if (durationMs >= 60_000 && durationMs % 60_000 === 0) {
+    return "min";
+  }
+  if (durationMs >= 1_000 && durationMs % 1_000 === 0) {
+    return "sec";
+  }
+  return "ms";
+}
+
+function convertDurationToUnit(durationMs: number, unit: DelayUnit): number {
+  switch (unit) {
+    case "min":
+      return durationMs / 60_000;
+    case "sec":
+      return durationMs / 1_000;
+    case "ms":
+    default:
+      return durationMs;
+  }
+}
+
+function convertUnitToDuration(value: number, unit: DelayUnit): number {
+  switch (unit) {
+    case "min":
+      return value * 60_000;
+    case "sec":
+      return value * 1_000;
+    case "ms":
+    default:
+      return value;
+  }
+}
+
 function withTypeDefaults(
   test: ScenarioTestDefinition,
   type: ScenarioTestDefinition["type"],
@@ -239,6 +275,15 @@ function withTypeDefaults(
           expectedExists: true,
         },
       };
+    case "delay":
+      return {
+        ...test,
+        type,
+        targetServices: [],
+        delayConfig: {
+          durationMs: 1000,
+        },
+      };
   }
 }
 
@@ -251,6 +296,7 @@ export const TestConfigForm = ({
   const [httpHeadersDrafts, setHttpHeadersDrafts] = useState<
     Record<string, string>
   >({});
+  const [delayUnits, setDelayUnits] = useState<Record<string, DelayUnit>>({});
 
   useEffect(() => {
     setLocalTests(tests);
@@ -267,6 +313,23 @@ export const TestConfigForm = ({
 
         next[test.id] =
           current[test.id] ?? stringifyJSON(test.httpConfig?.headers);
+      }
+
+      return next;
+    });
+  }, [tests]);
+
+  useEffect(() => {
+    setDelayUnits((current) => {
+      const next: Record<string, DelayUnit> = {};
+
+      for (const test of tests) {
+        if (test.type !== "delay") {
+          continue;
+        }
+
+        const durationMs = test.delayConfig?.durationMs ?? 1000;
+        next[test.id] = current[test.id] ?? inferDelayUnit(durationMs);
       }
 
       return next;
@@ -405,6 +468,7 @@ export const TestConfigForm = ({
                       <SelectItem value="shell">Shell Command</SelectItem>
                       <SelectItem value="cache">Cache Operation</SelectItem>
                       <SelectItem value="queue">Queue Operation</SelectItem>
+                      <SelectItem value="delay">Delay</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -416,6 +480,7 @@ export const TestConfigForm = ({
                   <Input
                     value={test.targetServices.join(", ")}
                     placeholder="service-a, service-b"
+                    disabled={test.type === "delay"}
                     onChange={(event) =>
                       updateTest(test.id, (current) => ({
                         ...current,
@@ -427,14 +492,19 @@ export const TestConfigForm = ({
                     }
                     className="shadow-sm mt-1.5"
                   />
-                  {availableServices.length > 0 && (
+                  {test.type === "delay" ? (
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      Delay steps do not target a service. They pause the
+                      scenario before the next test runs.
+                    </p>
+                  ) : availableServices.length > 0 ? (
                     <p className="mt-1.5 text-xs text-muted-foreground">
                       Available:{" "}
                       <code className="text-xs bg-muted px-1 py-0.5 rounded">
                         {availableServices.join(", ")}
                       </code>
                     </p>
-                  )}
+                  ) : null}
                 </div>
               </div>
 
@@ -1703,6 +1773,82 @@ export const TestConfigForm = ({
                       )}
                     </div>
                   )}
+                </div>
+              )}
+
+              {test.type === "delay" && (
+                <div className="space-y-4 pt-2">
+                  <h5 className="border-b pb-2 text-xs font-semibold uppercase tracking-wide text-foreground/80">
+                    Delay Configuration
+                  </h5>
+                  <div className="grid gap-3 md:max-w-xl md:grid-cols-[minmax(0,1fr)_180px]">
+                    <div>
+                      <Label>Delay Duration</Label>
+                      <Input
+                        type="number"
+                        min={delayUnits[test.id] === "ms" ? 100 : 1}
+                        step={delayUnits[test.id] === "ms" ? 100 : 1}
+                        value={convertDurationToUnit(
+                          test.delayConfig?.durationMs ?? 1000,
+                          delayUnits[test.id] ?? inferDelayUnit(test.delayConfig?.durationMs ?? 1000),
+                        )}
+                        onChange={(event) =>
+                          updateTest(test.id, (current) => {
+                            const unit =
+                              delayUnits[test.id] ??
+                              inferDelayUnit(current.delayConfig?.durationMs ?? 1000);
+                            const nextValue =
+                              Number(event.target.value) ||
+                              convertDurationToUnit(
+                                current.delayConfig?.durationMs ?? 1000,
+                                unit,
+                              );
+
+                            return {
+                              ...current,
+                              delayConfig: {
+                                durationMs: Math.max(
+                                  100,
+                                  convertUnitToDuration(nextValue, unit),
+                                ),
+                              },
+                            };
+                          })
+                        }
+                      />
+                      <p className="mt-1.5 text-xs text-muted-foreground">
+                        Use this when a scenario needs an intentional pause
+                        before the next test step.
+                      </p>
+                    </div>
+                    <div>
+                      <Label>Unit</Label>
+                      <Select
+                        value={
+                          delayUnits[test.id] ??
+                          inferDelayUnit(test.delayConfig?.durationMs ?? 1000)
+                        }
+                        onValueChange={(value) =>
+                          setDelayUnits((current) => ({
+                            ...current,
+                            [test.id]: value as DelayUnit,
+                          }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ms">Milliseconds</SelectItem>
+                          <SelectItem value="sec">Seconds</SelectItem>
+                          <SelectItem value="min">Minutes</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="mt-1.5 text-xs text-muted-foreground">
+                        Stored internally as milliseconds.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

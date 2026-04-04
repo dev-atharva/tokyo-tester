@@ -536,6 +536,10 @@ function buildTestConfig(
         expected_message: test.queueConfig?.expectedMessage ?? "",
         expected_exists: test.queueConfig?.expectedExists ?? true,
       };
+    case "delay":
+      return {
+        duration_ms: test.delayConfig?.durationMs ?? 1000,
+      };
   }
 }
 

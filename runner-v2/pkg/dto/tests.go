@@ -9,7 +9,7 @@ type RunTestRequest struct {
 
 type TestDTO struct {
 	Name      string         `json:"name" validate:"required,min=1,max=100"`
-	Type      string         `json:"type" validate:"required,oneof=database http shell cache queue"`
+	Type      string         `json:"type" validate:"required,oneof=database http shell cache queue delay"`
 	DependsOn []string       `json:"depends_on,omitempty"`
 	Config    map[string]any `json:"config" validate:"required"`
 }
@@ -110,4 +110,8 @@ type ShellTestConfig struct {
 	Env              map[string]string `json:"env,omitempty"`
 	ExpectedOutput   string            `json:"expected_output,omitempty"`
 	ExpectedExitCode int               `json:"expected_exit_code,omitempty"`
+}
+
+type DelayTestConfig struct {
+	DurationMs int `json:"duration_ms" validate:"required,min=1,max=600000"`
 }
