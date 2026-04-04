@@ -136,6 +136,7 @@ export function useRealtimeLogs({
 
     const {
       workflowRunId,
+      projectId,
       workflowId,
       scenarioId,
       scenarioName,
@@ -181,6 +182,7 @@ export function useRealtimeLogs({
     for (const result of [...results].sort((left, right) => left.sequence - right.sequence)) {
       updateTestResult(result.testResultId, {
         sessionId: backendSessionId || scenarioRun?.backendSessionId || scenarioRun?.id || scenarioId,
+        projectId,
         workflowRunId,
         workflowId,
         scenarioRunId: scenarioRun?.id,

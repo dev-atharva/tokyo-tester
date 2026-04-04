@@ -133,10 +133,8 @@ export const NodeConfigDialog: React.FC<NodeConfigProps> = ({
           </TabsContent>
         </Tabs>
         <DialogFooter className="border-t bg-muted/20 px-6 py-3">
-          <DialogClose>
-            <Button variant="outline" className="shadow-sm">
-              Cancel
-            </Button>
+          <DialogClose render={<Button variant="outline" className="shadow-sm" />}>
+            Cancel
           </DialogClose>
           <Button onClick={handleSave} className="shadow-sm">
             Save changes

@@ -248,9 +248,29 @@ export const TestConfigForm = ({
   onChange,
 }: TestConfigFormProps) => {
   const [localTests, setLocalTests] = useState<ScenarioTestDefinition[]>(tests);
+  const [httpHeadersDrafts, setHttpHeadersDrafts] = useState<
+    Record<string, string>
+  >({});
 
   useEffect(() => {
     setLocalTests(tests);
+  }, [tests]);
+
+  useEffect(() => {
+    setHttpHeadersDrafts((current) => {
+      const next: Record<string, string> = {};
+
+      for (const test of tests) {
+        if (test.type !== "http") {
+          continue;
+        }
+
+        next[test.id] =
+          current[test.id] ?? stringifyJSON(test.httpConfig?.headers);
+      }
+
+      return next;
+    });
   }, [tests]);
 
   const updateTests = (next: ScenarioTestDefinition[]) => {
@@ -519,25 +539,41 @@ export const TestConfigForm = ({
                   <div>
                     <Label>Headers JSON</Label>
                     <Textarea
-                      value={stringifyJSON(test.httpConfig?.headers)}
+                      value={
+                        httpHeadersDrafts[test.id] ??
+                        stringifyJSON(test.httpConfig?.headers)
+                      }
                       placeholder={`{\n  "Content-Type": "application/json"\n}`}
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+
+                        setHttpHeadersDrafts((current) => ({
+                          ...current,
+                          [test.id]: nextValue,
+                        }));
+
+                        const parsedHeaders = parseJSONObject(nextValue) as
+                          | Record<string, string>
+                          | undefined;
+
+                        if (nextValue.trim() && !parsedHeaders) {
+                          return;
+                        }
+
                         updateTest(test.id, (current) => ({
                           ...current,
                           httpConfig: {
                             method: current.httpConfig?.method || "GET",
                             path: current.httpConfig?.path || "/",
                             port: current.httpConfig?.port || "80",
-                            headers: parseJSONObject(event.target.value) as
-                              | Record<string, string>
-                              | undefined,
+                            headers: parsedHeaders,
                             body: current.httpConfig?.body,
                             expectedStatus:
                               current.httpConfig?.expectedStatus ?? 200,
                             expectedBody: current.httpConfig?.expectedBody,
                           },
-                        }))
-                      }
+                        }));
+                      }}
                     />
                   </div>
 

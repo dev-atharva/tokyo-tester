@@ -10,6 +10,7 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useProjectContext } from "@/modules/projects/project-context";
 import { initializeSyncWithHydration } from "./sync-hydration";
 import {
   checkSyncHealth,
@@ -42,6 +43,7 @@ export function SyncProvider({
   config = {},
   statusPollingInterval = 10000,
 }: SyncProviderProps) {
+  const { activeProjectId } = useProjectContext();
   const [isInitialized, setInitialized] = useState(false);
   const [isHydrating, setIsHydrating] = useState(true);
   const [syncStatus, setSyncStatus] = useState<
@@ -61,7 +63,7 @@ export function SyncProvider({
   }, []);
 
   useEffect(() => {
-    if (!userId) {
+    if (!userId || !activeProjectId) {
       setInitialized(false);
       setIsHydrating(false);
       return;
@@ -99,17 +101,24 @@ export function SyncProvider({
     config.maxBatchSize,
     config.syncInterval,
     userId,
+    activeProjectId,
   ]);
 
   useEffect(() => {
-    if (!isInitialized || !userId || statusPollingInterval <= 0) return;
+    if (
+      !isInitialized ||
+      !userId ||
+      !activeProjectId ||
+      statusPollingInterval <= 0
+    )
+      return;
 
     const interval = setInterval(() => {
       checkHealth();
     }, statusPollingInterval);
 
     return () => clearInterval(interval);
-  }, [isInitialized, statusPollingInterval, checkHealth, userId]);
+  }, [isInitialized, statusPollingInterval, checkHealth, userId, activeProjectId]);
 
   const forceSync = async () => {
     try {
@@ -150,7 +159,7 @@ export function SyncProvider({
     <SyncContext.Provider value={contextValue}>
       <>
         {children}
-        {isHydrating ? (
+        {activeProjectId && isHydrating ? (
           <div className="pointer-events-none fixed bottom-4 right-4 z-50 rounded-md border bg-background/90 px-3 py-2 shadow-sm backdrop-blur">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <div className="h-3.5 w-3.5 animate-spin rounded-full border border-border border-t-primary" />

@@ -25,6 +25,38 @@ export const sqliteUsers = sqliteTable("user", {
     .default(sql`(unixepoch() * 1000)`),
 });
 
+export const sqliteProjects = sqliteTable("project", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdBy: text("createdBy")
+    .notNull()
+    .references(() => sqliteUsers.id, { onDelete: "cascade" }),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer("updatedAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
+export const sqliteProjectMembers = sqliteTable(
+  "project_member",
+  {
+    projectId: text("projectId")
+      .notNull()
+      .references(() => sqliteProjects.id, { onDelete: "cascade" }),
+    userId: text("userId")
+      .notNull()
+      .references(() => sqliteUsers.id, { onDelete: "cascade" }),
+    createdAt: integer("createdAt", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.projectId, table.userId] }),
+  }),
+);
+
 export const sqliteAccounts = sqliteTable(
   "account",
   {

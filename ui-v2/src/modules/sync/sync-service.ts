@@ -1,4 +1,4 @@
-import { getOrCreateClientId, getUserId } from "./client-id";
+import { getOrCreateClientId, getProjectId, getUserId } from "./client-id";
 import { FastQueue } from "./fast-queue";
 import type {
   SyncBatchRequest,
@@ -159,10 +159,12 @@ export class SyncService {
 
   private async sendBatch(changes: SyncChange[]): Promise<SyncBatchResponse> {
     const userId = getUserId();
+    const projectId = getProjectId();
     const clientId = getOrCreateClientId();
 
     const request: SyncBatchRequest = {
       user_id: userId,
+      project_id: projectId,
       client_id: clientId,
       timestamp: new Date().toISOString(),
       changes,
@@ -171,7 +173,7 @@ export class SyncService {
     const url = `${this._baseUrl}/api/v1/sync/batch`;
 
     console.log(
-      `[SyncService] Sending batch for user: ${userId}, client: ${clientId}`,
+      `[SyncService] Sending batch for user: ${userId}, project: ${projectId}, client: ${clientId}`,
     );
 
     const response = await this.fetchWithTimeout(url, {
@@ -200,11 +202,12 @@ export class SyncService {
 
   async pull(): Promise<SyncPullResponse> {
     const userId = getUserId();
+    const projectId = getProjectId();
     const clientId = getOrCreateClientId();
 
-    const url = `${this._baseUrl}/api/v1/sync/pull/${clientId}?userId=${userId}`;
+    const url = `${this._baseUrl}/api/v1/sync/pull/${clientId}?userId=${userId}&projectId=${projectId}`;
     console.log(
-      `[SyncService] Pulling data for user: ${userId}, client: ${clientId}`,
+      `[SyncService] Pulling data for user: ${userId}, project: ${projectId}, client: ${clientId}`,
     );
 
     const response = await this.fetchWithTimeout(url);
@@ -216,9 +219,10 @@ export class SyncService {
 
   async clear(): Promise<void> {
     const userId = getUserId();
+    const projectId = getProjectId();
     const clientId = getOrCreateClientId();
 
-    const url = `${this._baseUrl}/api/v1/sync/clear/${clientId}?userId=${userId}`;
+    const url = `${this._baseUrl}/api/v1/sync/clear/${clientId}?userId=${userId}&projectId=${projectId}`;
 
     const response = await this.fetchWithTimeout(url, { method: "DELETE" });
     if (!response.ok) {
@@ -239,6 +243,7 @@ export class SyncService {
     return {
       baseUrl: this._baseUrl,
       userId: getUserId(),
+      projectId: getCurrentProjectIdSafe(),
       clientId: getOrCreateClientId(),
       syncInterval: this._syncInterval,
       maxBatchSize: this._maxBatchSize,
@@ -248,6 +253,14 @@ export class SyncService {
       flushCount: this.flushCount,
       queueSnapshot: this.syncQueue.toArray().slice(0, 10),
     };
+  }
+}
+
+function getCurrentProjectIdSafe() {
+  try {
+    return getProjectId();
+  } catch {
+    return null;
   }
 }
 

@@ -105,17 +105,17 @@ func (c *Client) DeleteWorkflow(ctx context.Context, id string) error {
 	return err
 }
 
-func (c *Client) ListWorkflows(ctx context.Context, userID string) ([]*db.Workflow, error) {
+func (c *Client) ListWorkflows(ctx context.Context, projectID string) ([]*db.Workflow, error) {
 	query := `
 		SELECT id, name, description, nodes_config, edges_config,
 		       metadata, version, created_at, updated_at,
 		       client_id, user_id, is_deleted
 		FROM workflows
-		WHERE user_id = $1 AND is_deleted = FALSE
+		WHERE project_id = $1 AND is_deleted = FALSE
 		ORDER BY updated_at DESC
 	`
 
-	rows, err := c.conn.QueryContext(ctx, query, userID)
+	rows, err := c.conn.QueryContext(ctx, query, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -220,14 +220,14 @@ func (c *Client) ListScenariosByWorkflow(ctx context.Context, workflowID string)
 	return out, nil
 }
 
-func (c *Client) ListScenariosByUserId(ctx context.Context, userID string) ([]*db.Scenario, error) {
+func (c *Client) ListScenariosByProjectID(ctx context.Context, projectID string) ([]*db.Scenario, error) {
 	rows, err := c.conn.QueryContext(ctx, `
 		SELECT id, workflow_id, name, description, tests_config, test_order,
 		       metadata, version, created_at, updated_at, client_id, user_id, is_deleted
 		FROM scenarios
-		WHERE user_id = $1 AND is_deleted = FALSE
+		WHERE project_id = $1 AND is_deleted = FALSE
 		ORDER BY updated_at DESC
-	`, userID)
+	`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -334,14 +334,14 @@ func (c *Client) ListWorkflowRunsByWorkflow(ctx context.Context, workflowID stri
 	return out, nil
 }
 
-func (c *Client) ListWorkflowRunsByUserId(ctx context.Context, userID string) ([]*db.WorkflowRun, error) {
+func (c *Client) ListWorkflowRunsByProjectID(ctx context.Context, projectID string) ([]*db.WorkflowRun, error) {
 	rows, err := c.conn.QueryContext(ctx, `
 		SELECT id, workflow_id, status, summary, logs, error, started_at, completed_at,
 		       metadata, version, created_at, updated_at, client_id, user_id, is_deleted
 		FROM workflow_runs
-		WHERE user_id = $1 AND is_deleted = FALSE
+		WHERE project_id = $1 AND is_deleted = FALSE
 		ORDER BY created_at DESC
-	`, userID)
+	`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -481,17 +481,17 @@ func (c *Client) ListSessions(ctx context.Context, workflowID string) ([]*db.Ses
 	return sessions, nil
 }
 
-func (c *Client) ListSessionsByUserId(ctx context.Context, clientID string) ([]*db.Session, error) {
+func (c *Client) ListSessionsByProjectID(ctx context.Context, projectID string) ([]*db.Session, error) {
 	query := `
 		SELECT id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids,
 		       logs, error,
 		       started_at, completed_at, version, created_at, updated_at,
 		       client_id, user_id, is_deleted
 		FROM sessions
-		WHERE user_id = $1 AND is_deleted = FALSE
+		WHERE project_id = $1 AND is_deleted = FALSE
 		ORDER BY created_at DESC
 	`
-	rows, err := c.conn.QueryContext(ctx, query, clientID)
+	rows, err := c.conn.QueryContext(ctx, query, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -643,16 +643,16 @@ func (c *Client) ListTestResults(ctx context.Context, sessionID string) ([]*db.T
 	return results, nil
 }
 
-func (c *Client) ListTestResultsByUserId(ctx context.Context, userId string) ([]*db.TestResult, error) {
+func (c *Client) ListTestResultsByProjectID(ctx context.Context, projectID string) ([]*db.TestResult, error) {
 	query := `
 		SELECT id, session_id, workflow_run_id, workflow_id, scenario_id, scenario_name, test_name, test_type,
 		       status, result_data, duration_ms,
 		       executed_at, created_at, updated_at, client_id, user_id, is_deleted
 		FROM test_results
-		WHERE user_id = $1 AND is_deleted = FALSE
+		WHERE project_id = $1 AND is_deleted = FALSE
 		ORDER BY executed_at DESC
 	`
-	rows, err := c.conn.QueryContext(ctx, query, userId)
+	rows, err := c.conn.QueryContext(ctx, query, projectID)
 	if err != nil {
 		return nil, err
 	}

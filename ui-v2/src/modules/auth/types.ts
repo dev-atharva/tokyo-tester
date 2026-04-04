@@ -15,6 +15,19 @@ export interface CreateInitialAdminInput {
   password: string;
 }
 
+export interface CreateUserInput {
+  email: string;
+  name: string;
+  password: string;
+  role: UserRole;
+  isActive?: boolean;
+}
+
+export interface UserListItem extends AuthUser {
+  createdAt?: Date | number | null;
+  updatedAt?: Date | number | null;
+}
+
 export interface AuthActionState {
   error: string | null;
   redirectTo?: string | null;

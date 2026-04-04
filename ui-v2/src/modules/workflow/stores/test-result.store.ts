@@ -33,6 +33,7 @@ export type TestResultInput = Omit<
 
 export interface TestResult {
   id: string;
+  projectId: string;
   sessionId: string;
   workflowRunId?: string;
   workflowId: string;
@@ -119,6 +120,7 @@ export const useTestResultStore = create<TestResultStore>()(
                 ...state.testResults,
                 [id]: addSyncMetadata({
                   id,
+                  projectId: updates.projectId ?? "",
                   sessionId,
                   workflowRunId: updates.workflowRunId,
                   workflowId,
@@ -245,6 +247,7 @@ export const useTestResultStore = create<TestResultStore>()(
 
           return {
             id: result.id,
+            project_id: result.projectId,
             session_id: result.sessionId,
             workflow_run_id: result.workflowRunId,
             workflow_id: result.workflowId,

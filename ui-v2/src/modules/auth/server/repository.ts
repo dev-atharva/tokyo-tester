@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { type DatabaseConnection, getDb } from "@/db";
-import type { AuthUser } from "../types";
+import type { AuthUser, UserListItem } from "../types";
 
 function mapUser(record: Record<string, unknown> | undefined): AuthUser | null {
   if (!record) {
@@ -84,6 +84,36 @@ export async function getUserById(id: string): Promise<AuthUser | null> {
   return mapUser(row as Record<string, unknown> | undefined);
 }
 
+export async function listUsers(): Promise<UserListItem[]> {
+  const connection = getDb();
+
+  if (connection.type === "postgres") {
+    const rows = await connection.db
+      .select()
+      .from(connection.tables.users);
+
+    return rows
+      .map((row) => ({
+        ...(mapUser(row as Record<string, unknown>) as AuthUser),
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      }))
+      .sort((left, right) =>
+        String(left.email).localeCompare(String(right.email)),
+      );
+  }
+
+  const rows = connection.db.select().from(connection.tables.users).all();
+
+  return rows
+    .map((row) => ({
+      ...(mapUser(row as Record<string, unknown>) as AuthUser),
+      createdAt: row.createdAt ? Number(row.createdAt) : null,
+      updatedAt: row.updatedAt ? Number(row.updatedAt) : null,
+    }))
+    .sort((left, right) => String(left.email).localeCompare(String(right.email)));
+}
+
 export async function updateUserTimestamp(id: string): Promise<void> {
   const connection = getDb();
 
@@ -98,6 +128,28 @@ export async function updateUserTimestamp(id: string): Promise<void> {
   connection.db
     .update(connection.tables.users)
     .set({ updatedAt: new Date() })
+    .where(eq(connection.tables.users.id, id))
+    .run();
+}
+
+export async function updateUserStatus(
+  id: string,
+  isActive: boolean,
+): Promise<void> {
+  const connection = getDb();
+  const payload = { isActive, updatedAt: new Date() };
+
+  if (connection.type === "postgres") {
+    await connection.db
+      .update(connection.tables.users)
+      .set(payload)
+      .where(eq(connection.tables.users.id, id));
+    return;
+  }
+
+  connection.db
+    .update(connection.tables.users)
+    .set(payload)
     .where(eq(connection.tables.users.id, id))
     .run();
 }

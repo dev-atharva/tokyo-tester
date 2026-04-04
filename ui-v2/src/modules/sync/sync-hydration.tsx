@@ -145,6 +145,7 @@ function hydrateTestResults(testResults: TestResultData[]): number {
 function deserializeWorkflow(data: WorkflowData): Workflow {
   return {
     id: data.id,
+    projectId: data.project_id,
     name: data.name,
     description: data.description ?? "",
     nodes: parseJSON<FlowNode[]>(data.nodes_config, []),
@@ -162,6 +163,7 @@ function deserializeWorkflow(data: WorkflowData): Workflow {
 function deserializeScenario(data: ScenarioData): Scenario {
   return {
     id: data.id,
+    projectId: data.project_id,
     workflowId: data.workflow_id,
     name: data.name,
     description: data.description ?? "",
@@ -181,6 +183,7 @@ function deserializeWorkflowRun(data: WorkflowRunData): WorkflowExecution {
 
   return {
     workflowRunId: data.id,
+    projectId: data.project_id,
     workflowId: data.workflow_id,
     status: data.status as WorkflowExecution["status"],
     logs: data.logs || [],
@@ -205,6 +208,7 @@ function deserializeWorkflowRun(data: WorkflowRunData): WorkflowExecution {
 function deserializeScenarioRun(data: SessionData): ScenarioRun {
   return {
     id: data.id,
+    projectId: data.project_id,
     workflowRunId: data.workflow_run_id ?? "",
     workflowId: data.workflow_id ?? "",
     scenarioId: data.scenario_id ?? "",
@@ -232,6 +236,7 @@ function deserializeScenarioRun(data: SessionData): ScenarioRun {
 function deserializeTestResult(data: TestResultData): TestResult {
   return {
     id: data.id,
+    projectId: data.project_id,
     sessionId: data.session_id,
     workflowRunId: data.workflow_run_id,
     workflowId: data.workflow_id,

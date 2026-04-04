@@ -24,6 +24,7 @@ const indexedDBStorage = {
 
 export interface WorkflowExecution {
   workflowRunId: string;
+  projectId: string;
   workflowId: string;
   status: WorkflowRunStatus;
   logs: string[];
@@ -46,6 +47,7 @@ interface ExecutionStore {
   activeWorkflowRunId: string | null;
   _currentEntityId: string | null;
   startExecution: (
+    projectId: string,
     workflowId: string,
     workflowRunId: string,
     scenarioRunIds: string[],
@@ -73,10 +75,11 @@ export const useExecutionStore = create<ExecutionStore>()(
         activeWorkflowRunId: null,
         _currentEntityId: null,
 
-        startExecution: (workflowId, workflowRunId, scenarioRunIds) => {
+        startExecution: (projectId, workflowId, workflowRunId, scenarioRunIds) => {
           trackSync(store, workflowRunId, "insert");
           const execution: WorkflowExecution = addSyncMetadata({
             workflowRunId,
+            projectId,
             workflowId,
             status: "running" as WorkflowRunStatus,
             logs: [],
@@ -223,6 +226,7 @@ export const useExecutionStore = create<ExecutionStore>()(
 
           return {
             id: execution.workflowRunId,
+            project_id: execution.projectId,
             workflow_id: execution.workflowId,
             status: execution.status,
             summary: execution.result,

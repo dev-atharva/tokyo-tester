@@ -24,6 +24,7 @@ const indexedDBStorage = {
 
 export interface ScenarioRun {
   id: string;
+  projectId: string;
   workflowRunId: string;
   workflowId: string;
   scenarioId: string;
@@ -47,6 +48,7 @@ interface ScenarioRunStore {
   scenarioRuns: Record<string, ScenarioRun>;
   _currentEntityId: string | null;
   startScenarioRun: (
+    projectId: string,
     workflowRunId: string,
     workflowId: string,
     scenarioId: string,
@@ -74,11 +76,18 @@ export const useScenarioRunStore = create<ScenarioRunStore>()(
         scenarioRuns: {},
         _currentEntityId: null,
 
-        startScenarioRun: (workflowRunId, workflowId, scenarioId, scenarioName) => {
+        startScenarioRun: (
+          projectId,
+          workflowRunId,
+          workflowId,
+          scenarioId,
+          scenarioName,
+        ) => {
           const id = crypto.randomUUID();
           trackSync(store, id, "insert");
           const scenarioRun: ScenarioRun = addSyncMetadata({
             id,
+            projectId,
             workflowRunId,
             workflowId,
             scenarioId,
@@ -192,6 +201,7 @@ export const useScenarioRunStore = create<ScenarioRunStore>()(
 
           return {
             id: run.id,
+            project_id: run.projectId,
             workflow_run_id: run.workflowRunId,
             workflow_id: run.workflowId,
             scenario_id: run.scenarioId,

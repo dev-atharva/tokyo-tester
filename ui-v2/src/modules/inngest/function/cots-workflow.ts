@@ -35,6 +35,7 @@ export const testResultChannel = channel("testResult").addTopic(
   topic("testresult").schema(
     z.object({
       workflowRunId: z.string(),
+      projectId: z.string(),
       workflowId: z.string(),
       scenarioId: z.string(),
       scenarioName: z.string(),
@@ -68,7 +69,7 @@ export const cotsWorkFlow = inngest.createFunction(
   { event: "cots/workflow.run.start" },
   async ({ event, step, publish }) => {
     const input = event.data as WorkflowRunInput;
-    const { workflowRunId, workflowId, workflowName } = input;
+    const { workflowRunId, projectId, workflowId, workflowName } = input;
     let logSequence = 0;
     let testSequence = 0;
 
@@ -80,6 +81,7 @@ export const cotsWorkFlow = inngest.createFunction(
       publish(
         logsChannel().workflowlog({
           workflowRunId,
+          projectId,
           workflowId,
           message,
           status,
@@ -102,6 +104,7 @@ export const cotsWorkFlow = inngest.createFunction(
       return publish(
         testResultChannel().testresult({
           workflowRunId,
+          projectId,
           workflowId,
           scenarioId,
           scenarioName,

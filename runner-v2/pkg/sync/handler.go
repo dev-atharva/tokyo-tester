@@ -118,19 +118,20 @@ func (h *Handler) HandlePull(w http.ResponseWriter, r *http.Request) {
 
 	clientID := chi.URLParam(r, "clientId")
 	userID := r.URL.Query().Get("userId")
+	projectID := r.URL.Query().Get("projectId")
 
 	ctx, span := telemetry.StartSpan(ctx, "sync.pull", telemetry.ClientIDAttr(clientID), telemetry.UserIDAttr(userID))
 	defer span.End()
 
-	logger.InfoContext(ctx, "pulling sync changes", "request_id", requestID, "user_id", userID)
+	logger.InfoContext(ctx, "pulling sync changes", "request_id", requestID, "user_id", userID, "project_id", projectID)
 
-	if clientID == "" || userID == "" {
-		logger.WarnContext(ctx, "missingf reqiuired parameters", "client_id", clientID, "user_id", userID)
-		errors.ResponseBadRequest(w, "clientId and userId are required")
+	if clientID == "" || userID == "" || projectID == "" {
+		logger.WarnContext(ctx, "missingf reqiuired parameters", "client_id", clientID, "user_id", userID, "project_id", projectID)
+		errors.ResponseBadRequest(w, "clientId, userId and projectId are required")
 		return
 	}
 
-	response, err := h.service.PullChanges(ctx, userID)
+	response, err := h.service.PullChanges(ctx, userID, projectID)
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to pull changes", "error", err, "user_id", userID)
 		telemetry.RecordError(ctx, err)
@@ -165,15 +166,16 @@ func (h *Handler) HandleClear(w http.ResponseWriter, r *http.Request) {
 	requestID := middleware.GetRequestID(ctx)
 	clientID := chi.URLParam(r, "clientId")
 	userID := r.URL.Query().Get("userId")
+	projectID := r.URL.Query().Get("projectId")
 
 	ctx, span := telemetry.StartSpan(ctx, "sync.clear", telemetry.ClientIDAttr(clientID), telemetry.UserIDAttr(userID))
 	defer span.End()
 
-	logger.InfoContext(ctx, "clearing sync metadata", "request_id", requestID, "client_id", clientID, "user_id", userID)
+	logger.InfoContext(ctx, "clearing sync metadata", "request_id", requestID, "client_id", clientID, "user_id", userID, "project_id", projectID)
 
-	if clientID == "" || userID == "" {
-		logger.WarnContext(ctx, "missing required parameters", "client_id", clientID, "user_id", userID)
-		errors.ResponseBadRequest(w, "clientId and userId are required")
+	if clientID == "" || userID == "" || projectID == "" {
+		logger.WarnContext(ctx, "missing required parameters", "client_id", clientID, "user_id", userID, "project_id", projectID)
+		errors.ResponseBadRequest(w, "clientId, userId and projectId are required")
 		return
 	}
 

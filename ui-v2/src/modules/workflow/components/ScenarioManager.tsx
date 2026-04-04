@@ -60,8 +60,8 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
   );
 
   return (
-    <div className="grid h-full min-h-0 gap-5 md:grid-cols-[280px_minmax(0,1fr)]">
-      <div className="flex min-h-0  flex-col gap-3">
+    <div className="grid h-full min-h-0 gap-5 overflow-hidden md:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold tracking-tight text-foreground/90 uppercase flex items-center gap-2">
             <IconListDetails className="size-4" />
@@ -88,7 +88,7 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
             New Scenario
           </Button>
 
-          <ScrollArea className="flex-1">
+          <ScrollArea className="min-h-0 flex-1">
             <div className="space-y-2 pr-2">
               {scenarios.length === 0 ? (
                 <div className="flex items-center justify-center py-8 text-center">

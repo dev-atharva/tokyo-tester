@@ -182,6 +182,7 @@ func (s *Service) processWorkflowChange(ctx context.Context, change *types.SyncC
 
 		wf := &db.Workflow{
 			ID:          workflowData.ID,
+			ProjectID:   workflowData.ProjectID,
 			Name:        workflowData.Name,
 			Description: workflowData.Description,
 			NodesConfig: string(workflowData.NodesConfig),
@@ -224,6 +225,7 @@ func (s *Service) processWorkflowChangeInTx(ctx context.Context, tx db.Tx, chang
 
 		wf := &db.Workflow{
 			ID:          workflowData.ID,
+			ProjectID:   workflowData.ProjectID,
 			Name:        workflowData.Name,
 			Description: workflowData.Description,
 			NodesConfig: string(workflowData.NodesConfig),
@@ -232,7 +234,7 @@ func (s *Service) processWorkflowChangeInTx(ctx context.Context, tx db.Tx, chang
 			Version:     workflowData.Version,
 			CreatedAt:   workflowData.CreatedAt,
 			UpdatedAt:   workflowData.UpdatedAt,
-			UserID:      workflowData.UserID,
+			UserID:      userID,
 			IsDeleted:   workflowData.IsDeleted,
 		}
 		return tx.UpsertWorkflow(ctx, wf)
@@ -266,6 +268,7 @@ func (s *Service) processScenarioChange(ctx context.Context, change *types.SyncC
 
 		scenario := &db.Scenario{
 			ID:          scenarioData.ID,
+			ProjectID:   scenarioData.ProjectID,
 			WorkflowID:  scenarioData.WorkflowID,
 			Name:        scenarioData.Name,
 			Description: scenarioData.Description,
@@ -310,6 +313,7 @@ func (s *Service) processScenarioChangeInTx(ctx context.Context, tx db.Tx, chang
 
 		scenario := &db.Scenario{
 			ID:          scenarioData.ID,
+			ProjectID:   scenarioData.ProjectID,
 			WorkflowID:  scenarioData.WorkflowID,
 			Name:        scenarioData.Name,
 			Description: scenarioData.Description,
@@ -355,6 +359,7 @@ func (s *Service) processWorkflowRunChange(ctx context.Context, change *types.Sy
 
 		workflowRun := &db.WorkflowRun{
 			ID:          workflowRunData.ID,
+			ProjectID:   workflowRunData.ProjectID,
 			WorkflowID:  workflowRunData.WorkflowID,
 			Status:      workflowRunData.Status,
 			Summary:     string(workflowRunData.Summary),
@@ -401,6 +406,7 @@ func (s *Service) processWorkflowRunChangeInTx(ctx context.Context, tx db.Tx, ch
 
 		workflowRun := &db.WorkflowRun{
 			ID:          workflowRunData.ID,
+			ProjectID:   workflowRunData.ProjectID,
 			WorkflowID:  workflowRunData.WorkflowID,
 			Status:      workflowRunData.Status,
 			Summary:     string(workflowRunData.Summary),
@@ -448,6 +454,7 @@ func (s *Service) processSessionChange(ctx context.Context, change *types.SyncCh
 
 		sess := &db.Session{
 			ID:               sessionData.ID,
+			ProjectID:        sessionData.ProjectID,
 			WorkflowRunID:    sessionData.WorkflowRunID,
 			WorkflowID:       sessionData.WorkflowID,
 			ScenarioID:       sessionData.ScenarioID,
@@ -496,6 +503,7 @@ func (s *Service) processSessionChangeInTx(ctx context.Context, tx db.Tx, change
 
 		sess := &db.Session{
 			ID:               sessionData.ID,
+			ProjectID:        sessionData.ProjectID,
 			WorkflowRunID:    sessionData.WorkflowRunID,
 			WorkflowID:       sessionData.WorkflowID,
 			ScenarioID:       sessionData.ScenarioID,
@@ -562,6 +570,7 @@ func (s *Service) processTestResultChange(
 
 	result := &db.TestResult{
 		ID:            testData.ID,
+		ProjectID:     testData.ProjectID,
 		SessionID:     testData.SessionID,
 		WorkflowRunID: testData.WorkflowRunID,
 		WorkflowID:    testData.WorkflowID,
@@ -686,6 +695,7 @@ func (s *Service) processTestResultChangeInTx(ctx context.Context, tx db.Tx, cha
 
 	result := &db.TestResult{
 		ID:            testData.ID,
+		ProjectID:     testData.ProjectID,
 		SessionID:     testData.SessionID,
 		WorkflowRunID: testData.WorkflowRunID,
 		WorkflowID:    testData.WorkflowID,
@@ -804,8 +814,8 @@ func (s *Service) GetStatus(ctx context.Context) (*types.SyncStatusResponse, err
 }
 
 // --- Pull changes for a user ---
-func (s *Service) PullChanges(ctx context.Context, userID string) (*types.SyncPullResponse, error) {
-	logger.InfoContext(ctx, "pulling changes for user", "user_id", userID)
+func (s *Service) PullChanges(ctx context.Context, userID string, projectID string) (*types.SyncPullResponse, error) {
+	logger.InfoContext(ctx, "pulling changes for user", "user_id", userID, "project_id", projectID)
 
 	response := &types.SyncPullResponse{
 		Workflows:    []types.WorkflowData{},
@@ -815,31 +825,31 @@ func (s *Service) PullChanges(ctx context.Context, userID string) (*types.SyncPu
 		TestResults:  []types.TestResultData{},
 	}
 
-	workflows, err := s.db.ListWorkflows(ctx, userID)
+	workflows, err := s.db.ListWorkflows(ctx, projectID)
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to list workflows", "error", err, "user_id", userID)
 		return nil, fmt.Errorf("failed to list workflows: %w", err)
 	}
 
-	scenarios, err := s.db.ListScenariosByUserId(ctx, userID)
+	scenarios, err := s.db.ListScenariosByProjectID(ctx, projectID)
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to list scenarios", "error", err, "user_id", userID)
 		return nil, fmt.Errorf("failed to list scenarios: %w", err)
 	}
 
-	workflowRuns, err := s.db.ListWorkflowRunsByUserId(ctx, userID)
+	workflowRuns, err := s.db.ListWorkflowRunsByProjectID(ctx, projectID)
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to list workflow runs", "error", err, "user_id", userID)
 		return nil, fmt.Errorf("failed to list workflow runs: %w", err)
 	}
 
-	sessions, err := s.db.ListSessionsByUserId(ctx, userID)
+	sessions, err := s.db.ListSessionsByProjectID(ctx, projectID)
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to list sessions", "error", err, "user_id", userID)
 		return nil, fmt.Errorf("failed to list sessions: %w", err)
 	}
 
-	testResults, err := s.db.ListTestResultsByUserId(ctx, userID)
+	testResults, err := s.db.ListTestResultsByProjectID(ctx, projectID)
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to list test results", "error", err, "user_id", userID)
 		return nil, fmt.Errorf("failed to list the test results: %w", err)
@@ -848,6 +858,7 @@ func (s *Service) PullChanges(ctx context.Context, userID string) (*types.SyncPu
 	for _, wf := range workflows {
 		response.Workflows = append(response.Workflows, types.WorkflowData{
 			ID:          wf.ID,
+			ProjectID:   wf.ProjectID,
 			Name:        wf.Name,
 			Description: wf.Description,
 			NodesConfig: json.RawMessage(wf.NodesConfig),
@@ -864,6 +875,7 @@ func (s *Service) PullChanges(ctx context.Context, userID string) (*types.SyncPu
 	for _, scenario := range scenarios {
 		response.Scenarios = append(response.Scenarios, types.ScenarioData{
 			ID:          scenario.ID,
+			ProjectID:   scenario.ProjectID,
 			WorkflowID:  scenario.WorkflowID,
 			UserID:      scenario.UserID,
 			Name:        scenario.Name,
@@ -882,6 +894,7 @@ func (s *Service) PullChanges(ctx context.Context, userID string) (*types.SyncPu
 	for _, workflowRun := range workflowRuns {
 		response.WorkflowRuns = append(response.WorkflowRuns, types.WorkflowRunData{
 			ID:          workflowRun.ID,
+			ProjectID:   workflowRun.ProjectID,
 			WorkflowID:  workflowRun.WorkflowID,
 			UserID:      workflowRun.UserID,
 			Status:      workflowRun.Status,
@@ -903,6 +916,7 @@ func (s *Service) PullChanges(ctx context.Context, userID string) (*types.SyncPu
 		response.Sessions = append(response.Sessions, types.SessionData{
 			ID:               sess.ID,
 			UserID:           sess.UserID,
+			ProjectID:        sess.ProjectID,
 			WorkflowRunID:    sess.WorkflowRunID,
 			WorkflowID:       sess.WorkflowID,
 			ScenarioID:       sess.ScenarioID,
@@ -927,6 +941,7 @@ func (s *Service) PullChanges(ctx context.Context, userID string) (*types.SyncPu
 		response.TestResults = append(response.TestResults, types.TestResultData{
 			ID:            testres.ID,
 			UserID:        testres.UserID,
+			ProjectID:     testres.ProjectID,
 			SessionID:     testres.SessionID,
 			WorkflowRunID: testres.WorkflowRunID,
 			WorkflowID:    testres.WorkflowID,
@@ -945,7 +960,7 @@ func (s *Service) PullChanges(ctx context.Context, userID string) (*types.SyncPu
 		})
 	}
 
-	logger.InfoContext(ctx, "changes pulled successfully", "user_id", userID, "workflows_count", len(response.Workflows), "scenarios_count", len(response.Scenarios), "workflow_runs_count", len(response.WorkflowRuns), "sessions_count", len(response.Sessions), "test_results_count", len(response.TestResults))
+	logger.InfoContext(ctx, "changes pulled successfully", "user_id", userID, "project_id", projectID, "workflows_count", len(response.Workflows), "scenarios_count", len(response.Scenarios), "workflow_runs_count", len(response.WorkflowRuns), "sessions_count", len(response.Sessions), "test_results_count", len(response.TestResults))
 
 	return response, nil
 }

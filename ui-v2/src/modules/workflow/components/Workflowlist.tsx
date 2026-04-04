@@ -4,6 +4,7 @@ import { IconFileOff, IconPlus } from "@tabler/icons-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useProjectContext } from "@/modules/projects/project-context";
 import { useExecutionStore } from "../stores/execution.store.sync";
 import { useWorkflowStore } from "../stores/workflow.store.sync";
 import { Badge } from "@/components/ui/badge";
@@ -14,23 +15,31 @@ export const WorkflowList = () => {
   const executions = useExecutionStore((s) => s.executions);
   const createWorkflow = useWorkflowStore((s) => s.createWorkflow);
   const setActiveWorkflow = useWorkflowStore((s) => s.setActiveWorkflow);
+  const { activeProjectId, activeProject, projects } = useProjectContext();
 
   const [isCreating, setIsCreating] = useState(false);
 
   const workflowsList = Object.values(workflows)
-    .filter((w) => !w.is_deleted) // Filter out deleted workflows
+    .filter(
+      (w) => !w.is_deleted && !!activeProjectId && w.projectId === activeProjectId,
+    )
     .sort((a, b) => {
       const aTime = new Date(a.created_at).getTime();
       const bTime = new Date(b.created_at).getTime();
       return bTime - aTime;
     });
 
+  const hasProject = Boolean(activeProjectId);
+
   const handleCreate = async () => {
+    if (!activeProjectId) {
+      return;
+    }
+
     try {
       setIsCreating(true);
 
-      // Create workflow
-      const id = createWorkflow("New Workflow");
+      const id = createWorkflow(activeProjectId, "New Workflow");
 
       // Set as active
       setActiveWorkflow(id);
@@ -72,21 +81,35 @@ export const WorkflowList = () => {
         <div>
           <h1 className="text-2xl font-semibold">Workflows</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Create and manage your test workflows
+            {activeProject
+              ? `Create and manage workflows in ${activeProject.name}`
+              : "Select a project to start creating workflows"}
           </p>
         </div>
 
         <Button
           className="cursor-pointer font-semibold shadow-md"
           onClick={handleCreate}
-          disabled={isCreating}
+          disabled={isCreating || !hasProject}
         >
           <IconPlus className="mr-2 size-4" />
           {isCreating ? "Creating..." : "New Workflow"}
         </Button>
       </div>
 
-      {workflowsList.length === 0 ? (
+      {!hasProject ? (
+        <div className="flex flex-col items-center justify-center py-16 px-4 border-2 border-dashed border-border/60 rounded-xl bg-muted/20">
+          <div className="p-4 rounded-full bg-muted/50 mb-4">
+            <IconFileOff className="size-8 text-muted-foreground" />
+          </div>
+          <h3 className="font-semibold text-lg mb-1">No active project</h3>
+          <p className="text-sm text-muted-foreground mb-2 text-center max-w-md">
+            {projects.length === 0
+              ? "You do not belong to any project yet. Ask an admin to add you to a project."
+              : "Choose a project from the switcher in the top bar to load its workflows."}
+          </p>
+        </div>
+      ) : workflowsList.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 px-4 border-2 border-dashed border-border/60 rounded-xl bg-muted/20">
           <div className="p-4 rounded-full bg-muted/50 mb-4">
             <IconFileOff className="size-8 text-muted-foreground" />
@@ -99,7 +122,7 @@ export const WorkflowList = () => {
           <Button
             className="cursor-pointer font-semibold shadow-md"
             onClick={handleCreate}
-            disabled={isCreating}
+            disabled={isCreating || !hasProject}
           >
             <IconPlus className="mr-2 size-4" />
             Create Workflow

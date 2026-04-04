@@ -185,6 +185,7 @@ export interface WorkflowGraph {
 
 export interface Scenario {
   id: string;
+  projectId: string;
   workflowId: string;
   name: string;
   description?: string;
@@ -272,6 +273,7 @@ export interface ValidationResult {
 
 export interface WorkflowRunInput {
   workflowRunId: string;
+  projectId: string;
   workflowId: string;
   workflowName: string;
   nodes: FlowNode[];
@@ -343,6 +345,7 @@ export interface ExecutionOrder {
 
 export interface WorkflowLogEvent {
   workflowRunId: string;
+  projectId: string;
   workflowId: string;
   scenarioId?: string;
   scenarioName?: string;
@@ -364,6 +367,7 @@ export interface WorkflowLogEvent {
 
 export interface ScenarioTestResultEvent {
   workflowRunId: string;
+  projectId: string;
   workflowId: string;
   scenarioId: string;
   scenarioName: string;

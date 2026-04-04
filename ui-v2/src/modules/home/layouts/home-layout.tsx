@@ -21,7 +21,7 @@ export const HomeLayout = ({
   return (
     <SidebarProvider defaultOpen={true}>
       <div className="flex h-screen w-screen overflow-hidden">
-        <HomeSidebar />
+        <HomeSidebar userRole={userRole} />
         <main className="flex flex-col flex-1 overflow-hidden">
           <Navbar
             userName={userName}

@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "next-themes";
 import { auth } from "@/auth";
 import { AppShell } from "@/modules/auth/components/app-shell";
+import { listProjectsForUser } from "@/modules/projects/server/service";
 
 const roboto = Roboto({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -29,6 +30,9 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
+  const projects = session?.user?.id
+    ? await listProjectsForUser(session.user.id, session.user.role)
+    : [];
 
   return (
     <html lang="en" className={roboto.variable} suppressHydrationWarning>
@@ -41,6 +45,7 @@ export default async function RootLayout({
             userName={session?.user?.name ?? null}
             userEmail={session?.user?.email ?? null}
             userRole={session?.user?.role ?? null}
+            projects={projects}
           >
             {children}
           </AppShell>

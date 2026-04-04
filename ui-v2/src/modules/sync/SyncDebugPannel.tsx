@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useProjectContext } from "@/modules/projects/project-context";
 import { syncService } from "@/modules/sync/sync-service";
 import { useWorkflowStore } from "../workflow/stores/workflow.store.sync";
 
@@ -8,6 +9,7 @@ export function SyncDebugPanel() {
     (typeof syncService)["getDebugInfo"]
   > | null>(null);
   const createWorkflow = useWorkflowStore((state) => state.createWorkflow);
+  const { activeProjectId } = useProjectContext();
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -25,6 +27,7 @@ export function SyncDebugPanel() {
       change_type: "insert",
       data: {
         id: `manual-test-${Date.now()}`,
+        project_id: activeProjectId ?? "",
         name: "Manual Test",
         nodes_config: [],
         edges_config: [],
@@ -45,8 +48,11 @@ export function SyncDebugPanel() {
   };
 
   const handleCreateWorkflow = () => {
+    if (!activeProjectId) {
+      return;
+    }
     console.log("=== CREATE WORKFLOW TEST ===");
-    const id = createWorkflow(`Test Workflow ${Date.now()}`);
+    const id = createWorkflow(activeProjectId, `Test Workflow ${Date.now()}`);
     console.log("Created workflow:", id);
   };
 

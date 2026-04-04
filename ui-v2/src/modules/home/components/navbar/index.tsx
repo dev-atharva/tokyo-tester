@@ -1,6 +1,7 @@
 "use client";
 
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { ProjectSwitcher } from "./project-switcher";
 import { UserMenu } from "./user-menu";
 
 interface NavbarProps {
@@ -11,17 +12,16 @@ interface NavbarProps {
 
 export const Navbar = ({ userName, userEmail, userRole }: NavbarProps) => {
   return (
-    <nav className="sticky top-0 z-10 flex items-center justify-between border-b border-sidebar-border bg-sidebar px-4 py-2.5 text-sidebar-foreground">
+    <nav className="sticky top-0 z-10 flex h-11 items-center justify-between border-b border-border/60 bg-background/95 backdrop-blur-sm px-3 gap-4">
       <div className="flex items-center gap-2">
-        <SidebarTrigger className="text-muted-foreground hover:text-foreground transition-colors" />
+        <SidebarTrigger className="shrink-0 text-muted-foreground hover:text-foreground transition-colors" />
+        <ProjectSwitcher />
       </div>
-      <div className="flex items-center gap-4">
-        <UserMenu
-          userName={userName}
-          userEmail={userEmail}
-          userRole={userRole}
-        />
-      </div>
+      <UserMenu
+        userName={userName}
+        userEmail={userEmail}
+        userRole={userRole}
+      />
     </nav>
   );
 };

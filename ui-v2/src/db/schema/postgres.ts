@@ -27,6 +27,38 @@ export const pgUsers = pgTable("user", {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
+export const pgProjects = pgTable("project", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdBy: text("createdBy")
+    .notNull()
+    .references(() => pgUsers.id, { onDelete: "cascade" }),
+  createdAt: timestamp("createdAt", { mode: "date" })
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: timestamp("updatedAt", { mode: "date" })
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const pgProjectMembers = pgTable(
+  "project_member",
+  {
+    projectId: text("projectId")
+      .notNull()
+      .references(() => pgProjects.id, { onDelete: "cascade" }),
+    userId: text("userId")
+      .notNull()
+      .references(() => pgUsers.id, { onDelete: "cascade" }),
+    createdAt: timestamp("createdAt", { mode: "date" })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.projectId, table.userId] }),
+  }),
+);
+
 export const pgAccounts = pgTable(
   "account",
   {

@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/dev-atharva/cots/pkg/config"
+	"github.com/dev-atharva/cots/pkg/provider"
 	"github.com/dev-atharva/cots/pkg/registry"
 	"github.com/dev-atharva/cots/pkg/types"
 	"github.com/testcontainers/testcontainers-go"
@@ -49,7 +50,7 @@ func (m *MariaDbProvider) Provision(ctx context.Context, cfg config.ServiceConfi
 	}
 	runtime := &types.ServiceRuntime{
 		Name:        cfg.Name,
-		ContainerID: cfg.Name,
+		ContainerID: container.GetContainerID(),
 		Host:        host,
 		MappedPorts: map[string]string{
 			"5432": mappedPort.Port(),
@@ -78,7 +79,7 @@ func (p *MariaDbProvider) createContainerWithFallback(ctx context.Context, cfg c
 			testcontainers.WithWaitStrategy(testcontainerswait.ForLog("database system is ready to accept connections").WithOccurrence(2)),
 			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 				ContainerRequest: testcontainers.ContainerRequest{
-					Name:     cfg.Name,
+					Name:     provider.ContainerName(ctx, cfg.Name),
 					Networks: []string{network.Name},
 					NetworkAliases: map[string][]string{
 						network.Name: {cfg.Name},
@@ -104,7 +105,7 @@ func (p *MariaDbProvider) createContainerWithFallback(ctx context.Context, cfg c
 		),
 		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
-				Name:     cfg.Name,
+				Name:     provider.ContainerName(ctx, cfg.Name),
 				Networks: []string{network.Name},
 				NetworkAliases: map[string][]string{
 					network.Name: {cfg.Name},

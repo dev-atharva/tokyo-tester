@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/dev-atharva/cots/pkg/config"
+	"github.com/dev-atharva/cots/pkg/provider"
 	"github.com/dev-atharva/cots/pkg/registry"
 	"github.com/dev-atharva/cots/pkg/types"
 	"github.com/testcontainers/testcontainers-go"
@@ -64,7 +65,7 @@ func (p *RedisProvider) Provision(ctx context.Context, cfg config.ServiceConfig,
 
 	runtime := &types.ServiceRuntime{
 		Name:        cfg.Name,
-		ContainerID: cfg.Name,
+		ContainerID: container.GetContainerID(),
 		Host:        host,
 		MappedPorts: map[string]string{
 			"6379": port.Port(),
@@ -92,7 +93,7 @@ func (P *RedisProvider) createContainerWithFallback(ctx context.Context, cfg con
 			customImage,
 			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 				ContainerRequest: testcontainers.ContainerRequest{
-					Name:     cfg.Name,
+					Name:     provider.ContainerName(ctx, cfg.Name),
 					Networks: []string{network.Name},
 					NetworkAliases: map[string][]string{
 						network.Name: {cfg.Name},
@@ -114,7 +115,7 @@ func (P *RedisProvider) createContainerWithFallback(ctx context.Context, cfg con
 		testcontainers.CustomizeRequest(
 			testcontainers.GenericContainerRequest{
 				ContainerRequest: testcontainers.ContainerRequest{
-					Name:     cfg.Name,
+					Name:     provider.ContainerName(ctx, cfg.Name),
 					Networks: []string{network.Name},
 					NetworkAliases: map[string][]string{
 						network.Name: {cfg.Name},

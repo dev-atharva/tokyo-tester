@@ -25,6 +25,7 @@ func TestProcessBatchSupportsScenarioEntities(t *testing.T) {
 	workflowPayload := types.WorkflowData{
 		ID:          "wf-1",
 		UserID:      "user-1",
+		ProjectID:   "project-1",
 		Name:        "Order Workflow",
 		Description: "workflow description",
 		NodesConfig: rawJSON(t, map[string]any{"nodes": []string{"api"}}),
@@ -39,6 +40,7 @@ func TestProcessBatchSupportsScenarioEntities(t *testing.T) {
 
 	scenarioPayload := types.ScenarioData{
 		ID:          "scenario-1",
+		ProjectID:   "project-1",
 		WorkflowID:  workflowPayload.ID,
 		UserID:      "user-1",
 		Name:        "Happy Path",
@@ -55,6 +57,7 @@ func TestProcessBatchSupportsScenarioEntities(t *testing.T) {
 
 	workflowRunPayload := types.WorkflowRunData{
 		ID:          "workflow-run-1",
+		ProjectID:   "project-1",
 		WorkflowID:  workflowPayload.ID,
 		UserID:      "user-1",
 		Status:      "running",
@@ -74,6 +77,7 @@ func TestProcessBatchSupportsScenarioEntities(t *testing.T) {
 	sessionPayload := types.SessionData{
 		ID:               "scenario-run-1",
 		UserID:           "user-1",
+		ProjectID:        "project-1",
 		WorkflowRunID:    workflowRunPayload.ID,
 		WorkflowID:       workflowPayload.ID,
 		ScenarioID:       scenarioPayload.ID,
@@ -96,6 +100,7 @@ func TestProcessBatchSupportsScenarioEntities(t *testing.T) {
 	testResultPayload := types.TestResultData{
 		ID:            "test-result-1",
 		UserID:        "user-1",
+		ProjectID:     "project-1",
 		SessionID:     sessionPayload.ID,
 		WorkflowRunID: workflowRunPayload.ID,
 		WorkflowID:    workflowPayload.ID,
@@ -116,6 +121,7 @@ func TestProcessBatchSupportsScenarioEntities(t *testing.T) {
 	req := &types.SyncBatchRequest{
 		ClientID:  "client-1",
 		UserID:    "user-1",
+		ProjectID: "project-1",
 		TimeStamp: now,
 		Changes: []types.SyncChange{
 			newSyncChange(t, "workflow", workflowPayload.ID, "insert", workflowPayload, now),
@@ -181,6 +187,7 @@ func TestPullChangesIncludesScenariosAndWorkflowRuns(t *testing.T) {
 
 	workflow := &db.Workflow{
 		ID:          "wf-2",
+		ProjectID:   "project-1",
 		Name:        "Billing Workflow",
 		Description: "workflow",
 		NodesConfig: `{"nodes":["billing"]}`,
@@ -198,6 +205,7 @@ func TestPullChangesIncludesScenariosAndWorkflowRuns(t *testing.T) {
 
 	scenario := &db.Scenario{
 		ID:          "scenario-2",
+		ProjectID:   "project-1",
 		WorkflowID:  workflow.ID,
 		Name:        "Failure Path",
 		Description: "scenario",
@@ -216,6 +224,7 @@ func TestPullChangesIncludesScenariosAndWorkflowRuns(t *testing.T) {
 
 	workflowRun := &db.WorkflowRun{
 		ID:          "workflow-run-2",
+		ProjectID:   "project-1",
 		WorkflowID:  workflow.ID,
 		Status:      "partial_failed",
 		Summary:     `{"passed":0,"failed":1}`,
@@ -235,6 +244,7 @@ func TestPullChangesIncludesScenariosAndWorkflowRuns(t *testing.T) {
 
 	session := &db.Session{
 		ID:               "scenario-run-2",
+		ProjectID:        "project-1",
 		WorkflowRunID:    workflowRun.ID,
 		WorkflowID:       workflow.ID,
 		ScenarioID:       scenario.ID,
@@ -259,6 +269,7 @@ func TestPullChangesIncludesScenariosAndWorkflowRuns(t *testing.T) {
 
 	testResult := &db.TestResult{
 		ID:            "test-result-2",
+		ProjectID:     "project-1",
 		SessionID:     session.ID,
 		WorkflowRunID: workflowRun.ID,
 		WorkflowID:    workflow.ID,
@@ -279,7 +290,7 @@ func TestPullChangesIncludesScenariosAndWorkflowRuns(t *testing.T) {
 		t.Fatalf("UpsertTestResult returned error: %v", err)
 	}
 
-	resp, err := service.PullChanges(context.Background(), "user-1")
+	resp, err := service.PullChanges(context.Background(), "user-1", "project-1")
 	if err != nil {
 		t.Fatalf("PullChanges returned error: %v", err)
 	}
@@ -317,6 +328,7 @@ func newTestService(t *testing.T) (*Service, *sqlitedb.Client) {
 	applySQLiteMigration(t, client, filepath.Join(projectRoot(t), "runner-v2", "pkg", "db", "migrations", "sqlite", "001_initial_schema.sql"))
 	applySQLiteMigration(t, client, filepath.Join(projectRoot(t), "runner-v2", "pkg", "db", "migrations", "sqlite", "002_add_session_version.sql"))
 	applySQLiteMigration(t, client, filepath.Join(projectRoot(t), "runner-v2", "pkg", "db", "migrations", "sqlite", "003_scenarios_workflow_runs.sql"))
+	applySQLiteMigration(t, client, filepath.Join(projectRoot(t), "runner-v2", "pkg", "db", "migrations", "sqlite", "004_project_scope.sql"))
 
 	return NewService(client), client
 }

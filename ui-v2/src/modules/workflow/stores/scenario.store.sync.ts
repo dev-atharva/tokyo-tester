@@ -7,6 +7,7 @@ import {
   syncMiddleware,
   trackSync,
 } from "@/modules/sync/sync-middleware";
+import { useWorkflowStore } from "./workflow.store.sync";
 import type { Scenario, ScenarioTestDefinition } from "../types/react-flow-cots";
 
 const indexedDBStorage = {
@@ -24,7 +25,12 @@ const indexedDBStorage = {
 
 type ScenarioInput = Omit<
   Scenario,
-  "version" | "created_at" | "updated_at" | "user_id" | "client_id" | "is_deleted"
+  | "version"
+  | "created_at"
+  | "updated_at"
+  | "user_id"
+  | "client_id"
+  | "is_deleted"
 >;
 
 interface ScenarioStore {
@@ -62,8 +68,11 @@ export const useScenarioStore = create<ScenarioStore>()(
 
         createScenario: (workflowId, name = "New Scenario") => {
           const id = crypto.randomUUID();
+          const projectId =
+            useWorkflowStore.getState().getWorkflow(workflowId)?.projectId ?? "";
           const scenario: Scenario = addSyncMetadata({
             id,
+            projectId,
             workflowId,
             name,
             description: "",
@@ -196,6 +205,7 @@ export const useScenarioStore = create<ScenarioStore>()(
 
           return {
             id: scenario.id,
+            project_id: scenario.projectId,
             workflow_id: scenario.workflowId,
             name: scenario.name,
             description: scenario.description || "",

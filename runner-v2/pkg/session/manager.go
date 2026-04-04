@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/dev-atharva/cots/pkg/orchestrator"
+	"github.com/dev-atharva/cots/pkg/provider"
 	"github.com/google/uuid"
 )
 
@@ -45,6 +46,7 @@ func (m *Manager) Create(orch *orchestrator.Orchestrator, execution *ExecutionCo
 
 	sessionID := uuid.New().String()
 	ctx, cancel := context.WithCancel(context.Background())
+	ctx = provider.WithSessionID(ctx, sessionID)
 
 	m.sessions[sessionID] = &Session{
 		ID:           sessionID,

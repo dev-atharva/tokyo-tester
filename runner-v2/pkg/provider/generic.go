@@ -27,7 +27,7 @@ func (g *GenericProvider) Provision(ctx context.Context, cfg config.ServiceConfi
 	req := testcontainers.ContainerRequest{
 		Image:    cfg.Image,
 		Env:      cfg.Env,
-		Name:     cfg.Name,
+		Name:     ContainerName(ctx, cfg.Name),
 		Networks: []string{network.Name},
 		NetworkAliases: map[string][]string{
 			network.Name: {cfg.Name},

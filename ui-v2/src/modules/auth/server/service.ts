@@ -1,10 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { ADMIN_USER_ROLE } from "../constants";
-import type { AuthUser, CreateInitialAdminInput } from "../types";
+import { ADMIN_USER_ROLE, DEFAULT_USER_ROLE, isKnownUserRole } from "../constants";
+import type {
+  AuthUser,
+  CreateInitialAdminInput,
+  CreateUserInput,
+  UserListItem,
+} from "../types";
 import { hashPassword, verifyPassword } from "./password";
-import { countUsers, getUserByEmail, getUserById } from "./repository";
+import {
+  countUsers,
+  getUserByEmail,
+  getUserById,
+  listUsers,
+  updateUserStatus,
+} from "./repository";
 
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -118,6 +129,82 @@ export async function createInitialAdmin(
     isActive: Boolean(user.isActive),
     passwordHash: user.passwordHash ? String(user.passwordHash) : null,
   };
+}
+
+export async function createUser(input: CreateUserInput): Promise<AuthUser> {
+  const connection = getDb();
+  const normalizedEmail = normalizeEmail(input.email);
+  const existing = await getUserByEmail(normalizedEmail);
+
+  if (existing) {
+    throw new Error("A user with that email already exists.");
+  }
+
+  if (!isKnownUserRole(input.role)) {
+    throw new Error("Unsupported user role.");
+  }
+
+  const passwordHash = await hashPassword(input.password);
+  const userId = randomUUID();
+  const now = new Date();
+
+  if (connection.type === "postgres") {
+    const inserted = await connection.db
+      .insert(connection.tables.users)
+      .values({
+        id: userId,
+        email: normalizedEmail,
+        name: input.name.trim(),
+        passwordHash,
+        role: input.role || DEFAULT_USER_ROLE,
+        isActive: input.isActive ?? true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+
+    const user = inserted[0];
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      isActive: user.isActive,
+      passwordHash: user.passwordHash,
+    };
+  }
+
+  connection.db
+    .insert(connection.tables.users)
+    .values({
+      id: userId,
+      email: normalizedEmail,
+      name: input.name.trim(),
+      passwordHash,
+      role: input.role || DEFAULT_USER_ROLE,
+      isActive: input.isActive ?? true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+
+  const user = await getUserById(userId);
+  if (!user) {
+    throw new Error("Failed to create user.");
+  }
+
+  return user;
+}
+
+export async function setUserActiveState(
+  userId: string,
+  isActive: boolean,
+): Promise<void> {
+  await updateUserStatus(userId, isActive);
+}
+
+export async function getAllUsers(): Promise<UserListItem[]> {
+  return listUsers();
 }
 
 export { countUsers, getUserByEmail, getUserById };

@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   addEdge,
   type Connection,
@@ -19,6 +19,16 @@ export function useWorkflowGraph(workflowId: string) {
 
   const [nodes, setNodes, onNodesChange] = useNodesState<ServiceNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<EdgeData>([]);
+  const nodesRef = useRef<FlowNode[]>([]);
+  const edgesRef = useRef(workflow?.edges ?? []);
+
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+
+  useEffect(() => {
+    edgesRef.current = edges;
+  }, [edges]);
 
   // Load nodes and edges from workflow when workflow changes
   useEffect(() => {
@@ -28,36 +38,30 @@ export function useWorkflowGraph(workflowId: string) {
         edges: workflow.edges.length,
       });
 
-      // Set edges from workflow
+      setNodes(workflow.nodes);
       setEdges(workflow.edges);
     }
-  }, [workflow?.id, setEdges, workflow]); // Don't include setNodes to avoid conflicts
+  }, [workflow?.id, setEdges, setNodes, workflow]);
 
   // Delete node
   const deleteNode = useCallback(
     (nodeId: string) => {
-      setNodes((nodes) => {
-        const newNodes = nodes.filter((n) => n.id !== nodeId);
+      const newNodes = nodesRef.current.filter((n) => n.id !== nodeId);
+      const newEdges = edgesRef.current.filter(
+        (e) => e.source !== nodeId && e.target !== nodeId,
+      );
 
-        setEdges((edges) => {
-          const newEdges = edges.filter(
-            (e) => e.source !== nodeId && e.target !== nodeId,
-          );
+      setNodes(newNodes);
+      setEdges(newEdges);
 
-          if (workflow) {
-            console.log("Deleting node, updating graph:", {
-              nodes: newNodes.length,
-              edges: newEdges.length,
-            });
-
-            updateWorkflowGraph(workflow.id, newNodes, newEdges);
-          }
-
-          return newEdges;
+      if (workflow) {
+        console.log("Deleting node, updating graph:", {
+          nodes: newNodes.length,
+          edges: newEdges.length,
         });
 
-        return newNodes;
-      });
+        updateWorkflowGraph(workflow.id, newNodes, newEdges);
+      }
     },
     [workflow, updateWorkflowGraph, setNodes, setEdges],
   );
@@ -65,67 +69,61 @@ export function useWorkflowGraph(workflowId: string) {
   // Update node
   const updateNode = useCallback(
     (updatedNode: FlowNode) => {
-      setNodes((nodes) => {
-        const newNodes = nodes.map((n) =>
-          n.id === updatedNode.id ? (updatedNode as Node) : n,
-        );
+      const newNodes = nodesRef.current.map((n) =>
+        n.id === updatedNode.id ? (updatedNode as Node) : n,
+      );
 
-        if (workflow) {
-          console.log("Updating node, saving graph:", {
-            nodes: newNodes.length,
-            edges: edges.length,
-          });
+      setNodes(newNodes);
 
-          updateWorkflowGraph(workflow.id, newNodes, edges);
-        }
+      if (workflow) {
+        console.log("Updating node, saving graph:", {
+          nodes: newNodes.length,
+          edges: edgesRef.current.length,
+        });
 
-        return newNodes;
-      });
+        updateWorkflowGraph(workflow.id, newNodes, edgesRef.current);
+      }
     },
-    [workflow, edges, updateWorkflowGraph, setNodes],
+    [workflow, updateWorkflowGraph, setNodes],
   );
 
   // Add node
   const addNode = useCallback(
     (node: FlowNode) => {
-      setNodes((nodes) => {
-        const newNodes = [...nodes, node];
+      const newNodes = [...nodesRef.current, node];
 
-        if (workflow) {
-          console.log("Adding node, saving graph:", {
-            nodes: newNodes.length,
-            edges: edges.length,
-          });
+      setNodes(newNodes);
 
-          updateWorkflowGraph(workflow.id, newNodes, edges);
-        }
+      if (workflow) {
+        console.log("Adding node, saving graph:", {
+          nodes: newNodes.length,
+          edges: edgesRef.current.length,
+        });
 
-        return newNodes;
-      });
+        updateWorkflowGraph(workflow.id, newNodes, edgesRef.current);
+      }
     },
-    [workflow, edges, updateWorkflowGraph, setNodes],
+    [workflow, updateWorkflowGraph, setNodes],
   );
 
   // Connect nodes
   const connectNodes = useCallback(
     (connection: Connection) => {
       const newEdge = { ...connection, data: { dependencyType: "service" } };
-      setEdges((eds) => {
-        const newEdges = addEdge(newEdge, eds);
+      const newEdges = addEdge(newEdge, edgesRef.current);
 
-        if (workflow) {
-          console.log("Connecting nodes, saving graph:", {
-            nodes: nodes.length,
-            edges: newEdges.length,
-          });
+      setEdges(newEdges);
 
-          updateWorkflowGraph(workflow.id, nodes, newEdges);
-        }
+      if (workflow) {
+        console.log("Connecting nodes, saving graph:", {
+          nodes: nodesRef.current.length,
+          edges: newEdges.length,
+        });
 
-        return newEdges;
-      });
+        updateWorkflowGraph(workflow.id, nodesRef.current, newEdges);
+      }
     },
-    [nodes, workflow, updateWorkflowGraph, setEdges],
+    [workflow, updateWorkflowGraph, setEdges],
   );
 
   return {

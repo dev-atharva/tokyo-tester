@@ -2,6 +2,7 @@ import {
   getCurrentSessionUserId,
   setCurrentSessionUserId,
 } from "@/modules/auth/session-user";
+import { getCurrentSessionProjectId } from "@/modules/projects/session-project";
 
 const CLIENT_ID_KEY = "cots_client_id";
 const USER_ID_KEY = "cots_user_id";
@@ -48,6 +49,15 @@ export function getUserId(): string {
   }
 
   throw new Error("No authenticated session user is available.");
+}
+
+export function getProjectId(): string {
+  const sessionProjectId = getCurrentSessionProjectId();
+  if (sessionProjectId) {
+    return sessionProjectId;
+  }
+
+  throw new Error("No active project is selected.");
 }
 
 /**

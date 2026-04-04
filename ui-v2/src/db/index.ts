@@ -5,12 +5,16 @@ import postgres from "postgres";
 import { assertDatabaseConfig } from "./env";
 import {
   pgAccounts,
+  pgProjectMembers,
+  pgProjects,
   pgSessions,
   pgUsers,
   pgVerificationTokens,
 } from "./schema/postgres";
 import {
   sqliteAccounts,
+  sqliteProjectMembers,
+  sqliteProjects,
   sqliteSessions,
   sqliteUsers,
   sqliteVerificationTokens,
@@ -25,6 +29,8 @@ type SqliteConnection = {
   client: InstanceType<typeof Database>;
   tables: {
     users: typeof sqliteUsers;
+    projects: typeof sqliteProjects;
+    projectMembers: typeof sqliteProjectMembers;
     accounts: typeof sqliteAccounts;
     sessions: typeof sqliteSessions;
     verificationTokens: typeof sqliteVerificationTokens;
@@ -37,6 +43,8 @@ type PostgresConnection = {
   client: postgres.Sql;
   tables: {
     users: typeof pgUsers;
+    projects: typeof pgProjects;
+    projectMembers: typeof pgProjectMembers;
     accounts: typeof pgAccounts;
     sessions: typeof pgSessions;
     verificationTokens: typeof pgVerificationTokens;
@@ -77,6 +85,8 @@ export function getDb(): DatabaseConnection {
       client,
       tables: {
         users: pgUsers,
+        projects: pgProjects,
+        projectMembers: pgProjectMembers,
         accounts: pgAccounts,
         sessions: pgSessions,
         verificationTokens: pgVerificationTokens,
@@ -96,6 +106,8 @@ export function getDb(): DatabaseConnection {
     client,
     tables: {
       users: sqliteUsers,
+      projects: sqliteProjects,
+      projectMembers: sqliteProjectMembers,
       accounts: sqliteAccounts,
       sessions: sqliteSessions,
       verificationTokens: sqliteVerificationTokens,

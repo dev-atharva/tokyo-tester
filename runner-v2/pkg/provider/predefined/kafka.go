@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/dev-atharva/cots/pkg/config"
+	"github.com/dev-atharva/cots/pkg/provider"
 	"github.com/dev-atharva/cots/pkg/registry"
 	"github.com/dev-atharva/cots/pkg/types"
 	"github.com/testcontainers/testcontainers-go"
@@ -63,7 +64,7 @@ func (p *KafkaProvider) Provision(ctx context.Context, cfg config.ServiceConfig,
 
 	runtime := &types.ServiceRuntime{
 		Name:        cfg.Name,
-		ContainerID: cfg.Name,
+		ContainerID: container.GetContainerID(),
 		Host:        host,
 		MappedPorts: map[string]string{
 			"9093": brokerPort,
@@ -84,7 +85,7 @@ func (p *KafkaProvider) createContainerWithFallback(ctx context.Context, cfg con
 		return []testcontainers.ContainerCustomizer{
 			kafka.WithClusterID(clusterID),
 			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{ContainerRequest: testcontainers.ContainerRequest{
-				Name:     cfg.Name,
+				Name:     provider.ContainerName(ctx, cfg.Name),
 				Networks: []string{network.Name},
 				NetworkAliases: map[string][]string{
 					network.Name: {cfg.Name},

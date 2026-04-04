@@ -24,6 +24,7 @@ const indexedDBStorage = {
 
 export interface Workflow {
   id: string;
+  projectId: string;
   name: string;
   description?: string;
   nodes: FlowNode[];
@@ -47,7 +48,11 @@ interface WorkflowStore {
   hydrated: boolean;
   setHydrated: (v: boolean) => void;
 
-  createWorkflow: (name: string, description?: string) => string;
+  createWorkflow: (
+    projectId: string,
+    name: string,
+    description?: string,
+  ) => string;
   getWorkflow: (id: string) => Workflow | null;
   updateWorkflowName: (workflowId: string, name: string) => void;
   updateWorkflowGraph: (
@@ -71,10 +76,11 @@ export const useWorkflowStore = create<WorkflowStore>()(
         hydrated: false,
         setHydrated: (v) => set({ hydrated: v }),
 
-        createWorkflow: (name, description) => {
+        createWorkflow: (projectId, name, description) => {
           const id = crypto.randomUUID();
           const workflow: Workflow = addSyncMetadata({
             id,
+            projectId,
             name,
             description: description || "",
             nodes: [],
@@ -187,6 +193,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
 
           return {
             id: workflow.id,
+            project_id: workflow.projectId,
             name: workflow.name,
             description: workflow.description || "",
             nodes_config: workflow.nodes,

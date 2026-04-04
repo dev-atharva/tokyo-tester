@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/dev-atharva/cots/pkg/config"
+	"github.com/dev-atharva/cots/pkg/provider"
 	"github.com/dev-atharva/cots/pkg/registry"
 	"github.com/dev-atharva/cots/pkg/types"
 	"github.com/testcontainers/testcontainers-go"
@@ -51,7 +52,7 @@ func (p *MemcachedProvider) Provision(ctx context.Context, cfg config.ServiceCon
 
 	runtime := &types.ServiceRuntime{
 		Name:        cfg.Name,
-		ContainerID: cfg.Name,
+		ContainerID: container.GetContainerID(),
 		Host:        host,
 		MappedPorts: map[string]string{
 			"11211": mappedPort.Port(),
@@ -72,7 +73,7 @@ func (p *MemcachedProvider) createContainerWithFallback(ctx context.Context, cfg
 			customImage,
 			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 				ContainerRequest: testcontainers.ContainerRequest{
-					Name:     cfg.Name,
+					Name:     provider.ContainerName(ctx, cfg.Name),
 					Networks: []string{network.Name},
 					NetworkAliases: map[string][]string{
 						network.Name: {cfg.Name},
@@ -92,7 +93,7 @@ func (p *MemcachedProvider) createContainerWithFallback(ctx context.Context, cfg
 		originalImage,
 		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
-				Name:     cfg.Name,
+				Name:     provider.ContainerName(ctx, cfg.Name),
 				Networks: []string{network.Name},
 				NetworkAliases: map[string][]string{
 					network.Name: {cfg.Name},

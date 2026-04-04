@@ -10,6 +10,7 @@ import (
 type SyncBatchRequest struct {
 	ClientID  string       `json:"client_id"`
 	UserID    string       `json:"user_id"`
+	ProjectID string       `json:"project_id"`
 	TimeStamp time.Time    `json:"timestamp"`
 	Changes   []SyncChange `json:"changes"`
 }
@@ -67,6 +68,7 @@ type SyncChange struct {
 type WorkflowData struct {
 	ID          string          `json:"id"`
 	UserID      string          `json:"user_id"`
+	ProjectID   string          `json:"project_id"`
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	NodesConfig json.RawMessage `json:"nodes_config"`
@@ -81,6 +83,7 @@ type WorkflowData struct {
 
 type ScenarioData struct {
 	ID          string          `json:"id"`
+	ProjectID   string          `json:"project_id"`
 	WorkflowID  string          `json:"workflow_id"`
 	UserID      string          `json:"user_id"`
 	Name        string          `json:"name"`
@@ -97,6 +100,7 @@ type ScenarioData struct {
 
 type WorkflowRunData struct {
 	ID          string          `json:"id"`
+	ProjectID   string          `json:"project_id"`
 	WorkflowID  string          `json:"workflow_id"`
 	UserID      string          `json:"user_id"`
 	Status      string          `json:"status"`
@@ -118,6 +122,7 @@ type WorkflowRunData struct {
 type SessionData struct {
 	ID               string          `json:"id"`
 	UserID           string          `json:"user_id"`
+	ProjectID        string          `json:"project_id"`
 	WorkflowRunID    string          `json:"workflow_run_id,omitempty"`
 	WorkflowID       string          `json:"workflow_id,omitempty"`
 	ScenarioID       string          `json:"scenario_id,omitempty"`
@@ -142,6 +147,7 @@ type SessionData struct {
 type TestResultData struct {
 	ID            string    `json:"id"`
 	UserID        string    `json:"user_id"`
+	ProjectID     string    `json:"project_id"`
 	SessionID     string    `json:"session_id"`
 	WorkflowRunID string    `json:"workflow_run_id,omitempty"`
 	WorkflowID    string    `json:"workflow_id"`

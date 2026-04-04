@@ -26,7 +26,7 @@ export function ScenarioDialog({
 }: ScenarioDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[80vh] min-w-[80vw] flex-col p-0">
+      <DialogContent className="flex h-[80vh] min-w-[80vw] flex-col overflow-hidden p-0">
         <DialogHeader className="border-b bg-muted/30 px-6 py-3">
           <div className="flex items-center gap-2.5">
             <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
@@ -45,7 +45,7 @@ export function ScenarioDialog({
           </div>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 px-6 py-5">
+        <div className="min-h-0 flex-1 overflow-hidden px-6 py-5">
           <ScenarioManager workflowId={workflowId} nodes={nodes} />
         </div>
       </DialogContent>

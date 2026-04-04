@@ -1,6 +1,11 @@
 "use client";
 
-import { IconChevronDown, IconTopologyRing2 } from "@tabler/icons-react";
+import {
+  IconChevronDown,
+  IconFolders,
+  IconTopologyRing2,
+  IconUsers,
+} from "@tabler/icons-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type React from "react";
@@ -32,14 +37,6 @@ interface MenuItemRenderProps {
   items: MenuItem[];
   isSubItem?: boolean;
 }
-
-const items: MenuItem[] = [
-  {
-    title: "Workflows",
-    url: "/workflow",
-    icon: IconTopologyRing2,
-  },
-];
 
 const MenuItemRender = ({ items, isSubItem }: MenuItemRenderProps) => {
   const pathname = usePathname();
@@ -136,7 +133,30 @@ const MenuItemRender = ({ items, isSubItem }: MenuItemRenderProps) => {
   });
 };
 
-export const HomeSidebar = () => {
+export const HomeSidebar = ({ userRole }: { userRole: string | null }) => {
+  const items: MenuItem[] = [
+    {
+      title: "Workflows",
+      url: "/workflow",
+      icon: IconTopologyRing2,
+    },
+  ];
+
+  if (userRole === "admin") {
+    items.push(
+      {
+        title: "Projects",
+        url: "/admin/projects",
+        icon: IconFolders,
+      },
+      {
+        title: "Users",
+        url: "/admin/users",
+        icon: IconUsers,
+      },
+    );
+  }
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="py-2">

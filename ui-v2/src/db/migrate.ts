@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { getDb } from "./index";
 
@@ -6,10 +6,14 @@ async function main() {
   const database = getDb();
   const folder =
     database.type === "postgres"
-      ? "./src/db/migrations/postgres/001_auth.sql"
-      : "./src/db/migrations/sqlite/001_auth.sql";
-
-  const sql = readFileSync(resolve(process.cwd(), folder), "utf8");
+      ? "./src/db/migrations/postgres"
+      : "./src/db/migrations/sqlite";
+  const absoluteFolder = resolve(process.cwd(), folder);
+  const sql = readdirSync(absoluteFolder)
+    .filter((entry) => entry.endsWith(".sql"))
+    .sort()
+    .map((entry) => readFileSync(resolve(absoluteFolder, entry), "utf8"))
+    .join("\n\n");
 
   if (database.type === "postgres") {
     await database.client.unsafe(sql);

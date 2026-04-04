@@ -10,35 +10,35 @@ type Database interface {
 	UpsertWorkflow(ctx context.Context, workflow *Workflow) error
 	GetWorkflow(ctx context.Context, id string) (*Workflow, error)
 	DeleteWorkflow(ctx context.Context, id string) error
-	ListWorkflows(ctx context.Context, userID string) ([]*Workflow, error)
+	ListWorkflows(ctx context.Context, projectID string) ([]*Workflow, error)
 
 	// Scenarios
 	UpsertScenario(ctx context.Context, scenario *Scenario) error
 	GetScenario(ctx context.Context, id string) (*Scenario, error)
 	DeleteScenario(ctx context.Context, id string) error
 	ListScenariosByWorkflow(ctx context.Context, workflowID string) ([]*Scenario, error)
-	ListScenariosByUserId(ctx context.Context, userID string) ([]*Scenario, error)
+	ListScenariosByProjectID(ctx context.Context, projectID string) ([]*Scenario, error)
 
 	// Workflow runs
 	UpsertWorkflowRun(ctx context.Context, workflowRun *WorkflowRun) error
 	GetWorkflowRun(ctx context.Context, id string) (*WorkflowRun, error)
 	DeleteWorkflowRun(ctx context.Context, id string) error
 	ListWorkflowRunsByWorkflow(ctx context.Context, workflowID string) ([]*WorkflowRun, error)
-	ListWorkflowRunsByUserId(ctx context.Context, userID string) ([]*WorkflowRun, error)
+	ListWorkflowRunsByProjectID(ctx context.Context, projectID string) ([]*WorkflowRun, error)
 
 	// Sessions
 	UpsertSession(ctx context.Context, session *Session) error
 	GetSession(ctx context.Context, id string) (*Session, error)
 	DeleteSession(ctx context.Context, id string) error
 	ListSessions(ctx context.Context, workflowID string) ([]*Session, error)
-	ListSessionsByUserId(ctx context.Context, userID string) ([]*Session, error)
+	ListSessionsByProjectID(ctx context.Context, projectID string) ([]*Session, error)
 
 	// Test results
 	UpsertTestResult(ctx context.Context, result *TestResult) error
 	GetTestResult(ctx context.Context, id string) (*TestResult, error)
 	DeleteTestResult(ctx context.Context, id string) error
 	ListTestResults(ctx context.Context, sessionID string) ([]*TestResult, error)
-	ListTestResultsByUserId(ctx context.Context, userID string) ([]*TestResult, error)
+	ListTestResultsByProjectID(ctx context.Context, projectID string) ([]*TestResult, error)
 
 	// Sync metadata (per user + per client)
 	UpsertSyncMetaData(ctx context.Context, metadata *SyncMetadata) error
@@ -54,6 +54,7 @@ type Database interface {
 
 type Workflow struct {
 	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
 	NodesConfig string    `json:"nodes_config"`
@@ -69,6 +70,7 @@ type Workflow struct {
 
 type Scenario struct {
 	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
 	WorkflowID  string    `json:"workflow_id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
@@ -85,6 +87,7 @@ type Scenario struct {
 
 type WorkflowRun struct {
 	ID          string     `json:"id"`
+	ProjectID   string     `json:"project_id"`
 	WorkflowID  string     `json:"workflow_id"`
 	Status      string     `json:"status"`
 	Summary     string     `json:"summary,omitempty"`
@@ -103,6 +106,7 @@ type WorkflowRun struct {
 
 type Session struct {
 	ID               string     `json:"id"`
+	ProjectID        string     `json:"project_id"`
 	WorkflowRunID    string     `json:"workflow_run_id,omitempty"`
 	WorkflowID       string     `json:"workflow_id,omitempty"`
 	ScenarioID       string     `json:"scenario_id,omitempty"`
@@ -125,6 +129,7 @@ type Session struct {
 
 type TestResult struct {
 	ID            string    `json:"id"`
+	ProjectID     string    `json:"project_id"`
 	SessionID     string    `json:"session_id"`
 	WorkflowRunID string    `json:"workflow_run_id,omitempty"`
 	WorkflowID    string    `json:"workflow_id"`

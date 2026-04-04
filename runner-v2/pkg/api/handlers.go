@@ -157,6 +157,7 @@ func (h *Handler) CreateServices(w http.ResponseWriter, r *http.Request) {
 	sessionID := h.sessionManager.Create(orch, toSessionExecutionContext(req.ExecutionContext))
 	telemetry.AddSpanAttributes(ctx, telemetry.SessionIDAttr(sessionID))
 	ctx = logger.WithFields(ctx, "session_id", sessionID)
+	ctx = provider.WithSessionID(ctx, sessionID)
 
 	sess, _ := h.sessionManager.Get(sessionID)
 	provisionCtx := withExecutionContext(ctx, req.ExecutionContext)

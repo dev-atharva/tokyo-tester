@@ -23,6 +23,7 @@ export interface SyncChange {
 
 export interface SyncBatchRequest {
   user_id: string;
+  project_id: string;
   client_id: string;
   timestamp: string;
   changes: SyncChange[];
@@ -57,6 +58,7 @@ export interface SyncStatusResponse {
 
 export interface WorkflowData {
   id: string;
+  project_id: string;
   name: string;
   description?: string;
   nodes_config: FlowNode[];
@@ -72,6 +74,7 @@ export interface WorkflowData {
 
 export interface ScenarioData {
   id: string;
+  project_id: string;
   workflow_id: string;
   name: string;
   description?: string;
@@ -88,6 +91,7 @@ export interface ScenarioData {
 
 export interface WorkflowRunData {
   id: string;
+  project_id: string;
   workflow_id: string;
   status: string;
   summary?: JsonValue;
@@ -106,6 +110,7 @@ export interface WorkflowRunData {
 
 export interface SessionData {
   id: string;
+  project_id: string;
   workflow_run_id?: string;
   workflow_id?: string;
   scenario_id?: string;
@@ -127,6 +132,7 @@ export interface SessionData {
 
 export interface TestResultData {
   id: string;
+  project_id: string;
   session_id: string;
   workflow_run_id?: string;
   workflow_id: string;

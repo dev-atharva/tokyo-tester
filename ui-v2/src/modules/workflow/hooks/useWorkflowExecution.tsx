@@ -137,16 +137,28 @@ export function useWorkflowExecution({
     try {
       const workflowRunId = crypto.randomUUID();
       const scenarioRunIds = scenarios.map((scenario) =>
-        startScenarioRun(workflowRunId, workflowId, scenario.id, scenario.name),
+        startScenarioRun(
+          scenario.projectId,
+          workflowRunId,
+          workflowId,
+          scenario.id,
+          scenario.name,
+        ),
       );
 
-      startExecution(workflowId, workflowRunId, scenarioRunIds);
+      startExecution(
+        scenarios[0]?.projectId ?? "",
+        workflowId,
+        workflowRunId,
+        scenarioRunIds,
+      );
       onStart?.(workflowRunId);
 
       await inngest.send({
         name: "cots/workflow.run.start",
         data: {
           workflowRunId,
+          projectId: scenarios[0]?.projectId ?? "",
           workflowId,
           workflowName,
           nodes,

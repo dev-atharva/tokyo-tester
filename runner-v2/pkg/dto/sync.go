@@ -10,6 +10,7 @@ import (
 type SyncBatchRequestDTO struct {
 	ClientID  string          `json:"client_id" validate:"required,min=1"`
 	UserID    string          `json:"user_id" validate:"required,min=1"`
+	ProjectID string          `json:"project_id" validate:"required,min=1"`
 	TimeStamp time.Time       `json:"timestamp" validate:"required"`
 	Changes   []SyncChangeDTO `json:"changes" validate:"required,min=1,dive"`
 }
@@ -38,6 +39,7 @@ func (dto *SyncBatchRequestDTO) ToSyncBatchRequest() *types.SyncBatchRequest {
 	return &types.SyncBatchRequest{
 		ClientID:  dto.ClientID,
 		UserID:    dto.UserID,
+		ProjectID: dto.ProjectID,
 		TimeStamp: dto.TimeStamp,
 		Changes:   changes,
 	}
@@ -118,6 +120,7 @@ type SyncPullResponse struct {
 type WorkflowData struct {
 	ID          string          `json:"id"`
 	UserID      string          `json:"user_id"`
+	ProjectID   string          `json:"project_id"`
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	NodesConfig json.RawMessage `json:"nodes_config"`
@@ -132,6 +135,7 @@ type WorkflowData struct {
 
 type ScenarioData struct {
 	ID          string          `json:"id"`
+	ProjectID   string          `json:"project_id"`
 	WorkflowID  string          `json:"workflow_id"`
 	UserID      string          `json:"user_id"`
 	Name        string          `json:"name"`
@@ -148,6 +152,7 @@ type ScenarioData struct {
 
 type WorkflowRunData struct {
 	ID          string          `json:"id"`
+	ProjectID   string          `json:"project_id"`
 	WorkflowID  string          `json:"workflow_id"`
 	UserID      string          `json:"user_id"`
 	Status      string          `json:"status"`
@@ -167,6 +172,7 @@ type WorkflowRunData struct {
 type SessionData struct {
 	ID               string          `json:"id"`
 	UserID           string          `json:"user_id"`
+	ProjectID        string          `json:"project_id"`
 	WorkflowRunID    string          `json:"workflow_run_id,omitempty"`
 	WorkflowID       string          `json:"workflow_id,omitempty"`
 	ScenarioID       string          `json:"scenario_id,omitempty"`
@@ -189,6 +195,7 @@ type SessionData struct {
 type TestResultData struct {
 	ID            string    `json:"id"`
 	UserID        string    `json:"user_id"`
+	ProjectID     string    `json:"project_id"`
 	SessionID     string    `json:"session_id"`
 	WorkflowRunID string    `json:"workflow_run_id,omitempty"`
 	WorkflowID    string    `json:"workflow_id"`
@@ -212,6 +219,7 @@ func FromTypesSyncPullResponse(resp *types.SyncPullResponse) *SyncPullResponse {
 		workflows[i] = WorkflowData{
 			ID:          wf.ID,
 			UserID:      wf.UserID,
+			ProjectID:   wf.ProjectID,
 			Name:        wf.Name,
 			Description: wf.Description,
 			NodesConfig: wf.NodesConfig,
@@ -229,6 +237,7 @@ func FromTypesSyncPullResponse(resp *types.SyncPullResponse) *SyncPullResponse {
 	for i, sc := range resp.Scenarios {
 		scenarios[i] = ScenarioData{
 			ID:          sc.ID,
+			ProjectID:   sc.ProjectID,
 			WorkflowID:  sc.WorkflowID,
 			UserID:      sc.UserID,
 			Name:        sc.Name,
@@ -248,6 +257,7 @@ func FromTypesSyncPullResponse(resp *types.SyncPullResponse) *SyncPullResponse {
 	for i, wr := range resp.WorkflowRuns {
 		workflowRuns[i] = WorkflowRunData{
 			ID:          wr.ID,
+			ProjectID:   wr.ProjectID,
 			WorkflowID:  wr.WorkflowID,
 			UserID:      wr.UserID,
 			Status:      wr.Status,
@@ -270,6 +280,7 @@ func FromTypesSyncPullResponse(resp *types.SyncPullResponse) *SyncPullResponse {
 		session[i] = SessionData{
 			ID:               sess.ID,
 			UserID:           sess.UserID,
+			ProjectID:        sess.ProjectID,
 			WorkflowRunID:    sess.WorkflowRunID,
 			WorkflowID:       sess.WorkflowID,
 			ScenarioID:       sess.ScenarioID,
@@ -295,6 +306,7 @@ func FromTypesSyncPullResponse(resp *types.SyncPullResponse) *SyncPullResponse {
 		testResults[i] = TestResultData{
 			ID:            tr.ID,
 			UserID:        tr.UserID,
+			ProjectID:     tr.ProjectID,
 			SessionID:     tr.SessionID,
 			WorkflowRunID: tr.WorkflowRunID,
 			WorkflowID:    tr.WorkflowID,
