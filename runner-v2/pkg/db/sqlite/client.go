@@ -357,9 +357,10 @@ func (c *Client) UpsertSession(ctx context.Context, session *db.Session) error {
 	query := `
 		INSERT INTO sessions (
 			id, project_id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
-			started_at, completed_at, created_at, updated_at, client_id, user_id, is_deleted
+			started_at, completed_at, owner_id, lease_expires_at, heartbeat_at, phase, checkpoint_index, service_graph, test_plan, runtime_snapshot,
+			created_at, updated_at, client_id, user_id, is_deleted
 		)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			project_id = excluded.project_id,
 			workflow_run_id = excluded.workflow_run_id,
@@ -374,6 +375,14 @@ func (c *Client) UpsertSession(ctx context.Context, session *db.Session) error {
 			error = excluded.error,
 			started_at = excluded.started_at,
 			completed_at = excluded.completed_at,
+			owner_id = excluded.owner_id,
+			lease_expires_at = excluded.lease_expires_at,
+			heartbeat_at = excluded.heartbeat_at,
+			phase = excluded.phase,
+			checkpoint_index = excluded.checkpoint_index,
+			service_graph = excluded.service_graph,
+			test_plan = excluded.test_plan,
+			runtime_snapshot = excluded.runtime_snapshot,
 			updated_at = excluded.updated_at,
 			client_id = excluded.client_id,
 			user_id = excluded.user_id,
@@ -394,6 +403,14 @@ func (c *Client) UpsertSession(ctx context.Context, session *db.Session) error {
 		session.Error,
 		session.StartedAt,
 		session.CompletedAt,
+		session.OwnerID,
+		session.LeaseExpiresAt,
+		session.HeartbeatAt,
+		session.Phase,
+		session.CheckpointIndex,
+		session.ServiceGraph,
+		session.TestPlan,
+		session.RuntimeSnapshot,
 		session.CreatedAt,
 		session.UpdatedAt,
 		session.ClientID,
@@ -406,7 +423,8 @@ func (c *Client) UpsertSession(ctx context.Context, session *db.Session) error {
 func (c *Client) GetSession(ctx context.Context, id string) (*db.Session, error) {
 	query := `
 		SELECT id, project_id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
-			started_at, completed_at, created_at, updated_at, client_id, user_id, is_deleted
+			started_at, completed_at, owner_id, lease_expires_at, heartbeat_at, phase, checkpoint_index, service_graph, test_plan, runtime_snapshot,
+			created_at, updated_at, client_id, user_id, is_deleted
 		FROM sessions
 		WHERE id = ? AND is_deleted = 0
 	`
@@ -426,6 +444,14 @@ func (c *Client) GetSession(ctx context.Context, id string) (*db.Session, error)
 		&s.Error,
 		&s.StartedAt,
 		&s.CompletedAt,
+		&s.OwnerID,
+		&s.LeaseExpiresAt,
+		&s.HeartbeatAt,
+		&s.Phase,
+		&s.CheckpointIndex,
+		&s.ServiceGraph,
+		&s.TestPlan,
+		&s.RuntimeSnapshot,
 		&s.CreatedAt,
 		&s.UpdatedAt,
 		&s.ClientID,
@@ -434,6 +460,54 @@ func (c *Client) GetSession(ctx context.Context, id string) (*db.Session, error)
 	)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("session not found: %s", id)
+	}
+	return &s, err
+}
+
+func (c *Client) GetSessionByBackendSessionID(ctx context.Context, backendSessionID string) (*db.Session, error) {
+	query := `
+		SELECT id, project_id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
+			started_at, completed_at, owner_id, lease_expires_at, heartbeat_at, phase, checkpoint_index, service_graph, test_plan, runtime_snapshot,
+			created_at, updated_at, client_id, user_id, is_deleted
+		FROM sessions
+		WHERE backend_session_id = ? AND is_deleted = 0
+		ORDER BY updated_at DESC
+		LIMIT 1
+	`
+	var s db.Session
+	err := c.conn.QueryRowContext(ctx, query, backendSessionID).Scan(
+		&s.ID, &s.ProjectID, &s.WorkflowRunID, &s.WorkflowID, &s.ScenarioID, &s.ScenarioName, &s.BackendSessionID,
+		&s.Status, &s.Result, &s.ContainerIDs, &s.Logs, &s.Error,
+		&s.StartedAt, &s.CompletedAt, &s.OwnerID, &s.LeaseExpiresAt, &s.HeartbeatAt, &s.Phase, &s.CheckpointIndex,
+		&s.ServiceGraph, &s.TestPlan, &s.RuntimeSnapshot,
+		&s.CreatedAt, &s.UpdatedAt, &s.ClientID, &s.UserID, &s.IsDeleted,
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("session not found for backend_session_id: %s", backendSessionID)
+	}
+	return &s, err
+}
+
+func (c *Client) FindSessionByExecution(ctx context.Context, workflowRunID string, scenarioID string) (*db.Session, error) {
+	query := `
+		SELECT id, project_id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
+			started_at, completed_at, owner_id, lease_expires_at, heartbeat_at, phase, checkpoint_index, service_graph, test_plan, runtime_snapshot,
+			created_at, updated_at, client_id, user_id, is_deleted
+		FROM sessions
+		WHERE workflow_run_id = ? AND scenario_id = ? AND is_deleted = 0
+		ORDER BY updated_at DESC
+		LIMIT 1
+	`
+	var s db.Session
+	err := c.conn.QueryRowContext(ctx, query, workflowRunID, scenarioID).Scan(
+		&s.ID, &s.ProjectID, &s.WorkflowRunID, &s.WorkflowID, &s.ScenarioID, &s.ScenarioName, &s.BackendSessionID,
+		&s.Status, &s.Result, &s.ContainerIDs, &s.Logs, &s.Error,
+		&s.StartedAt, &s.CompletedAt, &s.OwnerID, &s.LeaseExpiresAt, &s.HeartbeatAt, &s.Phase, &s.CheckpointIndex,
+		&s.ServiceGraph, &s.TestPlan, &s.RuntimeSnapshot,
+		&s.CreatedAt, &s.UpdatedAt, &s.ClientID, &s.UserID, &s.IsDeleted,
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("session not found for workflow_run_id=%s scenario_id=%s", workflowRunID, scenarioID)
 	}
 	return &s, err
 }
@@ -451,7 +525,8 @@ func (c *Client) DeleteSession(ctx context.Context, id string) error {
 func (c *Client) ListSessions(ctx context.Context, workflowID string) ([]*db.Session, error) {
 	query := `
 		SELECT id, project_id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
-			started_at, completed_at, created_at, updated_at, client_id, user_id, is_deleted
+			started_at, completed_at, owner_id, lease_expires_at, heartbeat_at, phase, checkpoint_index, service_graph, test_plan, runtime_snapshot,
+			created_at, updated_at, client_id, user_id, is_deleted
 		FROM sessions
 		WHERE workflow_id = ? AND is_deleted = 0
 		ORDER BY created_at DESC
@@ -480,6 +555,14 @@ func (c *Client) ListSessions(ctx context.Context, workflowID string) ([]*db.Ses
 			&s.Error,
 			&s.StartedAt,
 			&s.CompletedAt,
+			&s.OwnerID,
+			&s.LeaseExpiresAt,
+			&s.HeartbeatAt,
+			&s.Phase,
+			&s.CheckpointIndex,
+			&s.ServiceGraph,
+			&s.TestPlan,
+			&s.RuntimeSnapshot,
 			&s.CreatedAt,
 			&s.UpdatedAt,
 			&s.ClientID,
@@ -496,7 +579,8 @@ func (c *Client) ListSessions(ctx context.Context, workflowID string) ([]*db.Ses
 func (c *Client) ListSessionsByProjectID(ctx context.Context, projectID string) ([]*db.Session, error) {
 	query := `
 		SELECT id, project_id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
-			started_at, completed_at, created_at, updated_at, client_id, user_id, is_deleted
+			started_at, completed_at, owner_id, lease_expires_at, heartbeat_at, phase, checkpoint_index, service_graph, test_plan, runtime_snapshot,
+			created_at, updated_at, client_id, user_id, is_deleted
 		FROM sessions
 		WHERE project_id = ? AND is_deleted = 0
 		ORDER BY created_at DESC
@@ -525,6 +609,14 @@ func (c *Client) ListSessionsByProjectID(ctx context.Context, projectID string) 
 			&s.Error,
 			&s.StartedAt,
 			&s.CompletedAt,
+			&s.OwnerID,
+			&s.LeaseExpiresAt,
+			&s.HeartbeatAt,
+			&s.Phase,
+			&s.CheckpointIndex,
+			&s.ServiceGraph,
+			&s.TestPlan,
+			&s.RuntimeSnapshot,
 			&s.CreatedAt,
 			&s.UpdatedAt,
 			&s.ClientID,
@@ -960,10 +1052,11 @@ func (t *SQLiteTx) UpsertSession(ctx context.Context, s *db.Session) error {
 	query := `
 		INSERT INTO sessions (
 			id, project_id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
-			started_at, completed_at, version, created_at, updated_at,
+			started_at, completed_at, owner_id, lease_expires_at, heartbeat_at, phase, checkpoint_index, service_graph, test_plan, runtime_snapshot,
+			version, created_at, updated_at,
 			client_id, user_id, is_deleted
 		)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			project_id = excluded.project_id,
 			workflow_run_id = excluded.workflow_run_id,
@@ -978,6 +1071,14 @@ func (t *SQLiteTx) UpsertSession(ctx context.Context, s *db.Session) error {
 			error = excluded.error,
 			started_at = excluded.started_at,
 			completed_at = excluded.completed_at,
+			owner_id = excluded.owner_id,
+			lease_expires_at = excluded.lease_expires_at,
+			heartbeat_at = excluded.heartbeat_at,
+			phase = excluded.phase,
+			checkpoint_index = excluded.checkpoint_index,
+			service_graph = excluded.service_graph,
+			test_plan = excluded.test_plan,
+			runtime_snapshot = excluded.runtime_snapshot,
 			version = excluded.version,
 			updated_at = excluded.updated_at,
 			client_id = excluded.client_id,
@@ -988,7 +1089,7 @@ func (t *SQLiteTx) UpsertSession(ctx context.Context, s *db.Session) error {
 	result, err := t.tx.ExecContext(ctx, query,
 		s.ID, s.ProjectID, s.WorkflowRunID, s.WorkflowID, s.ScenarioID, s.ScenarioName, s.BackendSessionID, s.Status, s.Result,
 		s.ContainerIDs, s.Logs, s.Error,
-		s.StartedAt, s.CompletedAt, s.Version,
+		s.StartedAt, s.CompletedAt, s.OwnerID, s.LeaseExpiresAt, s.HeartbeatAt, s.Phase, s.CheckpointIndex, s.ServiceGraph, s.TestPlan, s.RuntimeSnapshot, s.Version,
 		s.CreatedAt, s.UpdatedAt,
 		s.ClientID, s.UserID, s.IsDeleted,
 	)
@@ -1008,7 +1109,7 @@ func (t *SQLiteTx) UpsertSession(ctx context.Context, s *db.Session) error {
 func (t *SQLiteTx) GetSession(ctx context.Context, id string) (*db.Session, error) {
 	query := `
 		SELECT id, project_id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
-			started_at, completed_at, version, created_at, updated_at,
+			started_at, completed_at, owner_id, lease_expires_at, heartbeat_at, phase, checkpoint_index, service_graph, test_plan, runtime_snapshot, version, created_at, updated_at,
 			client_id, user_id, is_deleted
 		FROM sessions
 		WHERE id = ? AND is_deleted = 0
@@ -1016,12 +1117,56 @@ func (t *SQLiteTx) GetSession(ctx context.Context, id string) (*db.Session, erro
 	var s db.Session
 	err := t.tx.QueryRowContext(ctx, query, id).Scan(
 		&s.ID, &s.ProjectID, &s.WorkflowRunID, &s.WorkflowID, &s.ScenarioID, &s.ScenarioName, &s.BackendSessionID, &s.Status, &s.Result, &s.ContainerIDs, &s.Logs,
-		&s.Error, &s.StartedAt, &s.CompletedAt, &s.Version,
+		&s.Error, &s.StartedAt, &s.CompletedAt, &s.OwnerID, &s.LeaseExpiresAt, &s.HeartbeatAt, &s.Phase, &s.CheckpointIndex, &s.ServiceGraph, &s.TestPlan, &s.RuntimeSnapshot, &s.Version,
 		&s.CreatedAt, &s.UpdatedAt,
 		&s.ClientID, &s.UserID, &s.IsDeleted,
 	)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("session not found: %s", id)
+	}
+	return &s, err
+}
+
+func (t *SQLiteTx) GetSessionByBackendSessionID(ctx context.Context, backendSessionID string) (*db.Session, error) {
+	query := `
+		SELECT id, project_id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
+			started_at, completed_at, owner_id, lease_expires_at, heartbeat_at, phase, checkpoint_index, service_graph, test_plan, runtime_snapshot, version, created_at, updated_at,
+			client_id, user_id, is_deleted
+		FROM sessions
+		WHERE backend_session_id = ? AND is_deleted = 0
+		ORDER BY updated_at DESC
+		LIMIT 1
+	`
+	var s db.Session
+	err := t.tx.QueryRowContext(ctx, query, backendSessionID).Scan(
+		&s.ID, &s.ProjectID, &s.WorkflowRunID, &s.WorkflowID, &s.ScenarioID, &s.ScenarioName, &s.BackendSessionID, &s.Status, &s.Result, &s.ContainerIDs, &s.Logs,
+		&s.Error, &s.StartedAt, &s.CompletedAt, &s.OwnerID, &s.LeaseExpiresAt, &s.HeartbeatAt, &s.Phase, &s.CheckpointIndex, &s.ServiceGraph, &s.TestPlan, &s.RuntimeSnapshot, &s.Version,
+		&s.CreatedAt, &s.UpdatedAt, &s.ClientID, &s.UserID, &s.IsDeleted,
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("session not found for backend_session_id: %s", backendSessionID)
+	}
+	return &s, err
+}
+
+func (t *SQLiteTx) FindSessionByExecution(ctx context.Context, workflowRunID string, scenarioID string) (*db.Session, error) {
+	query := `
+		SELECT id, project_id, workflow_run_id, workflow_id, scenario_id, scenario_name, backend_session_id, status, result, container_ids, logs, error,
+			started_at, completed_at, owner_id, lease_expires_at, heartbeat_at, phase, checkpoint_index, service_graph, test_plan, runtime_snapshot, version, created_at, updated_at,
+			client_id, user_id, is_deleted
+		FROM sessions
+		WHERE workflow_run_id = ? AND scenario_id = ? AND is_deleted = 0
+		ORDER BY updated_at DESC
+		LIMIT 1
+	`
+	var s db.Session
+	err := t.tx.QueryRowContext(ctx, query, workflowRunID, scenarioID).Scan(
+		&s.ID, &s.ProjectID, &s.WorkflowRunID, &s.WorkflowID, &s.ScenarioID, &s.ScenarioName, &s.BackendSessionID, &s.Status, &s.Result, &s.ContainerIDs, &s.Logs,
+		&s.Error, &s.StartedAt, &s.CompletedAt, &s.OwnerID, &s.LeaseExpiresAt, &s.HeartbeatAt, &s.Phase, &s.CheckpointIndex, &s.ServiceGraph, &s.TestPlan, &s.RuntimeSnapshot, &s.Version,
+		&s.CreatedAt, &s.UpdatedAt, &s.ClientID, &s.UserID, &s.IsDeleted,
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("session not found for workflow_run_id=%s scenario_id=%s", workflowRunID, scenarioID)
 	}
 	return &s, err
 }

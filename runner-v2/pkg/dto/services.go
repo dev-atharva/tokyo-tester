@@ -8,6 +8,10 @@ type CreateServicesRequest struct {
 }
 
 type ExecutionContextDTO struct {
+	SessionID     string `json:"session_id,omitempty"`
+	ProjectID     string `json:"project_id,omitempty"`
+	UserID        string `json:"user_id,omitempty"`
+	ClientID      string `json:"client_id,omitempty"`
 	WorkflowID    string `json:"workflow_id,omitempty"`
 	WorkflowRunID string `json:"workflow_run_id,omitempty"`
 	ScenarioID    string `json:"scenario_id,omitempty"`

@@ -135,6 +135,14 @@ type SessionData struct {
 	Error            string          `json:"error,omitempty"`
 	StartedAt        *time.Time      `json:"started_at,omitempty"`
 	CompletedAt      *time.Time      `json:"completed_at,omitempty"`
+	OwnerID          string          `json:"owner_id,omitempty"`
+	LeaseExpiresAt   *time.Time      `json:"lease_expires_at,omitempty"`
+	HeartbeatAt      *time.Time      `json:"heartbeat_at,omitempty"`
+	Phase            string          `json:"phase,omitempty"`
+	CheckpointIndex  int             `json:"checkpoint_index,omitempty"`
+	ServiceGraph     json.RawMessage `json:"service_graph,omitempty"`
+	TestPlan         json.RawMessage `json:"test_plan,omitempty"`
+	RuntimeSnapshot  json.RawMessage `json:"runtime_snapshot,omitempty"`
 	Version          int             `json:"version"`
 	CreatedAt        time.Time       `json:"created_at"`
 	UpdatedAt        time.Time       `json:"updated_at"`

@@ -29,6 +29,8 @@ type Database interface {
 	// Sessions
 	UpsertSession(ctx context.Context, session *Session) error
 	GetSession(ctx context.Context, id string) (*Session, error)
+	GetSessionByBackendSessionID(ctx context.Context, backendSessionID string) (*Session, error)
+	FindSessionByExecution(ctx context.Context, workflowRunID string, scenarioID string) (*Session, error)
 	DeleteSession(ctx context.Context, id string) error
 	ListSessions(ctx context.Context, workflowID string) ([]*Session, error)
 	ListSessionsByProjectID(ctx context.Context, projectID string) ([]*Session, error)
@@ -119,6 +121,14 @@ type Session struct {
 	Error            string     `json:"error,omitempty"`
 	StartedAt        *time.Time `json:"started_at,omitempty"`
 	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+	OwnerID          string     `json:"owner_id,omitempty"`
+	LeaseExpiresAt   *time.Time `json:"lease_expires_at,omitempty"`
+	HeartbeatAt      *time.Time `json:"heartbeat_at,omitempty"`
+	Phase            string     `json:"phase,omitempty"`
+	CheckpointIndex  int        `json:"checkpoint_index,omitempty"`
+	ServiceGraph     string     `json:"service_graph,omitempty"`
+	TestPlan         string     `json:"test_plan,omitempty"`
+	RuntimeSnapshot  string     `json:"runtime_snapshot,omitempty"`
 	Version          int        `json:"version"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
@@ -169,6 +179,8 @@ type Tx interface {
 
 	UpsertSession(ctx context.Context, session *Session) error
 	GetSession(ctx context.Context, id string) (*Session, error)
+	GetSessionByBackendSessionID(ctx context.Context, backendSessionID string) (*Session, error)
+	FindSessionByExecution(ctx context.Context, workflowRunID string, scenarioID string) (*Session, error)
 	DeleteSession(ctx context.Context, id string) error
 	ListTestResult(ctx context.Context, sessionID string) ([]*TestResult, error)
 

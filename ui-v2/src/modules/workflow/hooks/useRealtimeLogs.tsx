@@ -10,6 +10,7 @@ import { useExecutionStore } from "../stores/execution.store.sync";
 import { useScenarioRunStore } from "../stores/scenario-run.store.sync";
 import { useTestResultStore } from "../stores/test-result.store";
 import type {
+  ScenarioTestResultEvent,
   ScenarioRunStatus,
   WorkflowRunStatus,
 } from "../types/react-flow-cots";
@@ -155,10 +156,19 @@ export function useRealtimeLogs({
     );
     if (scenarioRun) {
       const hasRunning = results.some(
-        (result) => result.status === "running" || result.status === "pending",
+        (result: ScenarioTestResultEvent["results"][number]) =>
+          result.status === "running" || result.status === "pending",
       );
-      const hasFailed = results.some((result) => result.status === "failed");
-      const hasPassed = results.length > 0 && results.every((result) => result.status === "passed");
+      const hasFailed = results.some(
+        (result: ScenarioTestResultEvent["results"][number]) =>
+          result.status === "failed",
+      );
+      const hasPassed =
+        results.length > 0 &&
+        results.every(
+          (result: ScenarioTestResultEvent["results"][number]) =>
+            result.status === "passed",
+        );
 
       let nextScenarioStatus = scenarioRun.status;
       if (hasFailed) {

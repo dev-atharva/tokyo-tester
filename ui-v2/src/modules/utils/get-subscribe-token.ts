@@ -5,7 +5,7 @@ import { inngest } from "../inngest/client";
 import {
   logsChannel,
   testResultChannel,
-} from "../inngest/function/cots-workflow";
+} from "../inngest/workflow-run/channels";
 
 export type LogsChannelToken = Realtime.Token<
   typeof logsChannel,

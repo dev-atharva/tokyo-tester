@@ -16,6 +16,7 @@ import (
 	"github.com/dev-atharva/cots/pkg/db"
 	"github.com/dev-atharva/cots/pkg/db/postgres"
 	"github.com/dev-atharva/cots/pkg/db/sqlite"
+	"github.com/dev-atharva/cots/pkg/janitor"
 	"github.com/dev-atharva/cots/pkg/logger"
 	"github.com/dev-atharva/cots/pkg/sync"
 	"github.com/dev-atharva/cots/pkg/telemetry"
@@ -113,12 +114,42 @@ func main() {
 		log.Info(" For Postgres: export DB_TYPE=postgres DATABASE_URL=postgres://user:pass@host:5432/db")
 	}
 
-	handler := api.NewHandler()
+	handler := api.NewHandler(database, cfg.App)
 	router := api.NewRouter(handler, syncHandler, cfg.Telemetry.Enabled)
+	appCtx, appCancel := context.WithCancel(context.Background())
+	defer appCancel()
+
+	var janitorService *janitor.Service
+	if cfg.Janitor.Enabled {
+		janitorService, err = janitor.NewService(database, cfg.Janitor)
+		if err != nil {
+			log.Warn("failed to initialize janitor service", "error", err)
+		} else {
+			defer func() {
+				if err := janitorService.Close(); err != nil {
+					log.Warn("failed to close janitor service", "error", err)
+				}
+			}()
+			go janitorService.Run(appCtx)
+			log.Info("Docker janitor started",
+				"startup_sweep", cfg.Janitor.StartupSweep,
+				"interval_sec", cfg.Janitor.IntervalSec,
+				"orphan_ttl_sec", cfg.Janitor.OrphanTTLSec,
+				"mode", cfg.Janitor.Mode,
+				"dry_run", cfg.Janitor.DryRun,
+			)
+		}
+	} else {
+		log.Info("Docker janitor disabled")
+	}
 
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%s", cfg.App.Port),
-		Handler: router,
+		Addr:              fmt.Sprintf(":%s", cfg.App.Port),
+		Handler:           router,
+		ReadHeaderTimeout: time.Duration(cfg.App.ReadHeaderTimeoutSec) * time.Second,
+		ReadTimeout:       time.Duration(cfg.App.ReadTimeoutSec) * time.Second,
+		WriteTimeout:      time.Duration(cfg.App.WriteTimeoutSec) * time.Second,
+		IdleTimeout:       time.Duration(cfg.App.IdleTimeoutSec) * time.Second,
 	}
 
 	go func() {
@@ -134,6 +165,7 @@ func main() {
 	<-quit
 
 	log.Info("Shutting down the server gracefully")
+	appCancel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

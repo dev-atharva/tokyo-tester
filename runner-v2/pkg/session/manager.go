@@ -13,6 +13,7 @@ import (
 // Represents running session with containers
 type Session struct {
 	ID           string
+	PersistedID  string
 	Orchestrator *orchestrator.Orchestrator
 	Context      context.Context
 	Cancel       context.CancelFunc
@@ -22,6 +23,10 @@ type Session struct {
 }
 
 type ExecutionContext struct {
+	SessionID     string
+	ProjectID     string
+	UserID        string
+	ClientID      string
 	WorkflowID    string
 	WorkflowRunID string
 	ScenarioID    string
@@ -41,23 +46,42 @@ func NewManager() *Manager {
 
 // Create new session with unique id
 func (m *Manager) Create(orch *orchestrator.Orchestrator, execution *ExecutionContext) string {
+	sessionID := uuid.New().String()
+	m.Register(sessionID, orch, execution)
+	return sessionID
+}
+
+func (m *Manager) Register(sessionID string, orch *orchestrator.Orchestrator, execution *ExecutionContext) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	sessionID := uuid.New().String()
 	ctx, cancel := context.WithCancel(context.Background())
 	ctx = provider.WithSessionID(ctx, sessionID)
+	persistedID := ""
+	if execution != nil {
+		persistedID = execution.SessionID
+		ctx = provider.WithResourceMetadata(ctx, provider.ResourceMetadata{
+			SessionID:        execution.SessionID,
+			BackendSessionID: sessionID,
+			WorkflowID:       execution.WorkflowID,
+			WorkflowRunID:    execution.WorkflowRunID,
+			ScenarioID:       execution.ScenarioID,
+		})
+	} else {
+		ctx = provider.WithResourceMetadata(ctx, provider.ResourceMetadata{
+			BackendSessionID: sessionID,
+		})
+	}
 
 	m.sessions[sessionID] = &Session{
 		ID:           sessionID,
+		PersistedID:  persistedID,
 		Orchestrator: orch,
 		Context:      ctx,
 		Cancel:       cancel,
 		Execution:    execution,
 		TestResults:  make(map[string]any),
 	}
-
-	return sessionID
 }
 
 // Stores the test result for later interpolation
@@ -90,6 +114,10 @@ func (m *Manager) Get(sessionID string) (*Session, error) {
 
 // Remove the session and clean up resources
 func (m *Manager) Delete(sessionId string) error {
+	return m.DeleteWithContext(context.Background(), sessionId)
+}
+
+func (m *Manager) DeleteWithContext(ctx context.Context, sessionId string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -99,7 +127,7 @@ func (m *Manager) Delete(sessionId string) error {
 	}
 
 	session.Cancel()
-	if err := session.Orchestrator.CleanUp(context.Background()); err != nil {
+	if err := session.Orchestrator.CleanUp(ctx); err != nil {
 		return fmt.Errorf("failed to cleanup the session : %w", err)
 	}
 	delete(m.sessions, sessionId)

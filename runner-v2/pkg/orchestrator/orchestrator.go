@@ -9,6 +9,7 @@ import (
 	"github.com/dev-atharva/cots/pkg/logger"
 	"github.com/dev-atharva/cots/pkg/provider"
 	"github.com/dev-atharva/cots/pkg/registry"
+	"github.com/dev-atharva/cots/pkg/types"
 	"github.com/docker/docker/client"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
@@ -38,7 +39,7 @@ func (o *Orchestrator) ProvisionServices(ctx context.Context, services []config.
 	}
 
 	logger.InfoContext(ctx, "creating shared Docker network")
-	dockerNetwork, err := network.New(ctx)
+	dockerNetwork, err := network.New(ctx, network.WithLabels(provider.ResourceLabels(ctx, provider.ResourceTypeNetwork)))
 	if err != nil {
 		return fmt.Errorf("failed to create the docker network ")
 	}
@@ -171,6 +172,22 @@ func (o *Orchestrator) provisionlevel(ctx context.Context, serviceNames []string
 
 func (o *Orchestrator) GetRegistry() *RuntimeRegsitry {
 	return o.registry
+}
+
+func (o *Orchestrator) RuntimeSnapshot() map[string]*types.ServiceRuntime {
+	return o.registry.Snapshot()
+}
+
+func (o *Orchestrator) ContainerIDs() map[string]string {
+	snapshot := o.registry.Snapshot()
+	ids := make(map[string]string, len(snapshot))
+	for name, runtime := range snapshot {
+		if runtime == nil {
+			continue
+		}
+		ids[name] = runtime.ContainerID
+	}
+	return ids
 }
 
 func (o *Orchestrator) CleanUp(ctx context.Context) error {

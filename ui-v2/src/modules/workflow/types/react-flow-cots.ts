@@ -64,6 +64,10 @@ export interface RunTestsRequest {
 }
 
 export interface ExecutionContext {
+  session_id?: string;
+  project_id?: string;
+  user_id?: string;
+  client_id?: string;
   workflow_id?: string;
   workflow_run_id?: string;
   scenario_id?: string;
@@ -282,9 +286,15 @@ export interface WorkflowRunInput {
   nodes: FlowNode[];
   edges: FlowEdge[];
   scenarios: Array<
-    Pick<Scenario, "id" | "name" | "description" | "tests" | "testOrder">
+    Pick<
+      Scenario,
+      "id" | "name" | "description" | "tests" | "testOrder" | "projectId" | "user_id" | "client_id"
+    > & {
+      scenarioRunId: string;
+    }
   >;
   userId?: string;
+  clientId?: string;
   executionOptions?: {
     continueOnFailure?: boolean;
   };

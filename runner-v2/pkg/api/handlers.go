@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/dev-atharva/cots/pkg/config"
 	"github.com/dev-atharva/cots/pkg/dto"
 	"github.com/dev-atharva/cots/pkg/errors"
+	"github.com/dev-atharva/cots/pkg/db"
 	"github.com/dev-atharva/cots/pkg/logger"
 	"github.com/dev-atharva/cots/pkg/middleware"
 	"github.com/dev-atharva/cots/pkg/orchestrator"
@@ -62,6 +65,10 @@ func toSessionExecutionContext(execution *dto.ExecutionContextDTO) *session.Exec
 	}
 
 	return &session.ExecutionContext{
+		SessionID:     execution.SessionID,
+		ProjectID:     execution.ProjectID,
+		UserID:        execution.UserID,
+		ClientID:      execution.ClientID,
 		WorkflowID:    execution.WorkflowID,
 		WorkflowRunID: execution.WorkflowRunID,
 		ScenarioID:    execution.ScenarioID,
@@ -85,9 +92,19 @@ func executionContextFromSession(sess *session.Session) *dto.ExecutionContextDTO
 type Handler struct {
 	sessionManager *session.Manager
 	providers      *provider.Registry
+	db             db.Database
+	ownerID        string
+	leaseDuration  time.Duration
+	provisionTimeout time.Duration
+	testRunTimeout   time.Duration
+	cleanupTimeout   time.Duration
+	queueTimeout     time.Duration
+	provisionSlots   chan struct{}
+	testRunSlots     chan struct{}
+	cleanupSlots     chan struct{}
 }
 
-func NewHandler() *Handler {
+func NewHandler(database db.Database, appCfg config.AppConfig) *Handler {
 	providers := provider.NewRegistry()
 
 	providers.Register("postgres", &predefined.PostgresProvider{})
@@ -100,6 +117,16 @@ func NewHandler() *Handler {
 	return &Handler{
 		sessionManager: session.NewManager(),
 		providers:      providers,
+		db:             database,
+		ownerID:        runtimeOwnerID(),
+		leaseDuration:  5 * time.Minute,
+		provisionTimeout: time.Duration(appCfg.ProvisionTimeoutSec) * time.Second,
+		testRunTimeout:   time.Duration(appCfg.TestRunTimeoutSec) * time.Second,
+		cleanupTimeout:   time.Duration(appCfg.CleanupTimeoutSec) * time.Second,
+		queueTimeout:     time.Duration(appCfg.OperationQueueTimeoutSec) * time.Second,
+		provisionSlots:   make(chan struct{}, appCfg.MaxConcurrentProvision),
+		testRunSlots:     make(chan struct{}, appCfg.MaxConcurrentTestRuns),
+		cleanupSlots:     make(chan struct{}, appCfg.MaxConcurrentCleanup),
 	}
 }
 
@@ -112,6 +139,14 @@ func (h *Handler) CreateServices(w http.ResponseWriter, r *http.Request) {
 	defer span.End()
 
 	logger.InfoContext(ctx, "creating services", "requet_id", requestID)
+
+	releaseSlot, err := h.acquireSlot(ctx, h.provisionSlots, "provision")
+	if err != nil {
+		logger.WarnContext(ctx, "provision request rejected by concurrency guard", "error", err)
+		http.Error(w, err.Error(), http.StatusTooManyRequests)
+		return
+	}
+	defer releaseSlot()
 
 	var req dto.CreateServicesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -160,8 +195,17 @@ func (h *Handler) CreateServices(w http.ResponseWriter, r *http.Request) {
 	ctx = provider.WithSessionID(ctx, sessionID)
 
 	sess, _ := h.sessionManager.Get(sessionID)
+	persisted, err := h.buildPersistedSession(ctx, sessionID, req.ExecutionContext, services)
+	if err != nil {
+		logger.WarnContext(ctx, "failed to persist session metadata before provisioning", "error", err)
+	}
+	if sess != nil && persisted != nil {
+		sess.PersistedID = persisted.ID
+	}
 	provisionCtx := withExecutionContext(ctx, req.ExecutionContext)
-	if err := orch.ProvisionServices(logger.WithContext(sess.Context, logger.FromContext(provisionCtx)), services); err != nil {
+	opCtx, cancel := withOperationTimeout(sess.Context, h.provisionTimeout)
+	defer cancel()
+	if err := orch.ProvisionServices(logger.WithContext(opCtx, logger.FromContext(provisionCtx)), services); err != nil {
 		logger.ErrorContext(ctx, "service provisioning failed", "error", err)
 
 		var containerLogs map[string]string
@@ -174,6 +218,10 @@ func (h *Handler) CreateServices(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		h.sessionManager.Delete(sessionID)
+		if persisted != nil {
+			h.persistSessionFailure(ctx, persisted.ID, err, sessionPhaseFailed)
+			h.releaseSessionLease(ctx, persisted.ID)
+		}
 		telemetry.RecordError(ctx, err)
 
 		appErr := errors.Wrap(err, errors.ErrServiceProvision, "failed to provision services")
@@ -187,6 +235,9 @@ func (h *Handler) CreateServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logger.InfoContext(ctx, "services provisioned successfully", "count", len(services))
+	if persisted != nil {
+		h.persistProvisionedState(ctx, persisted.ID, orch)
+	}
 
 	respondJson(w, http.StatusCreated, dto.CreateServicesResponse{
 		SessionID: sessionID,
@@ -206,6 +257,14 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 
 	logger.InfoContext(ctx, "running tests", "request_id", requestID, "session_id", sessionId)
 
+	releaseSlot, err := h.acquireSlot(ctx, h.testRunSlots, "test execution")
+	if err != nil {
+		logger.WarnContext(ctx, "test request rejected by concurrency guard", "error", err)
+		http.Error(w, err.Error(), http.StatusTooManyRequests)
+		return
+	}
+	defer releaseSlot()
+
 	var req dto.RunTestRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		logger.WarnContext(ctx, "invalid request body", "error", err)
@@ -222,24 +281,59 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, err := h.sessionManager.Get(sessionId)
+	sess, persisted, err := h.getOrRecoverSession(ctx, sessionId, req.ExecutionContext)
 	if err != nil {
-		logger.WarnContext(ctx, "session not found", "session_id", sessionId)
-		errors.RespondNotFound(w, "session")
+		logger.WarnContext(ctx, "session unavailable", "session_id", sessionId, "error", err)
+		errors.ResponseBadRequest(w, err.Error())
 		return
 	}
 	ctx = withExecutionContext(ctx, executionContextFromSession(sess))
+	testCtxRoot, cancel := withOperationTimeout(sess.Context, h.testRunTimeout)
+	defer cancel()
 
 	tests := req.ToConfigList()
+	if persisted != nil {
+		tests, err = mergePersistedPlan(tests, persisted.TestPlan)
+		if err != nil {
+			errors.ResponseBadRequest(w, fmt.Sprintf("failed to load persisted test plan: %v", err))
+			return
+		}
+		if err := h.ensureTestPlan(ctx, persisted.ID, tests); err != nil {
+			logger.WarnContext(ctx, "failed to persist test plan", "session_id", persisted.ID, "error", err)
+		}
+		if err := rejectUnsafeResume(tests, persisted.CheckpointIndex); err != nil {
+			errors.ResponseBadRequest(w, err.Error())
+			return
+		}
+	}
 	telemetry.AddSpanAttributes(ctx, telemetry.TestNameAttr(fmt.Sprintf("%d tests", len(tests))))
 
 	testRegistry := test.NewRegistory()
 
-	results := []dto.TestResult{}
+	results, persistedByName, err := h.loadPersistedResults(ctx, persisted, tests, sess)
+	if err != nil {
+		logger.WarnContext(ctx, "failed to load persisted test results", "session_id", sessionId, "error", err)
+	}
 	passed := 0
 	failed := 0
+	for _, existing := range results {
+		if existing.Passed {
+			passed++
+		} else {
+			failed++
+		}
+	}
 
-	for _, testCfg := range tests {
+	startIndex := 0
+	if persisted != nil && persisted.CheckpointIndex > 0 && persisted.CheckpointIndex < len(tests) {
+		startIndex = persisted.CheckpointIndex
+	}
+
+	for idx := startIndex; idx < len(tests); idx++ {
+		testCfg := tests[idx]
+		if _, exists := persistedByName[testCfg.Name]; exists {
+			continue
+		}
 
 		testCtx, testSpan := telemetry.StartSpan(ctx, "test.execute", telemetry.TestNameAttr(testCfg.Name), telemetry.TestTypeAttr(testCfg.Type))
 		testCtx = logger.WithFields(testCtx, "test_name", testCfg.Name, "test_type", testCfg.Type)
@@ -248,13 +342,18 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 
 		interpolatedConfig, err := test.InterpolateTestConfig(testCfg.Config, sess)
 		if err != nil {
-			results = append(results, dto.TestResult{
+			result := dto.TestResult{
 				Name:   testCfg.Name,
 				Type:   testCfg.Type,
 				Passed: false,
 				Error:  fmt.Sprintf("config interpolation failed : %v", err),
-			})
+			}
+			results = append(results, result)
 			failed++
+			if persisted != nil {
+				_ = h.persistTestResult(ctx, persisted, result, asPersistedInterpolationData(result), time.Now().UTC())
+				_ = h.persistCheckpoint(ctx, persisted.ID, idx+1, sessionPhaseFailed, "failed", summarizeResults(results))
+			}
 			telemetry.RecordError(testCtx, err)
 			testSpan.End()
 			continue
@@ -263,18 +362,23 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 
 		executor, ok := testRegistry.Get(testCfg.Type)
 		if !ok {
-			results = append(results, dto.TestResult{
+			result := dto.TestResult{
 				Name:   testCfg.Name,
 				Type:   testCfg.Type,
 				Passed: false,
 				Error:  fmt.Sprintf("executor not found for type %s", testCfg.Type),
-			})
+			}
+			results = append(results, result)
 			failed++
+			if persisted != nil {
+				_ = h.persistTestResult(ctx, persisted, result, asPersistedInterpolationData(result), time.Now().UTC())
+				_ = h.persistCheckpoint(ctx, persisted.ID, idx+1, sessionPhaseFailed, "failed", summarizeResults(results))
+			}
 			testSpan.End()
 			continue
 		}
 
-		err = executor.Execute(sess.Context, testCfg, sess.Orchestrator.GetRegistry())
+			err = executor.Execute(testCtxRoot, testCfg, sess.Orchestrator.GetRegistry())
 		if err != nil {
 			var containerLogs map[string]string
 			var errorMsg string
@@ -287,33 +391,54 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 				containerLogs = sess.Orchestrator.GetAllServiceLogs(sess.Context)
 			}
 			logger.ErrorContext(testCtx, "test execution failed", "test_name", testCfg.Name, "error", errorMsg)
-			results = append(results, dto.TestResult{
+			result := dto.TestResult{
 				Name:          testCfg.Name,
 				Type:          testCfg.Type,
 				Passed:        false,
 				Error:         errorMsg,
 				ContainerLogs: containerLogs,
-			})
+			}
+			results = append(results, result)
 			failed++
+			if persisted != nil {
+				_ = h.persistTestResult(ctx, persisted, result, asPersistedInterpolationData(result), time.Now().UTC())
+				_ = h.persistCheckpoint(ctx, persisted.ID, idx+1, sessionPhaseFailed, "failed", summarizeResults(results))
+			}
 			telemetry.RecordError(testCtx, err)
 		} else {
-			sess.StoreTestResult(testCfg.Name, map[string]any{
+			interpolationData := map[string]any{
 				"status": "passed",
 				"name":   testCfg.Name,
 				"type":   testCfg.Type,
-			})
+			}
+			sess.StoreTestResult(testCfg.Name, interpolationData)
 
 			logger.InfoContext(testCtx, "test passed")
-			results = append(results, dto.TestResult{
+			result := dto.TestResult{
 				Name:   testCfg.Name,
 				Type:   testCfg.Type,
 				Passed: true,
-			})
+			}
+			results = append(results, result)
 			passed++
+			if persisted != nil {
+				_ = h.persistTestResult(ctx, persisted, result, interpolationData, time.Now().UTC())
+				_ = h.persistCheckpoint(ctx, persisted.ID, idx+1, sessionPhaseRunningTests, "", nil)
+			}
 		}
 		testSpan.End()
 	}
 	logger.InfoContext(ctx, "tests completed", "total", len(tests), "passed", passed, "failed", failed)
+	if persisted != nil {
+		finalStatus := "completed"
+		finalPhase := sessionPhaseTestsDone
+		if failed > 0 {
+			finalStatus = "failed"
+			finalPhase = sessionPhaseFailed
+		}
+		_ = h.persistCheckpoint(ctx, persisted.ID, len(tests), finalPhase, finalStatus, summarizeResults(results))
+		h.releaseSessionLease(ctx, persisted.ID)
+	}
 
 	respondJson(w, http.StatusOK, dto.RunTestReponse{
 		SessionID: sessionId,
@@ -335,14 +460,43 @@ func (h *Handler) CleanUpSession(w http.ResponseWriter, r *http.Request) {
 
 	logger.InfoContext(ctx, "cleaning up session", "session_id", sessionID)
 
+	releaseSlot, err := h.acquireSlot(ctx, h.cleanupSlots, "cleanup")
+	if err != nil {
+		logger.WarnContext(ctx, "cleanup request rejected by concurrency guard", "error", err)
+		http.Error(w, err.Error(), http.StatusTooManyRequests)
+		return
+	}
+	defer releaseSlot()
+
 	if sess, err := h.sessionManager.Get(sessionID); err == nil {
 		ctx = withExecutionContext(ctx, executionContextFromSession(sess))
 	}
 
-	if err := h.sessionManager.Delete(sessionID); err != nil {
-		logger.WarnContext(ctx, "session not found for cleanup", "session_id", sessionID)
-		errors.RespondNotFound(w, "session")
+	persisted, _ := h.resolvePersistedSession(ctx, sessionID, nil)
+	if persisted != nil {
+		_ = h.persistCheckpoint(ctx, persisted.ID, persisted.CheckpointIndex, sessionPhaseCleaningUp, "", nil)
+	}
+
+	cleanupCtx, cancel := withOperationTimeout(ctx, h.cleanupTimeout)
+	defer cancel()
+
+	if err := h.sessionManager.DeleteWithContext(cleanupCtx, sessionID); err != nil {
+		if persisted == nil {
+			logger.WarnContext(ctx, "session not found for cleanup", "session_id", sessionID)
+			errors.RespondNotFound(w, "session")
+			return
+		}
+		logger.WarnContext(ctx, "cleanup requested without active local runtime", "session_id", sessionID)
+		h.releaseSessionLease(ctx, persisted.ID)
+		respondJson(w, http.StatusOK, dto.CleanUpReponse{
+			SessionID: sessionID,
+			Message:   "Session record updated, but no active local runtime was available to clean up remote Docker resources",
+		})
 		return
+	}
+	if persisted != nil {
+		_ = h.persistCheckpoint(ctx, persisted.ID, persisted.CheckpointIndex, sessionPhaseCompleted, persisted.Status, summarizeResults(nil))
+		h.releaseSessionLease(ctx, persisted.ID)
 	}
 	logger.InfoContext(ctx, "session cleaned up successfully", "session_id", sessionID)
 	respondJson(w, http.StatusOK, dto.CleanUpReponse{
@@ -378,6 +532,13 @@ func (h *Handler) GetServiceLogs(w http.ResponseWriter, r *http.Request) {
 
 	sess, err := h.sessionManager.Get(sessionID)
 	if err != nil {
+		if persisted, lookupErr := h.resolvePersistedSession(ctx, sessionID, nil); lookupErr == nil && persisted != nil && persisted.Logs != "" {
+			respondJson(w, http.StatusOK, map[string]string{
+				"service": serviceName,
+				"logs":    persisted.Logs,
+			})
+			return
+		}
 		logger.WarnContext(ctx, "session not found", "session_id", sessionID)
 		errors.RespondNotFound(w, "session")
 		return
@@ -404,6 +565,13 @@ func (h *Handler) GetAllServiceLogs(w http.ResponseWriter, r *http.Request) {
 
 	sess, err := h.sessionManager.Get(sessionID)
 	if err != nil {
+		if persisted, lookupErr := h.resolvePersistedSession(ctx, sessionID, nil); lookupErr == nil && persisted != nil && persisted.Logs != "" {
+			respondJson(w, http.StatusOK, map[string]any{
+				"session_id": sessionID,
+				"logs":       persisted.Logs,
+			})
+			return
+		}
 		logger.WarnContext(ctx, "session not found", "session_id", sessionID)
 		errors.RespondNotFound(w, "session")
 		return

@@ -86,6 +86,7 @@ func (p *KafkaProvider) createContainerWithFallback(ctx context.Context, cfg con
 			kafka.WithClusterID(clusterID),
 			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{ContainerRequest: testcontainers.ContainerRequest{
 				Name:     provider.ContainerName(ctx, cfg.Name),
+				Labels:   provider.ResourceLabels(ctx, provider.ResourceTypeContainer),
 				Networks: []string{network.Name},
 				NetworkAliases: map[string][]string{
 					network.Name: {cfg.Name},

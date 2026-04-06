@@ -74,6 +74,7 @@ func (p *MemcachedProvider) createContainerWithFallback(ctx context.Context, cfg
 			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 				ContainerRequest: testcontainers.ContainerRequest{
 					Name:     provider.ContainerName(ctx, cfg.Name),
+					Labels:   provider.ResourceLabels(ctx, provider.ResourceTypeContainer),
 					Networks: []string{network.Name},
 					NetworkAliases: map[string][]string{
 						network.Name: {cfg.Name},
@@ -94,6 +95,7 @@ func (p *MemcachedProvider) createContainerWithFallback(ctx context.Context, cfg
 		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
 				Name:     provider.ContainerName(ctx, cfg.Name),
+				Labels:   provider.ResourceLabels(ctx, provider.ResourceTypeContainer),
 				Networks: []string{network.Name},
 				NetworkAliases: map[string][]string{
 					network.Name: {cfg.Name},

@@ -153,6 +153,8 @@ func (m *Migrator) shouldSkipMigration(name string) (bool, error) {
 		return m.columnExists("sessions", "version")
 	case "004_project_scope.sql":
 		return m.columnExists("workflows", "project_id")
+	case "005_session_failover.sql":
+		return m.columnExists("sessions", "owner_id")
 	default:
 		return false, nil
 	}

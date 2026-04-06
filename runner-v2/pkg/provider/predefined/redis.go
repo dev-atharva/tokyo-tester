@@ -94,6 +94,7 @@ func (P *RedisProvider) createContainerWithFallback(ctx context.Context, cfg con
 			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 				ContainerRequest: testcontainers.ContainerRequest{
 					Name:     provider.ContainerName(ctx, cfg.Name),
+					Labels:   provider.ResourceLabels(ctx, provider.ResourceTypeContainer),
 					Networks: []string{network.Name},
 					NetworkAliases: map[string][]string{
 						network.Name: {cfg.Name},
@@ -116,6 +117,7 @@ func (P *RedisProvider) createContainerWithFallback(ctx context.Context, cfg con
 			testcontainers.GenericContainerRequest{
 				ContainerRequest: testcontainers.ContainerRequest{
 					Name:     provider.ContainerName(ctx, cfg.Name),
+					Labels:   provider.ResourceLabels(ctx, provider.ResourceTypeContainer),
 					Networks: []string{network.Name},
 					NetworkAliases: map[string][]string{
 						network.Name: {cfg.Name},

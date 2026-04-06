@@ -28,6 +28,7 @@ func (g *GenericProvider) Provision(ctx context.Context, cfg config.ServiceConfi
 		Image:    cfg.Image,
 		Env:      cfg.Env,
 		Name:     ContainerName(ctx, cfg.Name),
+		Labels:   ResourceLabels(ctx, ResourceTypeContainer),
 		Networks: []string{network.Name},
 		NetworkAliases: map[string][]string{
 			network.Name: {cfg.Name},

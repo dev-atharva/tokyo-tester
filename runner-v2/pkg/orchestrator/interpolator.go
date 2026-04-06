@@ -28,6 +28,30 @@ func (r *RuntimeRegsitry) Get(name string) (*types.ServiceRuntime, bool) {
 	return runtime, ok
 }
 
+func (r *RuntimeRegsitry) Snapshot() map[string]*types.ServiceRuntime {
+	snapshot := make(map[string]*types.ServiceRuntime, len(r.services))
+	for name, runtime := range r.services {
+		if runtime == nil {
+			continue
+		}
+		copied := &types.ServiceRuntime{
+			Name:        runtime.Name,
+			ContainerID: runtime.ContainerID,
+			Host:        runtime.Host,
+			MappedPorts: make(map[string]string, len(runtime.MappedPorts)),
+			EnvVars:     make(map[string]string, len(runtime.EnvVars)),
+		}
+		for port, mapped := range runtime.MappedPorts {
+			copied.MappedPorts[port] = mapped
+		}
+		for key, value := range runtime.EnvVars {
+			copied.EnvVars[key] = value
+		}
+		snapshot[name] = copied
+	}
+	return snapshot
+}
+
 // Resolvs the envirnmnet variable references in format ${SERVICE_NAME.field}
 // Supports fields : host,port,env.VAR_NAME
 func (r *RuntimeRegsitry) InterpolateEnvVars(envVars map[string]string) (map[string]string, error) {

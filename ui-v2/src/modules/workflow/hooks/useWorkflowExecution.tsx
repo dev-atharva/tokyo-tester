@@ -163,14 +163,19 @@ export function useWorkflowExecution({
           workflowName,
           nodes,
           edges,
-          scenarios: scenarios.map((scenario) => ({
+          scenarios: scenarios.map((scenario, index) => ({
             id: scenario.id,
+            scenarioRunId: scenarioRunIds[index],
+            projectId: scenario.projectId,
             name: scenario.name,
             description: scenario.description,
             tests: scenario.tests,
             testOrder: scenario.testOrder,
+            user_id: scenario.user_id,
+            client_id: scenario.client_id,
           })),
-          userId: "demo-user",
+          userId: scenarios[0]?.user_id ?? "demo-user",
+          clientId: scenarios[0]?.client_id,
           registrySecrets: normalizedSecrets,
           executionOptions: {
             continueOnFailure: true,

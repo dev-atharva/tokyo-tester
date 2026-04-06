@@ -123,6 +123,14 @@ export interface SessionData {
   error?: string;
   started_at?: string | null;
   completed_at?: string | null;
+  owner_id?: string;
+  lease_expires_at?: string | null;
+  heartbeat_at?: string | null;
+  phase?: string;
+  checkpoint_index?: number;
+  service_graph?: JsonValue;
+  test_plan?: JsonValue;
+  runtime_snapshot?: JsonValue;
   created_at: string;
   updated_at: string;
   user_id: string;

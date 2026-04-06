@@ -329,6 +329,7 @@ func newTestService(t *testing.T) (*Service, *sqlitedb.Client) {
 	applySQLiteMigration(t, client, filepath.Join(projectRoot(t), "runner-v2", "pkg", "db", "migrations", "sqlite", "002_add_session_version.sql"))
 	applySQLiteMigration(t, client, filepath.Join(projectRoot(t), "runner-v2", "pkg", "db", "migrations", "sqlite", "003_scenarios_workflow_runs.sql"))
 	applySQLiteMigration(t, client, filepath.Join(projectRoot(t), "runner-v2", "pkg", "db", "migrations", "sqlite", "004_project_scope.sql"))
+	applySQLiteMigration(t, client, filepath.Join(projectRoot(t), "runner-v2", "pkg", "db", "migrations", "sqlite", "005_session_failover.sql"))
 
 	return NewService(client), client
 }
