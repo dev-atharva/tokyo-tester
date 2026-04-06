@@ -16,6 +16,11 @@
       "sourceType": "github",
       "computedHash": "807ea7b237d8caebfbe34be301b3898963567ae64d120888a82d0f8fe5d0fd23"
     },
+    "makefile": {
+      "source": "itechmeat/llm-code",
+      "sourceType": "github",
+      "computedHash": "548231eb3e2c90365755d63464532eceb2468cc4c0a3cf91ef4132efe3467ea0"
+    },
     "next-best-practices": {
       "source": "vercel-labs/next-skills",
       "sourceType": "github",

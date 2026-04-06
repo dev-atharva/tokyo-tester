@@ -1,9 +1,16 @@
-FROM oven/bun:latest AS base
+FROM oven/bun:1.3.11 AS base
 WORKDIR /app
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 make g++ wget nodejs npm && \
+    rm -rf /var/lib/apt/lists/*
+
 FROM base AS deps
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production=false
+COPY package.json ./
+RUN npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm install --no-audit --no-fund
 
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules

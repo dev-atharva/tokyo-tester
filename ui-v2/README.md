@@ -40,7 +40,7 @@ bun dev
 ## Useful Scripts
 
 - `bun dev`: start the Next.js dev server
-- `bun run db:migrate`: apply the checked-in auth schema for the selected database mode using Node runtime compatibility for SQLite
+- `bun run db:migrate`: apply the checked-in auth schema for the selected database mode
 - `bun run db:generate`: generate Drizzle migrations from the current schema
 - `bun test`: run tests discovered by Bun
 - `node --import tsx --test src/modules/auth/server/service.test.ts`: run the auth service tests with Node

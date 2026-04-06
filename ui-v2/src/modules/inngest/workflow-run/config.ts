@@ -1,5 +1,7 @@
 export const COTS_API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+  process.env.COTS_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:8080";
 
 export const SCENARIO_CONCURRENCY = Math.max(
   1,

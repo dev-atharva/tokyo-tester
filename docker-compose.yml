@@ -1,76 +1,70 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: cots-postgres
+    container_name: tokyo-tester-postgres
     environment:
-      POSTGRES_USER: cots
-      POSTGRES_PASSWORD: cots_password
-      POSTGRES_DB: cots
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      POSTGRES_USER: ${POSTGRES_USER:-tokyo_tester}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tokyo_tester}
+      POSTGRES_DB: ${POSTGRES_DB:-tokyo_tester}
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cots"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-tokyo_tester} -d ${POSTGRES_DB:-tokyo_tester}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
-      - cots-network
+      - tokyo-tester
     profiles:
       - postgres
 
   inngest:
     image: inngest/inngest:latest
-    container_name: cots-inngest
+    container_name: tokyo-tester-inngest
     environment:
-      - INNGEST_DEV_SERVER_HOST=0.0.0.0
-      - INNGEST_PORT=8288
-      - INNGEST_LOG_LEVEL=info
+      INNGEST_DEV_SERVER_HOST: 0.0.0.0
+      INNGEST_PORT: 8288
+      INNGEST_LOG_LEVEL: ${INNGEST_LOG_LEVEL:-info}
     ports:
       - "8288:8288"
       - "8289:8289"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
-          "http://localhost:8288/health",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    command: ["inngest", "dev", "-u", "http://ui:3000/api/inngest"]
     networks:
-      - cots-network
+      - tokyo-tester
 
   runner:
     build:
       context: ./runner-v2
       dockerfile: Dockerfile
-    container_name: cots-runner
+    container_name: tokyo-tester-runner
     environment:
-      - PORT=8080
-      - DB_TYPE=${DB_TYPE:-sqlite}
-      - DB_PATH=${DB_PATH:-/app/data/cots.db}
-      - DATABASE_URL=${DATABASE_URL:-}
-      - DOCKER_HOST=${DOCKER_HOST:-unix:///var/run/docker.sock}
-      - TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=${DOCKER_SOCKET_PATH:-/var/run/docker.sock}
-      - TESTCONTAINERS_RYUK_DISABLED=false
-      - TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal
-      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
-    volumes:
-      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
-      - runner_data:/app/data
+      APP_ENV: ${RUNNER_APP_ENV:-production}
+      PORT: 8080
+      LOG_LEVEL: ${RUNNER_LOG_LEVEL:-info}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      DB_TYPE: ${RUNNER_DB_TYPE:-sqlite}
+      DB_PATH: /app/data/cots.db
+      DATABASE_URL: ${RUNNER_DATABASE_URL:-}
+      DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
+      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+      TESTCONTAINERS_HOST_OVERRIDE: ${TESTCONTAINERS_HOST_OVERRIDE:-host.docker.internal}
+      JANITOR_ENABLED: ${JANITOR_ENABLED:-false}
     ports:
       - "8080:8080"
+    volumes:
+      - runner_data:/app/data
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
     depends_on:
       inngest:
-        condition: service_healthy
+        condition: service_started
     networks:
-      - cots-network
+      - tokyo-tester
     command: ["-migrate"]
     restart: unless-stopped
 
@@ -78,30 +72,38 @@ services:
     build:
       context: ./ui-v2
       dockerfile: Dockerfile
-    container_name: cots-ui
+    container_name: tokyo-tester-ui
     environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://runner:8080}
-      - NEXT_PUBLIC_INNGEST_URL=${NEXT_PUBLIC_INNGEST_URL:-http://inngest:8288}
-      - INNGEST_EVENT_KEY=${INNGEST_EVENT_KEY:-}
-      - INNGEST_SIGNING_KEY=${INNGEST_SIGNING_KEY:-}
+      NODE_ENV: production
+      PORT: 3000
+      INNGEST_DEV: ${INNGEST_DEV:-1}
+      INNGEST_BASE_URL: ${INNGEST_BASE_URL:-http://inngest:8288}
+      COTS_API_BASE_URL: ${COTS_API_BASE_URL:-http://runner:8080}
+      DB_TYPE: ${UI_DB_TYPE:-sqlite}
+      DB_PATH: /app/data/tokyo-tester-auth.db
+      DATABASE_URL: ${UI_DATABASE_URL:-}
+      AUTH_SECRET: ${AUTH_SECRET:-local-dev-auth-secret}
+      AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+      NEXT_PUBLIC_INNGEST_URL: ${NEXT_PUBLIC_INNGEST_URL:-http://localhost:8288}
     ports:
       - "3000:3000"
+    volumes:
+      - ui_data:/app/data
     depends_on:
       - runner
       - inngest
     networks:
-      - cots-network
+      - tokyo-tester
+    command: ["sh", "-c", "bun run db:migrate && bun run start"]
     restart: unless-stopped
 
 networks:
-  cots-network:
+  tokyo-tester:
+    name: tokyo-tester
     driver: bridge
-    name: cots-network
 
 volumes:
   postgres_data:
-    name: cots-postgres-data
   runner_data:
-    name: cots-runner-data
+  ui_data:

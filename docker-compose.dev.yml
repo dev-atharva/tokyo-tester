@@ -1,18 +1,44 @@
 services:
   runner:
+    build:
+      context: ./runner-v2
+      dockerfile: Dockerfile
+      target: dev
+    environment:
+      APP_ENV: development
+      DB_TYPE: ${RUNNER_DB_TYPE:-sqlite}
+      DB_PATH: /app/data/cots.db
+      DATABASE_URL: ${RUNNER_DATABASE_URL:-}
+    entrypoint: ["air", "-c", ".air.toml"]
+    command: []
     volumes:
       - ./runner-v2:/app
+      - runner_dev_data:/app/data
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
-    command: ["go", "run", "./cmd/main.go", "-migrate"]
 
   ui:
     build:
       context: ./ui-v2
       dockerfile: Dockerfile.dev
+    environment:
+      NODE_ENV: development
+      INNGEST_DEV: ${INNGEST_DEV:-1}
+      INNGEST_BASE_URL: ${INNGEST_BASE_URL:-http://inngest:8288}
+      COTS_API_BASE_URL: ${COTS_API_BASE_URL:-http://runner:8080}
+      DB_TYPE: ${UI_DB_TYPE:-sqlite}
+      DB_PATH: /app/data/tokyo-tester-auth.db
+      DATABASE_URL: ${UI_DATABASE_URL:-}
+      AUTH_SECRET: ${AUTH_SECRET:-local-dev-auth-secret}
+      AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+      NEXT_PUBLIC_INNGEST_URL: ${NEXT_PUBLIC_INNGEST_URL:-http://localhost:8288}
     volumes:
       - ./ui-v2:/app
       - /app/node_modules
       - /app/.next
-    command: ["bun", "run", "dev"]
-    environment:
-      - NODE_ENV=development
+      - ui_dev_data:/app/data
+    command: ["sh", "-c", "bun run db:migrate && bun run dev -- --hostname 0.0.0.0"]
+
+volumes:
+  runner_dev_data:
+  ui_dev_data:
