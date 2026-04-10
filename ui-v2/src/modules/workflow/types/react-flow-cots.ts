@@ -190,6 +190,27 @@ export interface WorkflowGraph {
   edges: FlowEdge[];
 }
 
+export interface WorkflowBundleWorkflow {
+  name: string;
+  description?: string;
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+}
+
+export interface WorkflowBundleScenario {
+  name: string;
+  description?: string;
+  tests: ScenarioTestDefinition[];
+  testOrder: string[];
+}
+
+export interface WorkflowBundle {
+  schemaVersion: number;
+  kind: "cots.workflow-bundle";
+  workflow: WorkflowBundleWorkflow;
+  scenarios: WorkflowBundleScenario[];
+}
+
 export interface Scenario {
   id: string;
   projectId: string;
@@ -288,7 +309,14 @@ export interface WorkflowRunInput {
   scenarios: Array<
     Pick<
       Scenario,
-      "id" | "name" | "description" | "tests" | "testOrder" | "projectId" | "user_id" | "client_id"
+      | "id"
+      | "name"
+      | "description"
+      | "tests"
+      | "testOrder"
+      | "projectId"
+      | "user_id"
+      | "client_id"
     > & {
       scenarioRunId: string;
     }

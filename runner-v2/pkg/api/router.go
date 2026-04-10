@@ -26,6 +26,7 @@ func NewRouter(handler *Handler, syncHandler *sync.Handler, tracingEnabled bool)
 	r.Post("/services", handler.CreateServices)
 	r.Post("/tests/{sessionID}", handler.RunTests)
 	r.Delete("/cleanup/{sessionID}", handler.CleanUpSession)
+	r.Post("/workflow-bundles/run", handler.RunWorkflowBundle)
 	// r.Get("/sessions",hand)
 
 	if syncHandler != nil {
