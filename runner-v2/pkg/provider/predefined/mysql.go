@@ -11,7 +11,6 @@ import (
 	"github.com/dev-atharva/cots/pkg/types"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mysql"
-	testcontainerswait "github.com/testcontainers/testcontainers-go/wait"
 )
 
 type MysqlProvider struct{}
@@ -43,7 +42,7 @@ func (p *MysqlProvider) Provision(ctx context.Context, cfg config.ServiceConfig,
 		return nil, nil, fmt.Errorf("failed to get container host: %w", err)
 	}
 
-	mappedPort, err := container.MappedPort(ctx, "5432")
+	mappedPort, err := container.MappedPort(ctx, "3306")
 	if err != nil {
 		_ = container.Terminate(ctx)
 		return nil, nil, fmt.Errorf("failed to get the mapped port: %w", err)
@@ -54,12 +53,12 @@ func (p *MysqlProvider) Provision(ctx context.Context, cfg config.ServiceConfig,
 		ContainerID: container.GetContainerID(),
 		Host:        host,
 		MappedPorts: map[string]string{
-			"5432": mappedPort.Port(),
+			"3306": mappedPort.Port(),
 		},
 		EnvVars: map[string]string{
-			"POSTGRES_DB":       database,
-			"POSTGRES_USER":     username,
-			"POSTGRES_PASSWORD": password,
+			"MYSQL_DB":       database,
+			"MYSQL_USER":     username,
+			"MYSQL_PASSWORD": password,
 		},
 	}
 	return container, runtime, nil
@@ -77,7 +76,6 @@ func (p *MysqlProvider) createContainerWithFallback(ctx context.Context, cfg con
 			mysql.WithUsername(username),
 			mysql.WithPassword(password),
 			mysql.WithScripts(initFiles...),
-			testcontainers.WithWaitStrategy(testcontainerswait.ForLog("database system is ready to accept connections").WithOccurrence(2)),
 			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 				ContainerRequest: testcontainers.ContainerRequest{
 					Name:     provider.ContainerName(ctx, cfg.Name),
@@ -102,9 +100,6 @@ func (p *MysqlProvider) createContainerWithFallback(ctx context.Context, cfg con
 		mysql.WithUsername(username),
 		mysql.WithPassword(password),
 		mysql.WithScripts(initFiles...),
-		testcontainers.WithWaitStrategy(
-			testcontainerswait.ForLog("database system is ready to accept connections").WithOccurrence(2),
-		),
 		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
 				Name:     provider.ContainerName(ctx, cfg.Name),

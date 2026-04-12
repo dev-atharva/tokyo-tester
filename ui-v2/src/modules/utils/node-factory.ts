@@ -338,6 +338,144 @@ export function createKafkaNode(
   };
 }
 
+export function createRabbitMQNode(
+  id: string,
+  position: { x: number; y: number },
+  options: {
+    label?: string;
+    username?: string;
+    password?: string;
+    initScripts?: string[];
+    tests?: Array<{
+      name: string;
+      type: "queue";
+      queueConfig?: {
+        operation:
+          | "produce"
+          | "consume"
+          | "produce_and_consume"
+          | "check_topic"
+          | "list_topics";
+        topic?: string;
+        message?: string | number;
+        key?: string;
+        timeout?: number;
+        expectedCount?: number;
+        expectedMessage?: string | number;
+        expectedExists?: boolean;
+      };
+    }>;
+  } = {},
+): FlowNode {
+  const env: Array<{ id: string; key: string; value: string }> = [
+    {
+      id: "1",
+      key: "RABBITMQ_DEFAULT_USER",
+      value: options.username || "guest",
+    },
+    {
+      id: "2",
+      key: "RABBITMQ_DEFAULT_PASS",
+      value: options.password || "guest",
+    },
+  ];
+
+  const data: ServiceNodeData = {
+    label: options.label || "RabbitMQ",
+    service: {
+      type: "rabbitmq",
+      image: "rabbitmq:3.13-management-alpine",
+      env,
+      initScripts: options.initScripts?.map((script, idx) => ({
+        id: `${idx}`,
+        order: idx,
+        script,
+      })),
+    },
+    tests: options.tests?.map((test, idx) => {
+      const testDef: TestDefination = {
+        id: `test-${idx}`,
+        name: test.name,
+        type: test.type,
+        targetServices: [id],
+      };
+      if (test.type === "queue" && test.queueConfig) {
+        testDef.queueConfig = {
+          service: id,
+          brokerType: "rabbitmq",
+          operation: test.queueConfig.operation,
+          topic: test.queueConfig.topic,
+          message: test.queueConfig.message,
+          key: test.queueConfig.key,
+          timeout: test.queueConfig.timeout,
+          expectedCount: test.queueConfig.expectedCount,
+          expectedMessage: test.queueConfig.expectedMessage,
+          expectedExists: test.queueConfig.expectedExists,
+        };
+      }
+      return testDef;
+    }),
+  };
+
+  return {
+    id,
+    type: "serviceNode",
+    position,
+    data,
+  };
+}
+
+export function createMongoDBNode(
+  id: string,
+  position: { x: number; y: number },
+  options: {
+    label?: string;
+    database?: string;
+    username?: string;
+    password?: string;
+    initScripts?: string[];
+  } = {},
+): FlowNode {
+  const env: Array<{ id: string; key: string; value: string }> = [
+    {
+      id: "1",
+      key: "MONGO_INITDB_DATABASE",
+      value: options.database || "testdb",
+    },
+    {
+      id: "2",
+      key: "MONGO_INITDB_ROOT_USERNAME",
+      value: options.username || "admin",
+    },
+    {
+      id: "3",
+      key: "MONGO_INITDB_ROOT_PASSWORD",
+      value: options.password || "admin",
+    },
+  ];
+
+  const data: ServiceNodeData = {
+    label: options.label || "MongoDB",
+    service: {
+      type: "mongodb",
+      image: "mongo:7",
+      env,
+      initScripts: options.initScripts?.map((script, idx) => ({
+        id: `${idx}`,
+        order: idx,
+        script,
+      })),
+    },
+  };
+
+  return {
+    id,
+    type: "serviceNode",
+    position,
+    data,
+  };
+}
+
 export function createGenericServiceNode(
   id: string,
   position: { x: number; y: number },

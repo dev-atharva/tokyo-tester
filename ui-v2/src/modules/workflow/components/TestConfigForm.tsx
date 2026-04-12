@@ -27,6 +27,14 @@ interface TestConfigFormProps {
 
 type DelayUnit = "ms" | "sec" | "min";
 
+function inferQueueBrokerType(serviceName?: string): "kafka" | "rabbitmq" {
+  const lower = (serviceName || "").toLowerCase();
+  if (lower.includes("rabbitmq") || lower.includes("rabbit")) {
+    return "rabbitmq";
+  }
+  return "kafka";
+}
+
 function defaultTest(availableServices: string[]): ScenarioTestDefinition {
   return {
     id: `test-${Date.now()}`,
@@ -116,6 +124,18 @@ function parseJSONObject(value: string): Record<string, JsonValue> | undefined {
   } catch {}
 
   return undefined;
+}
+
+function parseJSONValue(value: string): JsonValue | undefined {
+  if (!value.trim()) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(value) as JsonValue;
+  } catch {
+    return undefined;
+  }
 }
 
 function parseColumnRules(value: string):
@@ -238,6 +258,18 @@ function withTypeDefaults(
           query: "",
         },
       };
+    case "document":
+      return {
+        ...test,
+        type,
+        documentConfig: {
+          service: test.targetServices[0] || "",
+          database: "testdb",
+          collection: "",
+          operation: "find_one",
+          filter: {},
+        },
+      };
     case "shell":
       return {
         ...test,
@@ -266,7 +298,7 @@ function withTypeDefaults(
         type,
         queueConfig: {
           service: test.targetServices[0] || "",
-          brokerType: "kafka",
+          brokerType: inferQueueBrokerType(test.targetServices[0]),
           operation: "produce",
           topic: "",
           timeout: 10,
@@ -465,6 +497,9 @@ export const TestConfigForm = ({
                     <SelectContent>
                       <SelectItem value="http">HTTP Request</SelectItem>
                       <SelectItem value="database">Database Query</SelectItem>
+                      <SelectItem value="document">
+                        Document Operation
+                      </SelectItem>
                       <SelectItem value="shell">Shell Command</SelectItem>
                       <SelectItem value="cache">Cache Operation</SelectItem>
                       <SelectItem value="queue">Queue Operation</SelectItem>
@@ -1136,6 +1171,341 @@ export const TestConfigForm = ({
                 </div>
               )}
 
+              {test.type === "document" && (
+                <div className="space-y-4 pt-2">
+                  <h5 className="text-xs font-semibold text-foreground/80 uppercase tracking-wide border-b pb-2">
+                    Document Configuration
+                  </h5>
+                  <div className="grid gap-3 md:grid-cols-4">
+                    <div>
+                      <Label>Service</Label>
+                      <Input
+                        value={
+                          test.documentConfig?.service ||
+                          test.targetServices[0] ||
+                          ""
+                        }
+                        onChange={(event) =>
+                          updateTest(test.id, (current) => ({
+                            ...current,
+                            documentConfig: {
+                              service: event.target.value,
+                              database:
+                                current.documentConfig?.database || "testdb",
+                              collection:
+                                current.documentConfig?.collection || "",
+                              operation:
+                                current.documentConfig?.operation || "find_one",
+                              document: current.documentConfig?.document,
+                              filter: current.documentConfig?.filter,
+                              update: current.documentConfig?.update,
+                              expectedDocument:
+                                current.documentConfig?.expectedDocument,
+                              expectedDocuments:
+                                current.documentConfig?.expectedDocuments,
+                              expectedCount:
+                                current.documentConfig?.expectedCount,
+                              expectedExists:
+                                current.documentConfig?.expectedExists,
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div>
+                      <Label>Database</Label>
+                      <Input
+                        value={test.documentConfig?.database || "testdb"}
+                        onChange={(event) =>
+                          updateTest(test.id, (current) => ({
+                            ...current,
+                            documentConfig: {
+                              service:
+                                current.documentConfig?.service ||
+                                current.targetServices[0] ||
+                                "",
+                              database: event.target.value,
+                              collection:
+                                current.documentConfig?.collection || "",
+                              operation:
+                                current.documentConfig?.operation || "find_one",
+                              document: current.documentConfig?.document,
+                              filter: current.documentConfig?.filter,
+                              update: current.documentConfig?.update,
+                              expectedDocument:
+                                current.documentConfig?.expectedDocument,
+                              expectedDocuments:
+                                current.documentConfig?.expectedDocuments,
+                              expectedCount:
+                                current.documentConfig?.expectedCount,
+                              expectedExists:
+                                current.documentConfig?.expectedExists,
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div>
+                      <Label>Collection</Label>
+                      <Input
+                        value={test.documentConfig?.collection || ""}
+                        onChange={(event) =>
+                          updateTest(test.id, (current) => ({
+                            ...current,
+                            documentConfig: {
+                              service:
+                                current.documentConfig?.service ||
+                                current.targetServices[0] ||
+                                "",
+                              database:
+                                current.documentConfig?.database || "testdb",
+                              collection: event.target.value,
+                              operation:
+                                current.documentConfig?.operation || "find_one",
+                              document: current.documentConfig?.document,
+                              filter: current.documentConfig?.filter,
+                              update: current.documentConfig?.update,
+                              expectedDocument:
+                                current.documentConfig?.expectedDocument,
+                              expectedDocuments:
+                                current.documentConfig?.expectedDocuments,
+                              expectedCount:
+                                current.documentConfig?.expectedCount,
+                              expectedExists:
+                                current.documentConfig?.expectedExists,
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div>
+                      <Label>Operation</Label>
+                      <Select
+                        value={test.documentConfig?.operation || "find_one"}
+                        onValueChange={(value) =>
+                          updateTest(test.id, (current) => ({
+                            ...current,
+                            documentConfig: {
+                              service:
+                                current.documentConfig?.service ||
+                                current.targetServices[0] ||
+                                "",
+                              database:
+                                current.documentConfig?.database || "testdb",
+                              collection:
+                                current.documentConfig?.collection || "",
+                              operation: value as NonNullable<
+                                ScenarioTestDefinition["documentConfig"]
+                              >["operation"],
+                              document: current.documentConfig?.document,
+                              filter: current.documentConfig?.filter,
+                              update: current.documentConfig?.update,
+                              expectedDocument:
+                                current.documentConfig?.expectedDocument,
+                              expectedDocuments:
+                                current.documentConfig?.expectedDocuments,
+                              expectedCount:
+                                current.documentConfig?.expectedCount,
+                              expectedExists:
+                                current.documentConfig?.expectedExists,
+                            },
+                          }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="insert_one">Insert one</SelectItem>
+                          <SelectItem value="find_one">Find one</SelectItem>
+                          <SelectItem value="find_many">Find many</SelectItem>
+                          <SelectItem value="update_one">Update one</SelectItem>
+                          <SelectItem value="delete_one">Delete one</SelectItem>
+                          <SelectItem value="count_documents">
+                            Count documents
+                          </SelectItem>
+                          <SelectItem value="exists">Exists</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {["insert_one"].includes(
+                    test.documentConfig?.operation || "",
+                  ) && (
+                    <div>
+                      <Label>Document JSON</Label>
+                      <Textarea
+                        value={stringifyJSON(test.documentConfig?.document)}
+                        placeholder={`{\n  "name": "Alice"\n}`}
+                        onChange={(event) =>
+                          updateTest(test.id, (current) => ({
+                            ...current,
+                            documentConfig: {
+                              ...current.documentConfig!,
+                              document: parseJSONObject(event.target.value),
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                  )}
+
+                  {[
+                    "find_one",
+                    "find_many",
+                    "update_one",
+                    "delete_one",
+                    "count_documents",
+                    "exists",
+                  ].includes(test.documentConfig?.operation || "") && (
+                    <div>
+                      <Label>Filter JSON</Label>
+                      <Textarea
+                        value={stringifyJSON(test.documentConfig?.filter)}
+                        placeholder={`{\n  "email": "alice@example.com"\n}`}
+                        onChange={(event) =>
+                          updateTest(test.id, (current) => ({
+                            ...current,
+                            documentConfig: {
+                              ...current.documentConfig!,
+                              filter: parseJSONObject(event.target.value),
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                  )}
+
+                  {["update_one"].includes(
+                    test.documentConfig?.operation || "",
+                  ) && (
+                    <div>
+                      <Label>Update JSON</Label>
+                      <Textarea
+                        value={stringifyJSON(test.documentConfig?.update)}
+                        placeholder={`{\n  "$set": { "role": "admin" }\n}`}
+                        onChange={(event) =>
+                          updateTest(test.id, (current) => ({
+                            ...current,
+                            documentConfig: {
+                              ...current.documentConfig!,
+                              update: parseJSONObject(event.target.value),
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                  )}
+
+                  {["find_one"].includes(
+                    test.documentConfig?.operation || "",
+                  ) && (
+                    <div>
+                      <Label>Expected Document JSON</Label>
+                      <Textarea
+                        value={stringifyJSON(
+                          test.documentConfig?.expectedDocument,
+                        )}
+                        placeholder={`{\n  "name": "Alice"\n}`}
+                        onChange={(event) =>
+                          updateTest(test.id, (current) => ({
+                            ...current,
+                            documentConfig: {
+                              ...current.documentConfig!,
+                              expectedDocument: parseJSONObject(
+                                event.target.value,
+                              ),
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                  )}
+
+                  {["find_many"].includes(
+                    test.documentConfig?.operation || "",
+                  ) && (
+                    <div>
+                      <Label>Expected Documents JSON</Label>
+                      <Textarea
+                        value={stringifyJSON(
+                          test.documentConfig?.expectedDocuments,
+                        )}
+                        placeholder={`[\n  { "email": "alice@example.com" }\n]`}
+                        onChange={(event) =>
+                          updateTest(test.id, (current) => {
+                            const parsed = parseJSONValue(event.target.value);
+                            return {
+                              ...current,
+                              documentConfig: {
+                                ...current.documentConfig!,
+                                expectedDocuments: Array.isArray(parsed)
+                                  ? (parsed.filter(
+                                      (
+                                        entry,
+                                      ): entry is Record<string, JsonValue> =>
+                                        Boolean(entry) &&
+                                        typeof entry === "object" &&
+                                        !Array.isArray(entry),
+                                    ) as Record<string, JsonValue>[])
+                                  : [],
+                              },
+                            };
+                          })
+                        }
+                      />
+                    </div>
+                  )}
+
+                  {["count_documents"].includes(
+                    test.documentConfig?.operation || "",
+                  ) && (
+                    <div>
+                      <Label>Expected Count</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={test.documentConfig?.expectedCount ?? 0}
+                        onChange={(event) =>
+                          updateTest(test.id, (current) => ({
+                            ...current,
+                            documentConfig: {
+                              ...current.documentConfig!,
+                              expectedCount: Number(event.target.value) || 0,
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                  )}
+
+                  {["exists"].includes(
+                    test.documentConfig?.operation || "",
+                  ) && (
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={test.documentConfig?.expectedExists ?? true}
+                        onChange={(event) =>
+                          updateTest(test.id, (current) => ({
+                            ...current,
+                            documentConfig: {
+                              ...current.documentConfig!,
+                              expectedExists: event.target.checked,
+                            },
+                          }))
+                        }
+                      />
+                      <span className="text-sm">Expected to exist</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {test.type === "shell" && (
                 <div className="space-y-4 pt-2">
                   <h5 className="text-xs font-semibold text-foreground/80 uppercase tracking-wide border-b pb-2">
@@ -1478,301 +1848,349 @@ export const TestConfigForm = ({
 
               {test.type === "queue" && (
                 <div className="space-y-4 pt-2">
-                  <h5 className="text-xs font-semibold text-foreground/80 uppercase tracking-wide border-b pb-2">
-                    Queue Configuration
-                  </h5>
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <div>
-                      <Label>Queue Service</Label>
-                      <Input
-                        value={
-                          test.queueConfig?.service ||
-                          test.targetServices[0] ||
-                          ""
-                        }
-                        onChange={(event) =>
-                          updateTest(test.id, (current) => ({
-                            ...current,
-                            queueConfig: {
-                              service: event.target.value,
-                              brokerType: "kafka",
-                              operation:
-                                current.queueConfig?.operation || "produce",
-                              topic: current.queueConfig?.topic,
-                              message: current.queueConfig?.message,
-                              key: current.queueConfig?.key,
-                              partition: current.queueConfig?.partition,
-                              timeout: current.queueConfig?.timeout,
-                              fromBeginning: current.queueConfig?.fromBeginning,
-                              expectedCount: current.queueConfig?.expectedCount,
-                              expectedMessage:
-                                current.queueConfig?.expectedMessage,
-                              expectedExists:
-                                current.queueConfig?.expectedExists,
-                            },
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <div>
-                      <Label>Broker Type</Label>
-                      <Select
-                        value={test.queueConfig?.brokerType || "kafka"}
-                        onValueChange={() =>
-                          updateTest(test.id, (current) => ({
-                            ...current,
-                            queueConfig: {
-                              ...current.queueConfig!,
-                              brokerType: "kafka",
-                            },
-                          }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="kafka">Kafka</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div>
-                      <Label>Operation</Label>
-                      <Select
-                        value={test.queueConfig?.operation || "produce"}
-                        onValueChange={(value) =>
-                          updateTest(test.id, (current) => ({
-                            ...current,
-                            queueConfig: {
-                              service:
-                                current.queueConfig?.service ||
-                                current.targetServices[0] ||
-                                "",
-                              brokerType: "kafka",
-                              operation: value as NonNullable<
-                                ScenarioTestDefinition["queueConfig"]
-                              >["operation"],
-                              topic: current.queueConfig?.topic,
-                              message: current.queueConfig?.message,
-                              key: current.queueConfig?.key,
-                              partition: current.queueConfig?.partition ?? 0,
-                              timeout: current.queueConfig?.timeout ?? 10,
-                              fromBeginning:
-                                current.queueConfig?.fromBeginning ?? false,
-                              expectedCount:
-                                current.queueConfig?.expectedCount ?? 1,
-                              expectedMessage:
-                                current.queueConfig?.expectedMessage,
-                              expectedExists:
-                                current.queueConfig?.expectedExists ?? true,
-                            },
-                          }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="produce">Produce</SelectItem>
-                          <SelectItem value="consume">Consume</SelectItem>
-                          <SelectItem value="produce_and_consume">
-                            Produce and consume
-                          </SelectItem>
-                          <SelectItem value="check_topic">
-                            Check topic
-                          </SelectItem>
-                          <SelectItem value="list_topics">
-                            List topics
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  {(test.queueConfig?.operation || "produce") !==
-                    "list_topics" && (
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <div>
-                        <Label>Topic</Label>
-                        <Input
-                          value={test.queueConfig?.topic || ""}
-                          onChange={(event) =>
-                            updateTest(test.id, (current) => ({
-                              ...current,
-                              queueConfig: {
-                                ...current.queueConfig!,
-                                topic: event.target.value,
-                              },
-                            }))
-                          }
-                        />
-                      </div>
-
-                      {["produce", "produce_and_consume"].includes(
+                  {(() => {
+                    const brokerType =
+                      test.queueConfig?.brokerType ||
+                      inferQueueBrokerType(
+                        test.queueConfig?.service || test.targetServices[0],
+                      );
+                    const queueTargetLabel =
+                      brokerType === "rabbitmq" ? "Queue" : "Topic";
+                    const showPartition =
+                      brokerType === "kafka" &&
+                      ["produce", "consume", "produce_and_consume"].includes(
                         test.queueConfig?.operation || "",
-                      ) && (
-                        <div>
-                          <Label>Message</Label>
-                          <Input
-                            value={String(test.queueConfig?.message ?? "")}
-                            onChange={(event) =>
-                              updateTest(test.id, (current) => ({
-                                ...current,
-                                queueConfig: {
-                                  ...current.queueConfig!,
-                                  message: event.target.value,
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                      )}
+                      );
+                    const showFromBeginning =
+                      brokerType === "kafka" &&
+                      (test.queueConfig?.operation || "") === "consume";
 
-                      {["produce", "produce_and_consume"].includes(
-                        test.queueConfig?.operation || "",
-                      ) && (
-                        <div>
-                          <Label>Key</Label>
-                          <Input
-                            value={test.queueConfig?.key || ""}
-                            onChange={(event) =>
-                              updateTest(test.id, (current) => ({
-                                ...current,
-                                queueConfig: {
-                                  ...current.queueConfig!,
-                                  key: event.target.value,
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                      )}
-
-                      {["produce", "consume", "produce_and_consume"].includes(
-                        test.queueConfig?.operation || "",
-                      ) && (
-                        <div>
-                          <Label>Partition</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            value={test.queueConfig?.partition ?? 0}
-                            onChange={(event) =>
-                              updateTest(test.id, (current) => ({
-                                ...current,
-                                queueConfig: {
-                                  ...current.queueConfig!,
-                                  partition: Number(event.target.value) || 0,
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                      )}
-
-                      {["consume", "produce_and_consume"].includes(
-                        test.queueConfig?.operation || "",
-                      ) && (
-                        <div>
-                          <Label>Timeout (seconds)</Label>
-                          <Input
-                            type="number"
-                            min={1}
-                            value={test.queueConfig?.timeout ?? 10}
-                            onChange={(event) =>
-                              updateTest(test.id, (current) => ({
-                                ...current,
-                                queueConfig: {
-                                  ...current.queueConfig!,
-                                  timeout: Number(event.target.value) || 10,
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                      )}
-
-                      {(test.queueConfig?.operation || "") === "consume" && (
-                        <>
-                          <div className="flex items-center gap-3">
-                            <input
-                              type="checkbox"
-                              checked={test.queueConfig?.fromBeginning ?? false}
+                    return (
+                      <>
+                        <h5 className="text-xs font-semibold text-foreground/80 uppercase tracking-wide border-b pb-2">
+                          Queue Configuration
+                        </h5>
+                        <div className="grid gap-3 md:grid-cols-3">
+                          <div>
+                            <Label>Queue Service</Label>
+                            <Input
+                              value={
+                                test.queueConfig?.service ||
+                                test.targetServices[0] ||
+                                ""
+                              }
                               onChange={(event) =>
                                 updateTest(test.id, (current) => ({
                                   ...current,
                                   queueConfig: {
-                                    ...current.queueConfig!,
-                                    fromBeginning: event.target.checked,
+                                    service: event.target.value,
+                                    brokerType: inferQueueBrokerType(
+                                      event.target.value,
+                                    ),
+                                    operation:
+                                      current.queueConfig?.operation ||
+                                      "produce",
+                                    topic: current.queueConfig?.topic,
+                                    message: current.queueConfig?.message,
+                                    key: current.queueConfig?.key,
+                                    partition: current.queueConfig?.partition,
+                                    timeout: current.queueConfig?.timeout,
+                                    fromBeginning:
+                                      current.queueConfig?.fromBeginning,
+                                    expectedCount:
+                                      current.queueConfig?.expectedCount,
+                                    expectedMessage:
+                                      current.queueConfig?.expectedMessage,
+                                    expectedExists:
+                                      current.queueConfig?.expectedExists,
                                   },
                                 }))
                               }
                             />
-                            <span className="text-sm">Read from beginning</span>
                           </div>
 
                           <div>
-                            <Label>Expected Count</Label>
-                            <Input
-                              type="number"
-                              min={1}
-                              value={test.queueConfig?.expectedCount ?? 1}
-                              onChange={(event) =>
+                            <Label>Broker Type</Label>
+                            <Select
+                              value={brokerType}
+                              onValueChange={(value) =>
                                 updateTest(test.id, (current) => ({
                                   ...current,
                                   queueConfig: {
                                     ...current.queueConfig!,
+                                    brokerType: value as "kafka" | "rabbitmq",
+                                  },
+                                }))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="kafka">Kafka</SelectItem>
+                                <SelectItem value="rabbitmq">
+                                  RabbitMQ
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div>
+                            <Label>Operation</Label>
+                            <Select
+                              value={test.queueConfig?.operation || "produce"}
+                              onValueChange={(value) =>
+                                updateTest(test.id, (current) => ({
+                                  ...current,
+                                  queueConfig: {
+                                    service:
+                                      current.queueConfig?.service ||
+                                      current.targetServices[0] ||
+                                      "",
+                                    brokerType:
+                                      current.queueConfig?.brokerType ||
+                                      inferQueueBrokerType(
+                                        current.queueConfig?.service ||
+                                          current.targetServices[0],
+                                      ),
+                                    operation: value as NonNullable<
+                                      ScenarioTestDefinition["queueConfig"]
+                                    >["operation"],
+                                    topic: current.queueConfig?.topic,
+                                    message: current.queueConfig?.message,
+                                    key: current.queueConfig?.key,
+                                    partition:
+                                      current.queueConfig?.partition ?? 0,
+                                    timeout: current.queueConfig?.timeout ?? 10,
+                                    fromBeginning:
+                                      current.queueConfig?.fromBeginning ??
+                                      false,
                                     expectedCount:
-                                      Number(event.target.value) || 1,
+                                      current.queueConfig?.expectedCount ?? 1,
+                                    expectedMessage:
+                                      current.queueConfig?.expectedMessage,
+                                    expectedExists:
+                                      current.queueConfig?.expectedExists ??
+                                      true,
                                   },
                                 }))
                               }
-                            />
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="produce">Produce</SelectItem>
+                                <SelectItem value="consume">Consume</SelectItem>
+                                <SelectItem value="produce_and_consume">
+                                  Produce and consume
+                                </SelectItem>
+                                <SelectItem value="check_topic">
+                                  Check topic
+                                </SelectItem>
+                                <SelectItem value="list_topics">
+                                  List topics
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
-
-                          <div className="md:col-span-2">
-                            <Label>Expected Message</Label>
-                            <Input
-                              value={String(
-                                test.queueConfig?.expectedMessage ?? "",
-                              )}
-                              onChange={(event) =>
-                                updateTest(test.id, (current) => ({
-                                  ...current,
-                                  queueConfig: {
-                                    ...current.queueConfig!,
-                                    expectedMessage: event.target.value,
-                                  },
-                                }))
-                              }
-                            />
-                          </div>
-                        </>
-                      )}
-
-                      {(test.queueConfig?.operation || "") ===
-                        "check_topic" && (
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="checkbox"
-                            checked={test.queueConfig?.expectedExists ?? true}
-                            onChange={(event) =>
-                              updateTest(test.id, (current) => ({
-                                ...current,
-                                queueConfig: {
-                                  ...current.queueConfig!,
-                                  expectedExists: event.target.checked,
-                                },
-                              }))
-                            }
-                          />
-                          <span className="text-sm">Expected to exist</span>
                         </div>
-                      )}
-                    </div>
-                  )}
+
+                        {(test.queueConfig?.operation || "produce") !==
+                          "list_topics" && (
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <div>
+                              <Label>{queueTargetLabel}</Label>
+                              <Input
+                                value={test.queueConfig?.topic || ""}
+                                onChange={(event) =>
+                                  updateTest(test.id, (current) => ({
+                                    ...current,
+                                    queueConfig: {
+                                      ...current.queueConfig!,
+                                      topic: event.target.value,
+                                    },
+                                  }))
+                                }
+                              />
+                            </div>
+
+                            {["produce", "produce_and_consume"].includes(
+                              test.queueConfig?.operation || "",
+                            ) && (
+                              <div>
+                                <Label>Message</Label>
+                                <Input
+                                  value={String(
+                                    test.queueConfig?.message ?? "",
+                                  )}
+                                  onChange={(event) =>
+                                    updateTest(test.id, (current) => ({
+                                      ...current,
+                                      queueConfig: {
+                                        ...current.queueConfig!,
+                                        message: event.target.value,
+                                      },
+                                    }))
+                                  }
+                                />
+                              </div>
+                            )}
+
+                            {["produce", "produce_and_consume"].includes(
+                              test.queueConfig?.operation || "",
+                            ) && (
+                              <div>
+                                <Label>Key</Label>
+                                <Input
+                                  value={test.queueConfig?.key || ""}
+                                  onChange={(event) =>
+                                    updateTest(test.id, (current) => ({
+                                      ...current,
+                                      queueConfig: {
+                                        ...current.queueConfig!,
+                                        key: event.target.value,
+                                      },
+                                    }))
+                                  }
+                                />
+                              </div>
+                            )}
+
+                            {showPartition && (
+                              <div>
+                                <Label>Partition</Label>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  value={test.queueConfig?.partition ?? 0}
+                                  onChange={(event) =>
+                                    updateTest(test.id, (current) => ({
+                                      ...current,
+                                      queueConfig: {
+                                        ...current.queueConfig!,
+                                        partition:
+                                          Number(event.target.value) || 0,
+                                      },
+                                    }))
+                                  }
+                                />
+                              </div>
+                            )}
+
+                            {["consume", "produce_and_consume"].includes(
+                              test.queueConfig?.operation || "",
+                            ) && (
+                              <div>
+                                <Label>Timeout (seconds)</Label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={test.queueConfig?.timeout ?? 10}
+                                  onChange={(event) =>
+                                    updateTest(test.id, (current) => ({
+                                      ...current,
+                                      queueConfig: {
+                                        ...current.queueConfig!,
+                                        timeout:
+                                          Number(event.target.value) || 10,
+                                      },
+                                    }))
+                                  }
+                                />
+                              </div>
+                            )}
+
+                            {showFromBeginning && (
+                              <>
+                                <div className="flex items-center gap-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      test.queueConfig?.fromBeginning ?? false
+                                    }
+                                    onChange={(event) =>
+                                      updateTest(test.id, (current) => ({
+                                        ...current,
+                                        queueConfig: {
+                                          ...current.queueConfig!,
+                                          fromBeginning: event.target.checked,
+                                        },
+                                      }))
+                                    }
+                                  />
+                                  <span className="text-sm">
+                                    Read from beginning
+                                  </span>
+                                </div>
+
+                                <div>
+                                  <Label>Expected Count</Label>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    value={test.queueConfig?.expectedCount ?? 1}
+                                    onChange={(event) =>
+                                      updateTest(test.id, (current) => ({
+                                        ...current,
+                                        queueConfig: {
+                                          ...current.queueConfig!,
+                                          expectedCount:
+                                            Number(event.target.value) || 1,
+                                        },
+                                      }))
+                                    }
+                                  />
+                                </div>
+
+                                <div className="md:col-span-2">
+                                  <Label>Expected Message</Label>
+                                  <Input
+                                    value={String(
+                                      test.queueConfig?.expectedMessage ?? "",
+                                    )}
+                                    onChange={(event) =>
+                                      updateTest(test.id, (current) => ({
+                                        ...current,
+                                        queueConfig: {
+                                          ...current.queueConfig!,
+                                          expectedMessage: event.target.value,
+                                        },
+                                      }))
+                                    }
+                                  />
+                                </div>
+                              </>
+                            )}
+
+                            {(test.queueConfig?.operation || "") ===
+                              "check_topic" && (
+                              <div className="flex items-center gap-3">
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    test.queueConfig?.expectedExists ?? true
+                                  }
+                                  onChange={(event) =>
+                                    updateTest(test.id, (current) => ({
+                                      ...current,
+                                      queueConfig: {
+                                        ...current.queueConfig!,
+                                        expectedExists: event.target.checked,
+                                      },
+                                    }))
+                                  }
+                                />
+                                <span className="text-sm">
+                                  Expected to exist
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -1790,13 +2208,18 @@ export const TestConfigForm = ({
                         step={delayUnits[test.id] === "ms" ? 100 : 1}
                         value={convertDurationToUnit(
                           test.delayConfig?.durationMs ?? 1000,
-                          delayUnits[test.id] ?? inferDelayUnit(test.delayConfig?.durationMs ?? 1000),
+                          delayUnits[test.id] ??
+                            inferDelayUnit(
+                              test.delayConfig?.durationMs ?? 1000,
+                            ),
                         )}
                         onChange={(event) =>
                           updateTest(test.id, (current) => {
                             const unit =
                               delayUnits[test.id] ??
-                              inferDelayUnit(current.delayConfig?.durationMs ?? 1000);
+                              inferDelayUnit(
+                                current.delayConfig?.durationMs ?? 1000,
+                              );
                             const nextValue =
                               Number(event.target.value) ||
                               convertDurationToUnit(

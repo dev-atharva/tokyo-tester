@@ -12,7 +12,9 @@ export type ServiceType =
   | "generic"
   | "mariadb"
   | "redis"
-  | "kafka";
+  | "kafka"
+  | "rabbitmq"
+  | "mongodb";
 
 export interface ServiceConfig {
   name: string;
@@ -43,7 +45,14 @@ export interface WaitStratergyConfig {
 
 export interface TestConfig {
   name: string;
-  type: "database" | "http" | "shell" | "cache" | "queue" | "delay";
+  type:
+    | "database"
+    | "document"
+    | "http"
+    | "shell"
+    | "cache"
+    | "queue"
+    | "delay";
   depends_on: string[];
   config: Record<string, JsonValue>;
 }
@@ -118,7 +127,14 @@ export interface ServiceNodeData {
 export interface ScenarioTestDefinition {
   id: string;
   name: string;
-  type: "database" | "http" | "shell" | "cache" | "queue" | "delay";
+  type:
+    | "database"
+    | "document"
+    | "http"
+    | "shell"
+    | "cache"
+    | "queue"
+    | "delay";
   targetServices: string[];
   dependsOnTestIds?: string[];
   databaseConfig?: {
@@ -128,6 +144,26 @@ export interface ScenarioTestDefinition {
     password: string;
     query: string;
     expectedResult?: ExpectedResult;
+  };
+  documentConfig?: {
+    service: string;
+    database: string;
+    collection: string;
+    operation:
+      | "insert_one"
+      | "find_one"
+      | "find_many"
+      | "update_one"
+      | "delete_one"
+      | "count_documents"
+      | "exists";
+    document?: Record<string, JsonValue>;
+    filter?: Record<string, JsonValue>;
+    update?: Record<string, JsonValue>;
+    expectedDocument?: Record<string, JsonValue>;
+    expectedDocuments?: Record<string, JsonValue>[];
+    expectedCount?: number;
+    expectedExists?: boolean;
   };
   httpConfig?: {
     method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
@@ -161,7 +197,7 @@ export interface ScenarioTestDefinition {
   };
   queueConfig?: {
     service: string;
-    brokerType: "kafka";
+    brokerType: "kafka" | "rabbitmq";
     operation:
       | "produce"
       | "consume"

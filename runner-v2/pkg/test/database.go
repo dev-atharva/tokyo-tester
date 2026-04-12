@@ -42,7 +42,7 @@ func (e *DatabaseExecutor) Execute(ctx context.Context, testCfg config.TestConfi
 		return fmt.Errorf("failed to build the connection string")
 	}
 
-	db, err := sql.Open(driver, connStr)
+	db, err := sql.Open(resolveSQLDriverName(driver), connStr)
 	if err != nil {
 		return fmt.Errorf("failed to connect to teh database : %w", err)
 	}
@@ -63,6 +63,15 @@ func (e *DatabaseExecutor) Execute(ctx context.Context, testCfg config.TestConfi
 		return e.validateResult(rows, expectedResult)
 	}
 	return nil
+}
+
+func resolveSQLDriverName(driver string) string {
+	switch driver {
+	case "mariadb":
+		return "mysql"
+	default:
+		return driver
+	}
 }
 
 func (e *DatabaseExecutor) buildConnectionString(driver string, runtime *types.ServiceRuntime, cfg map[string]any) (string, error) {

@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/dev-atharva/cots/pkg/config"
+	"github.com/dev-atharva/cots/pkg/db"
 	"github.com/dev-atharva/cots/pkg/dto"
 	"github.com/dev-atharva/cots/pkg/errors"
-	"github.com/dev-atharva/cots/pkg/db"
 	"github.com/dev-atharva/cots/pkg/logger"
 	"github.com/dev-atharva/cots/pkg/middleware"
 	"github.com/dev-atharva/cots/pkg/orchestrator"
@@ -90,11 +90,11 @@ func executionContextFromSession(sess *session.Session) *dto.ExecutionContextDTO
 }
 
 type Handler struct {
-	sessionManager *session.Manager
-	providers      *provider.Registry
-	db             db.Database
-	ownerID        string
-	leaseDuration  time.Duration
+	sessionManager   *session.Manager
+	providers        *provider.Registry
+	db               db.Database
+	ownerID          string
+	leaseDuration    time.Duration
 	provisionTimeout time.Duration
 	testRunTimeout   time.Duration
 	cleanupTimeout   time.Duration
@@ -113,13 +113,15 @@ func NewHandler(database db.Database, appCfg config.AppConfig) *Handler {
 	providers.Register("redis", &predefined.RedisProvider{})
 	providers.Register("memcached", &predefined.MemcachedProvider{})
 	providers.Register("kafka", &predefined.KafkaProvider{})
+	providers.Register("rabbitmq", &predefined.RabbitMQProvider{})
+	providers.Register("mongodb", &predefined.MongoDBProvider{})
 
 	return &Handler{
-		sessionManager: session.NewManager(),
-		providers:      providers,
-		db:             database,
-		ownerID:        runtimeOwnerID(),
-		leaseDuration:  5 * time.Minute,
+		sessionManager:   session.NewManager(),
+		providers:        providers,
+		db:               database,
+		ownerID:          runtimeOwnerID(),
+		leaseDuration:    5 * time.Minute,
 		provisionTimeout: time.Duration(appCfg.ProvisionTimeoutSec) * time.Second,
 		testRunTimeout:   time.Duration(appCfg.TestRunTimeoutSec) * time.Second,
 		cleanupTimeout:   time.Duration(appCfg.CleanupTimeoutSec) * time.Second,
@@ -378,7 +380,7 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-			err = executor.Execute(testCtxRoot, testCfg, sess.Orchestrator.GetRegistry())
+		err = executor.Execute(testCtxRoot, testCfg, sess.Orchestrator.GetRegistry())
 		if err != nil {
 			var containerLogs map[string]string
 			var errorMsg string

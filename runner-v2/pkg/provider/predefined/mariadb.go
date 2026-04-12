@@ -11,7 +11,6 @@ import (
 	"github.com/dev-atharva/cots/pkg/types"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mariadb"
-	testcontainerswait "github.com/testcontainers/testcontainers-go/wait"
 )
 
 type MariaDbProvider struct{}
@@ -43,7 +42,7 @@ func (m *MariaDbProvider) Provision(ctx context.Context, cfg config.ServiceConfi
 		_ = container.Terminate(ctx)
 		return nil, nil, fmt.Errorf("failed to get container host: %w", err)
 	}
-	mappedPort, err := container.MappedPort(ctx, "5432")
+	mappedPort, err := container.MappedPort(ctx, "3306")
 	if err != nil {
 		_ = container.Terminate(ctx)
 		return nil, nil, fmt.Errorf("failed to get the mapped port: %w", err)
@@ -53,7 +52,7 @@ func (m *MariaDbProvider) Provision(ctx context.Context, cfg config.ServiceConfi
 		ContainerID: container.GetContainerID(),
 		Host:        host,
 		MappedPorts: map[string]string{
-			"5432": mappedPort.Port(),
+			"3306": mappedPort.Port(),
 		},
 		EnvVars: map[string]string{
 			"MARIA_DB":       database,
@@ -76,7 +75,6 @@ func (p *MariaDbProvider) createContainerWithFallback(ctx context.Context, cfg c
 			mariadb.WithUsername(username),
 			mariadb.WithPassword(password),
 			mariadb.WithScripts(initFiles...),
-			testcontainers.WithWaitStrategy(testcontainerswait.ForLog("database system is ready to accept connections").WithOccurrence(2)),
 			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 				ContainerRequest: testcontainers.ContainerRequest{
 					Name:     provider.ContainerName(ctx, cfg.Name),
@@ -101,9 +99,6 @@ func (p *MariaDbProvider) createContainerWithFallback(ctx context.Context, cfg c
 		mariadb.WithUsername(username),
 		mariadb.WithPassword(password),
 		mariadb.WithScripts(initFiles...),
-		testcontainers.WithWaitStrategy(
-			testcontainerswait.ForLog("database system is ready to accept connections").WithOccurrence(2),
-		),
 		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
 				Name:     provider.ContainerName(ctx, cfg.Name),

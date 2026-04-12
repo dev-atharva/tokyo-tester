@@ -9,8 +9,10 @@ import {
   createGenericServiceNode,
   createKafkaNode,
   createMariaDbNode,
+  createMongoDBNode,
   createMySqlNode,
   createPostgresNode,
+  createRabbitMQNode,
   createRedisNode,
 } from "@/modules/utils/node-factory";
 import {
@@ -55,7 +57,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   const hydrated = useWorkflowStore((s) => s.hydrated);
   const activeExecution = useMemo(
     () =>
-      activeWorkflowRunId ? executions[activeWorkflowRunId] ?? null : null,
+      activeWorkflowRunId ? (executions[activeWorkflowRunId] ?? null) : null,
     [activeWorkflowRunId, executions],
   );
 
@@ -193,7 +195,15 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
 
   // Add service node helper
   const handleAddNode = (
-    type: "postgres" | "redis" | "mysql" | "mariadb" | "generic" | "kafka",
+    type:
+      | "postgres"
+      | "redis"
+      | "mysql"
+      | "mariadb"
+      | "generic"
+      | "kafka"
+      | "rabbitmq"
+      | "mongodb",
   ) => {
     const id = `${type}-${Date.now()}`;
     const position = {
@@ -234,6 +244,17 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           return createKafkaNode(id, position, {
             label: "Kafka",
             clusterId: "test-cluster",
+          });
+        case "rabbitmq":
+          return createRabbitMQNode(id, position, {
+            label: "RabbitMQ",
+          });
+        case "mongodb":
+          return createMongoDBNode(id, position, {
+            label: "MongoDB",
+            database: "testdb",
+            username: "admin",
+            password: "admin",
           });
         default:
           return createGenericServiceNode(id, position, {

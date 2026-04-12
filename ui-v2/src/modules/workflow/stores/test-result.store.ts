@@ -41,7 +41,7 @@ export interface TestResult {
   scenarioId?: string;
   scenarioName?: string;
   testName: string;
-  testType: string; // database/http/shell/cache/kafka
+  testType: string; // database/document/http/shell/cache/queue/delay
   status: "pending" | "running" | "passed" | "failed";
   resultData: unknown;
   durationMs: number;

@@ -22,6 +22,7 @@ func NewRegistory() *Registry {
 		executors: make(map[string]Executor),
 	}
 	r.Register("database", &DatabaseExecutor{})
+	r.Register("document", &DocumentExecutor{})
 	r.Register("http", &HTTPExecutor{})
 	r.Register("shell", &ShellExecutor{})
 	r.Register("cache", &CacheExecutor{})

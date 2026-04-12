@@ -126,10 +126,10 @@ const EnvVariableValueInput = ({
       />
       {showSuggestions && filteredSuggestions.length > 0 && (
         <div className="absolute z-10 w-full mt-1 bg-popover border border-border/60 rounded-lg shadow-lg max-h-60 overflow-auto">
-          {filteredSuggestions.map((suggestion, index) => (
+          {filteredSuggestions.map((suggestion) => (
             <button
               type="button"
-              key={`${suggestion}-${index}`}
+              key={suggestion}
               className="w-full px-3 py-2 text-left hover:bg-muted/50 transition-colors first:rounded-t-lg last:rounded-b-lg"
               onMouseDown={() => {
                 onChange(suggestion);
@@ -170,6 +170,15 @@ const getPresetsForServiceType = (
       { key: "CLUSTER_ID", value: "test-cluster" },
       { key: "KAFKA_BROKERS", value: "Broker1,Broker2" },
       { key: "KAFKA_PROTOCOL", value: "PLAINTEXT" },
+    ],
+    rabbitmq: [
+      { key: "RABBITMQ_DEFAULT_USER", value: "guest" },
+      { key: "RABBITMQ_DEFAULT_PASS", value: "guest" },
+    ],
+    mongodb: [
+      { key: "MONGO_INITDB_DATABASE", value: "testdb" },
+      { key: "MONGO_INITDB_ROOT_USERNAME", value: "admin" },
+      { key: "MONGO_INITDB_ROOT_PASSWORD", value: "admin" },
     ],
   };
   return presets[serviceType] || [];
@@ -332,6 +341,8 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
                       <SelectItem value="mariadb">MariaDB</SelectItem>
                       <SelectItem value="redis">Redis</SelectItem>
                       <SelectItem value="kafka">Kafka</SelectItem>
+                      <SelectItem value="rabbitmq">RabbitMQ</SelectItem>
+                      <SelectItem value="mongodb">MongoDB</SelectItem>
                       <SelectItem value="generic">Generic</SelectItem>
                     </SelectContent>
                   </Select>
@@ -667,6 +678,8 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
               " • Redis commands, e.g., SET key value"}
             {currentServiceType === "kafka" &&
               " • Kafka CLI commands, e.g., kafka-topics --create --topic orders"}
+            {currentServiceType === "rabbitmq" &&
+              " • RabbitMQ commands, e.g., rabbitmqadmin declare queue name=orders"}
           </FormDescription>
           {initScriptFields.length === 0 ? (
             <div className="flex items-center justify-center py-6 rounded-lg border border-dashed border-border/60">
@@ -717,7 +730,9 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
                         ? "Redis command (e.g., SET mykey myvalue)"
                         : currentServiceType === "kafka"
                           ? "Kafka CLI command (e.g., kafka-topics --create --topic orders --partitions 3)"
-                          : "Script content or command"
+                          : currentServiceType === "rabbitmq"
+                            ? "RabbitMQ command (e.g., rabbitmqadmin declare queue name=orders)"
+                            : "Script content or command"
                     }
                     className="shadow-sm font-mono text-sm"
                   />

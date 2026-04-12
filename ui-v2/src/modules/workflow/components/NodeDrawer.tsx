@@ -1,8 +1,9 @@
 "use client";
 
 import { IconCube, IconPlus, IconSettings } from "@tabler/icons-react";
+import type React from "react";
 import type { SVGProps } from "react";
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,15 +17,25 @@ import {
 import { DockerIcon } from "./logos/DockerIcon";
 import { ApacheKafkaIcon } from "./logos/KafkaIcon";
 import { MariaDBIcon } from "./logos/MariadbIcon";
+import { MongoDBIcon } from "./logos/MongoDBIcon";
 import { MySQLIcon } from "./logos/MysqlIcon";
 import { PostgreSQLIcon } from "./logos/PostgresIcon";
+import { RabbitMQIcon } from "./logos/RabbitMQIcon";
 import { RedisIcon } from "./logos/RedisIcon";
 
 interface NodeDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   onAddNode: (
-    type: "postgres" | "mariadb" | "mysql" | "generic" | "redis" | "kafka",
+    type:
+      | "postgres"
+      | "mariadb"
+      | "mysql"
+      | "generic"
+      | "redis"
+      | "kafka"
+      | "rabbitmq"
+      | "mongodb",
   ) => void;
   currentWorkflowName?: string;
   onWorkflowNameChange?: (name: string) => void;
@@ -54,7 +65,15 @@ export const NodeDrawer: React.FC<NodeDrawerProps> = ({
   };
 
   const nodeTypes: Array<{
-    type: "postgres" | "mariadb" | "mysql" | "redis" | "kafka" | "generic";
+    type:
+      | "postgres"
+      | "mariadb"
+      | "mysql"
+      | "redis"
+      | "kafka"
+      | "rabbitmq"
+      | "mongodb"
+      | "generic";
     label: string;
     icon: NodeIconComponent;
     description: string;
@@ -88,6 +107,18 @@ export const NodeDrawer: React.FC<NodeDrawerProps> = ({
       label: "Kafka",
       icon: ApacheKafkaIcon,
       description: "Kafka queue service",
+    },
+    {
+      type: "rabbitmq",
+      label: "RabbitMQ",
+      icon: RabbitMQIcon,
+      description: "RabbitMQ queue service",
+    },
+    {
+      type: "mongodb",
+      label: "MongoDB",
+      icon: MongoDBIcon,
+      description: "MongoDB document database",
     },
     {
       type: "generic",

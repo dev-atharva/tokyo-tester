@@ -43,6 +43,8 @@ const infrastructureTypes = new Set([
   "mariadb",
   "redis",
   "kafka",
+  "rabbitmq",
+  "mongodb",
 ]);
 
 export function validateWorkflowGraph(
@@ -244,16 +246,16 @@ export function buildServiceDependencies(
     }
     const sourceName = sanitizeName(source.data.label);
     const targetName = sanitizeName(target.data.label);
-    const sourceType = source.data.service.type
-    const targetType = source.data.service.type
+    const sourceType = source.data.service.type;
+    const targetType = target.data.service.type;
 
-    const sourceIsInfra = infrastructureTypes.has(sourceType)
-    const targetISInfra = infrastructureTypes.has(targetType)
+    const sourceIsInfra = infrastructureTypes.has(sourceType);
+    const targetISInfra = infrastructureTypes.has(targetType);
 
-    if (!sourceIsInfra){
-      graph.set(sourceName,[...(graph.get(sourceName) || []),targetName])
-    }else if(targetISInfra){
-      graph.set(sourceName,[...(graph.get(sourceName),[]),targetName])
+    if (!sourceIsInfra) {
+      graph.set(sourceName, [...(graph.get(sourceName) || []), targetName]);
+    } else if (targetISInfra) {
+      graph.set(sourceName, [...(graph.get(sourceName) || []), targetName]);
     }
 
     graph.set(sourceName, [...(graph.get(sourceName) || []), targetName]);
@@ -273,12 +275,15 @@ export function buildServiceDependencies(
 
     for (const infraService of infrastructureServices) {
       if (infraService !== serviceName) {
-        const tempGraph = new Map(graph)
-        tempGraph.set(serviceName,Array.from(new Set([...mergedDependencies,infraService])))
-        const cycles = detectCycles(tempGraph)
-        if (cycles.length === 0){
+        const tempGraph = new Map(graph);
+        tempGraph.set(
+          serviceName,
+          Array.from(new Set([...mergedDependencies, infraService])),
+        );
+        const cycles = detectCycles(tempGraph);
+        if (cycles.length === 0) {
           mergedDependencies.add(infraService);
-        } 
+        }
       }
     }
 
@@ -490,6 +495,20 @@ function buildTestConfig(
         query: test.databaseConfig?.query || "",
         expected_result: test.databaseConfig?.expectedResult ?? null,
       };
+    case "document":
+      return {
+        service: test.documentConfig?.service || targetService,
+        database: test.documentConfig?.database || "",
+        collection: test.documentConfig?.collection || "",
+        operation: test.documentConfig?.operation || "find_one",
+        document: test.documentConfig?.document ?? null,
+        filter: test.documentConfig?.filter ?? null,
+        update: test.documentConfig?.update ?? null,
+        expected_document: test.documentConfig?.expectedDocument ?? null,
+        expected_documents: test.documentConfig?.expectedDocuments ?? null,
+        expected_count: test.documentConfig?.expectedCount ?? null,
+        expected_exists: test.documentConfig?.expectedExists ?? null,
+      };
     case "http":
       return {
         service: targetService,
@@ -543,9 +562,7 @@ function buildTestConfig(
   }
 }
 
-function translateExpectedHttpBody(
-  expectedBody: HttpExpectedBody,
-): JsonValue {
+function translateExpectedHttpBody(expectedBody: HttpExpectedBody): JsonValue {
   if (!expectedBody) {
     return null;
   }

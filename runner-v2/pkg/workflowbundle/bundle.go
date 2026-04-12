@@ -96,6 +96,7 @@ type ScenarioTestDefinition struct {
 	TargetServices   []string        `json:"targetServices"`
 	DependsOnTestIDs []string        `json:"dependsOnTestIds,omitempty"`
 	DatabaseConfig   *DatabaseConfig `json:"databaseConfig,omitempty"`
+	DocumentConfig   *DocumentConfig `json:"documentConfig,omitempty"`
 	HTTPConfig       *HTTPConfig     `json:"httpConfig,omitempty"`
 	ShellConfig      *ShellConfig    `json:"shellConfig,omitempty"`
 	CacheConfig      *CacheConfig    `json:"cacheConfig,omitempty"`
@@ -110,6 +111,20 @@ type DatabaseConfig struct {
 	Password       string `json:"password"`
 	Query          string `json:"query"`
 	ExpectedResult any    `json:"expectedResult,omitempty"`
+}
+
+type DocumentConfig struct {
+	Service           string           `json:"service"`
+	Database          string           `json:"database"`
+	Collection        string           `json:"collection"`
+	Operation         string           `json:"operation"`
+	Document          map[string]any   `json:"document,omitempty"`
+	Filter            map[string]any   `json:"filter,omitempty"`
+	Update            map[string]any   `json:"update,omitempty"`
+	ExpectedDocument  map[string]any   `json:"expectedDocument,omitempty"`
+	ExpectedDocuments []map[string]any `json:"expectedDocuments,omitempty"`
+	ExpectedCount     *int             `json:"expectedCount,omitempty"`
+	ExpectedExists    *bool            `json:"expectedExists,omitempty"`
 }
 
 type HTTPConfig struct {
@@ -586,6 +601,20 @@ func buildTestConfig(
 			"query":           valueOrDefault(testDef.DatabaseConfig, func(cfg *DatabaseConfig) string { return cfg.Query }, ""),
 			"expected_result": valueOrDefaultAny(testDef.DatabaseConfig, func(cfg *DatabaseConfig) any { return cfg.ExpectedResult }, nil),
 		}
+	case "document":
+		return map[string]any{
+			"service":            valueOrDefault(testDef.DocumentConfig, func(cfg *DocumentConfig) string { return cfg.Service }, targetService),
+			"database":           valueOrDefault(testDef.DocumentConfig, func(cfg *DocumentConfig) string { return cfg.Database }, ""),
+			"collection":         valueOrDefault(testDef.DocumentConfig, func(cfg *DocumentConfig) string { return cfg.Collection }, ""),
+			"operation":          valueOrDefault(testDef.DocumentConfig, func(cfg *DocumentConfig) string { return cfg.Operation }, "find_one"),
+			"document":           valueOrDefaultAny(testDef.DocumentConfig, func(cfg *DocumentConfig) any { return cfg.Document }, nil),
+			"filter":             valueOrDefaultAny(testDef.DocumentConfig, func(cfg *DocumentConfig) any { return cfg.Filter }, nil),
+			"update":             valueOrDefaultAny(testDef.DocumentConfig, func(cfg *DocumentConfig) any { return cfg.Update }, nil),
+			"expected_document":  valueOrDefaultAny(testDef.DocumentConfig, func(cfg *DocumentConfig) any { return cfg.ExpectedDocument }, nil),
+			"expected_documents": valueOrDefaultAny(testDef.DocumentConfig, func(cfg *DocumentConfig) any { return cfg.ExpectedDocuments }, nil),
+			"expected_count":     valueOrDefaultAny(testDef.DocumentConfig, func(cfg *DocumentConfig) any { return cfg.ExpectedCount }, nil),
+			"expected_exists":    valueOrDefaultAny(testDef.DocumentConfig, func(cfg *DocumentConfig) any { return cfg.ExpectedExists }, nil),
+		}
 	case "http":
 		return map[string]any{
 			"service":         targetService,
@@ -767,7 +796,7 @@ func firstNonEmpty(values ...string) string {
 
 func isInfrastructureType(serviceType string) bool {
 	switch serviceType {
-	case "postgres", "mysql", "mariadb", "redis", "kafka":
+	case "postgres", "mysql", "mariadb", "redis", "kafka", "rabbitmq", "mongodb":
 		return true
 	default:
 		return false

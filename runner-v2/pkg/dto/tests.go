@@ -9,7 +9,7 @@ type RunTestRequest struct {
 
 type TestDTO struct {
 	Name      string         `json:"name" validate:"required,min=1,max=100"`
-	Type      string         `json:"type" validate:"required,oneof=database http shell cache queue delay"`
+	Type      string         `json:"type" validate:"required,oneof=database document http shell cache queue delay"`
 	DependsOn []string       `json:"depends_on,omitempty"`
 	Config    map[string]any `json:"config" validate:"required"`
 }
@@ -86,6 +86,20 @@ type DatabaseTestConfig struct {
 	ExpectedResult string `json:"expected_result,omitempty"`
 }
 
+type DocumentTestConfig struct {
+	Service           string           `json:"service" validate:"required"`
+	Database          string           `json:"database" validate:"required"`
+	Collection        string           `json:"collection" validate:"required"`
+	Operation         string           `json:"operation" validate:"required,oneof=insert_one find_one find_many update_one delete_one count_documents exists"`
+	Document          map[string]any   `json:"document,omitempty"`
+	Filter            map[string]any   `json:"filter,omitempty"`
+	Update            map[string]any   `json:"update,omitempty"`
+	ExpectedDocument  map[string]any   `json:"expected_document,omitempty"`
+	ExpectedDocuments []map[string]any `json:"expected_documents,omitempty"`
+	ExpectedCount     *int             `json:"expected_count,omitempty"`
+	ExpectedExists    *bool            `json:"expected_exists,omitempty"`
+}
+
 type CacheTestConfig struct {
 	Service       string `json:"service" validate:"required"`
 	CacheType     string `json:"cache_type" validate:"required,oneof=redis memcached"`
@@ -98,10 +112,10 @@ type CacheTestConfig struct {
 
 type QueueTestConfig struct {
 	Service    string `json:"service" validate:"required"`
-	Operation  string `json:"operation" validate:"required,oneof=produce consume"`
-	Topic      string `json:"topic" validate:"required"`
+	Operation  string `json:"operation" validate:"required,oneof=produce consume produce_and_consume check_topic list_topics"`
+	Topic      string `json:"topic,omitempty"`
 	Message    string `json:"message,omitempty"`
-	BrokerType string `json:"broker_type" validate:"required,oneof=kafka"`
+	BrokerType string `json:"broker_type" validate:"required,oneof=kafka rabbitmq"`
 	Timeout    int    `json:"timeout" validate:"required,min=1,max=60"`
 }
 

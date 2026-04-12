@@ -162,7 +162,7 @@ type TestResultData struct {
 	ScenarioID    string    `json:"scenario_id,omitempty"`
 	ScenarioName  string    `json:"scenario_name,omitempty"`
 	TestName      string    `json:"test_name"`
-	TestType      string    `json:"test_type"` // database/http/shell/cache/kafka
+	TestType      string    `json:"test_type"` // database/http/shell/cache/queue/delay
 	Status        string    `json:"status"`
 	ResultData    string    `json:"result_data,omitempty"` // JSON string
 	DurationMs    int       `json:"duration_ms,omitempty"`

@@ -6,8 +6,10 @@ import type { ServiceNodeData } from "../types/react-flow-cots";
 import { DockerIcon } from "./logos/DockerIcon";
 import { ApacheKafkaIcon } from "./logos/KafkaIcon";
 import { MariaDBIcon } from "./logos/MariadbIcon";
+import { MongoDBIcon } from "./logos/MongoDBIcon";
 import { MySQLIcon } from "./logos/MysqlIcon";
 import { PostgreSQLIcon } from "./logos/PostgresIcon";
+import { RabbitMQIcon } from "./logos/RabbitMQIcon";
 import { RedisIcon } from "./logos/RedisIcon";
 
 export function ServiceNode(props: NodeProps<ServiceNodeData>) {
@@ -28,6 +30,12 @@ export function ServiceNode(props: NodeProps<ServiceNodeData>) {
       break;
     case "kafka":
       icon = ApacheKafkaIcon;
+      break;
+    case "mongodb":
+      icon = MongoDBIcon;
+      break;
+    case "rabbitmq":
+      icon = RabbitMQIcon;
       break;
     default:
       icon = DockerIcon;

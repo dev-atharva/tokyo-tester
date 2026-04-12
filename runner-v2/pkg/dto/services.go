@@ -20,7 +20,7 @@ type ExecutionContextDTO struct {
 
 type ServiceDTO struct {
 	Name         string            `json:"name" validate:"required,min=1,max=100"`
-	Type         string            `json:"type" validate:"required,oneof=generic postgres mysql mariadb redis memcached kafka"`
+	Type         string            `json:"type" validate:"required,oneof=generic postgres mysql mariadb redis memcached kafka rabbitmq mongodb"`
 	Image        string            `json:"image,omitempty" validate:"required_if=Type generic"`
 	Command      []string          `json:"command,omitempty"`
 	Env          map[string]string `json:"env,omitempty"`
