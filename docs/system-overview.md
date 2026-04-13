@@ -1,85 +1,85 @@
 # Tokyo Tester System Overview
 
-Tokyo Tester is built around one idea: a workflow is a graph of services, and each scenario is a set of tests that runs against that graph.
+Tokyo Tester is built around a simple idea: a workflow is a graph of services, and each scenario is a set of tests that runs against that graph.
 
-This document explains the main flow at a high level, from building the graph in the UI to syncing data, starting a run, provisioning services, and recording results.
+This page walks through the main path through the app, from drawing the workflow to running it and syncing the results back to the database.
 
-## 1. Building Workflows In The UI
+## Building a workflow
 
-The UI is the place where a user creates the workflow definition.
+The UI is where a workflow starts to take shape.
 
-- The workflow builder uses React Flow for the canvas and node editing.
-- Service nodes are added from the drawer and configured through the node config forms.
-- A workflow is stored as:
+- The builder uses React Flow for the canvas.
+- Service nodes are added from the drawer and configured in the node forms.
+- A workflow ends up as:
   - `nodes` and `edges` for the service graph
   - one or more `scenarios`
-  - each scenario containing ordered test definitions
+  - ordered tests inside each scenario
 
-In practice, the user is not editing raw backend objects. They are working with a visual graph, and the app turns that graph into the internal workflow bundle format.
+You are not editing backend structs directly. You are drawing a graph, and the app turns that graph into the internal workflow bundle format behind the scenes.
 
-The sample bundle in [`test-workflow.json`](../test-workflow.json) is a good example of this shape.
+[`test-workflow.json`](../test-workflow.json) is a good place to look if you want to see the shape without clicking around first.
 
-## 2. From Graph To Executable Data
+## Turning the graph into something runnable
 
-Before execution, the app validates the graph and translates it into a service graph.
+Before a run starts, the UI checks the graph and translates it into executable data.
 
-- `validateWorkflowGraph` checks that nodes are connected sensibly and that generic services have an image.
+- `validateWorkflowGraph` makes sure the graph is sane and that generic services have an image.
 - `translateWorkflowGraphToServiceGraph` turns the visual graph into a service dependency graph.
-- `validateScenario` checks that each scenario targets real services and that test dependencies are valid.
-- `translateScenarioToExecutionBundle` narrows the workflow down to the services and tests needed for one scenario.
+- `validateScenario` checks that scenarios target real services and that test dependencies line up.
+- `translateScenarioToExecutionBundle` trims the workflow down to just the services and tests needed for one scenario.
 
-This translation happens in the UI before a run starts, and again in the backend runner when a workflow bundle is executed.
+That translation happens in the UI before the run starts, and again in the runner when a workflow bundle is executed.
 
-## 3. Starting A Run With Inngest
+## What happens when you click run
 
-When the user starts execution, the UI creates a workflow run id, prepares scenario run ids, updates local execution state, and sends an Inngest event:
+When the user starts execution, the UI creates a workflow run id, prepares scenario run ids, updates local state, and sends an Inngest event:
 
 - event name: `cots/workflow.run.start`
 - payload: workflow ids, graph nodes, edges, scenarios, and registry secrets
 
-The Inngest function `cotsWorkFlow` receives that event and orchestrates the full run:
+The `cotsWorkFlow` Inngest function then takes over:
 
-- validate the workflow graph again
-- translate the graph into a service graph
-- execute scenarios with controlled concurrency
-- stream workflow logs and test result events through realtime channels
-- summarize the final result for the workflow run
+- it validates the workflow again
+- it translates the graph into a service graph
+- it runs scenarios with controlled concurrency
+- it streams logs and test results through realtime channels
+- it returns a summary for the overall workflow run
 
-## 4. How Each Scenario Runs
+## How a scenario runs
 
-Each scenario is executed as a separate unit of work.
+Each scenario is handled on its own, so the UI can show progress and failures clearly.
 
 For every scenario, the runtime:
 
 - validates the scenario against the translated service graph
-- translates the scenario into an execution bundle containing only the required services and tests
+- converts it into an execution bundle with only the services and tests it needs
 - calls the runner to provision services
 - emits pending and running test result events
 - calls the runner again to execute the tests
-- publishes final pass/fail test results
+- publishes the final pass/fail results
 - cleans up the backend session when the scenario ends
 
-The scenario lifecycle is intentionally explicit so the UI can show progress, logs, and results as they happen.
+That makes each scenario feel like a small, self-contained run instead of one giant opaque job.
 
-## 5. What The Runner Does
+## What the runner does
 
-The Go runner owns the container lifecycle and the actual test execution.
+The Go runner is responsible for container lifecycle and test execution.
 
-### Service provisioning
+### Provisioning services
 
-The `/services` endpoint provisions the scenario services.
+The `/services` endpoint starts the services for a scenario.
 
 - A shared Docker network is created for the run.
 - Services are sorted by dependency level before provisioning.
 - Each service provider handles its own container setup.
 - Environment values are interpolated right before provisioning so services can reference each other.
-- If a service fails, the runner collects logs to help explain the failure.
+- If something fails, the runner collects logs to make the failure easier to understand.
 
-### Test execution
+### Running tests
 
-The `/tests/{sessionID}` endpoint runs tests against the provisioned services.
+The `/tests/{sessionID}` endpoint runs the tests against those services.
 
-The runner registers multiple executor types:
+The runner knows how to execute a handful of test types:
 
 - `http`
 - `database`
@@ -89,61 +89,60 @@ The runner registers multiple executor types:
 - `queue`
 - `delay`
 
-Tests are also run in dependency order, and failures include container logs where possible.
+Tests run in dependency order, and failures include container logs when the executor can provide them.
 
-### Cleanup
+### Cleaning up
 
-The `/cleanup/{sessionID}` endpoint tears everything down after a scenario finishes.
+The `/cleanup/{sessionID}` endpoint tears everything down after the scenario finishes.
 
 - containers are terminated
 - the Docker network is removed
 - the session is closed
 
-## 6. How Sync Works
+## How sync keeps up with the UI
 
-The UI keeps local state in Zustand stores that are persisted to IndexedDB.
+The UI keeps local state in Zustand stores, and those stores are persisted to IndexedDB.
 
-The sync engine wraps those stores and turns state changes into queued sync operations.
+On top of that, a small sync layer watches for changes and turns them into queued operations.
 
 - store mutations are tracked as `insert`, `update`, or `delete`
 - changes are queued in memory
 - `SyncService` flushes batches to the backend every few seconds
 - the batch endpoint is `POST /api/v1/sync/batch`
 - the backend uses a transaction to upsert workflows, scenarios, workflow runs, sessions, and test results
-- if the server already has a newer version, it records a conflict instead of blindly overwriting data
+- if the server already has a newer version, it records a conflict instead of overwriting it blindly
 
-This gives the app a local-first feel while still keeping the database in sync with what the user is doing in the browser.
+That gives the app a local-first feel while still keeping the database in sync with what the user is doing in the browser.
 
 The backend also exposes a pull path so the UI can hydrate from server state on first load:
 
 - `GET /api/v1/sync/pull/{clientId}`
 
-## 7. Good First Workflow To Try
+## A good first workflow to try
 
-If you want to understand the system quickly, import [`test-workflow.json`](../test-workflow.json) into the UI.
+If you want to see the whole system working together, import [`test-workflow.json`](../test-workflow.json) into the UI.
 
-That example shows:
+That sample shows:
 
 - a service graph with a backend API and PostgreSQL
-- a scenario with HTTP checks
-- a scenario with database assertions
+- an HTTP scenario
+- a database assertion scenario
 - a workflow bundle that can be translated and executed end to end
 
-Before importing it, build the sample API image expected by the bundle:
+Before importing it, build the sample API image the bundle expects:
 
 ```bash
 docker build -t bun-user-api:latest ./test-api
 ```
 
-## 8. Mental Model
+## The short version
 
-The simplest way to think about the project is:
+If you want the 10-second explanation:
 
-- the UI defines the workflow
-- the translator turns the UI graph into executable service and test data
+- the UI is where you draw the workflow
+- the translator turns the graph into executable services and tests
 - Inngest coordinates the run
-- the runner provisions containers and executes tests
-- sync keeps the database aligned with local changes
+- the runner provisions containers and executes the tests
+- sync keeps the database aligned with what changed locally
 
-That separation is what lets the app support both interactive editing and reproducible execution.
-
+That split is what makes the app good for both interactive editing and repeatable execution.

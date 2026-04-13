@@ -1,20 +1,18 @@
 # Tokyo Tester
 
-Tokyo Tester is a local-first end-to-end testing platform for service graphs and their infra dependencies.
+Tokyo Tester is a local-first end-to-end testing tool for service graphs and the infra they depend on.
 
-It lets you define workflows in the UI, runs them through a Go-based runner, and syncs workflows, executions, and test results back into the app.
+You build workflows in the UI, run them through the Go runner, and keep workflows, executions, and test results synced back into the app.
 
-If you want the higher-level architecture walkthrough, see [How the system works](./docs/system-overview.md).
+If you want a higher-level walkthrough of how the pieces fit together, see [How the system works](./docs/system-overview.md).
 
 ## Preview
 
-![Tokyo Tester demo](./Tokyo-tester-demo.gif)
-
-> The preview area is intentionally kept near the top so you can swap in a screenshot, a different recording, or an architecture image later without reshaping the README.
+![Tokyo Tester demo](./docs/Tokyo-tester-demo.gif)
 
 ## Try The Sample Workflow
 
-If you want to understand the product quickly, import [`test-workflow.json`](./test-workflow.json) into the UI.
+If you want to get a feel for the product quickly, import [`test-workflow.json`](./test-workflow.json) into the UI.
 
 Before importing it, build the sample API image the workflow expects:
 
@@ -83,4 +81,4 @@ Common ports:
 ## Notes
 
 - The project is still local/self-hosted by default.
-- A deployed demo is not required to explore the code or understand the workflow.
+- You do not need a deployed demo to explore the code or understand the workflow.
