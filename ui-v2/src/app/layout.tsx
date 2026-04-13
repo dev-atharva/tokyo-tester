@@ -22,6 +22,11 @@ export const metadata: Metadata = {
   title: "Tokyo Tester",
   description:
     "Its is an end to end testing platform for any kind of application or complex system.",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    shortcut: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icon.svg", type: "image/svg+xml" }],
+  },
 };
 
 export default async function RootLayout({

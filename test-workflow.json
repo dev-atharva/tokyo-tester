@@ -1,0 +1,264 @@
+{
+  "schemaVersion": 1,
+  "kind": "cots.workflow-bundle",
+  "workflow": {
+    "name": "Athu Workflow",
+    "description": "",
+    "nodes": [
+      {
+        "id": "generic-1775829664872",
+        "type": "serviceNode",
+        "position": {
+          "x": 75,
+          "y": 225
+        },
+        "selected": false,
+        "dragging": false,
+        "width": 60,
+        "height": 60,
+        "data": {
+          "label": "test-api",
+          "service": {
+            "type": "generic",
+            "image": "bun-user-api:latest",
+            "command": [],
+            "ports": [
+              {
+                "id": "0",
+                "hostPort": "8082",
+                "containerPort": "8081"
+              }
+            ],
+            "env": [
+              {
+                "id": "f6728f63-0a76-48f4-b1c2-a61e77461bf8",
+                "key": "DB_HOST",
+                "value": "${postgresql.host}"
+              },
+              {
+                "id": "e50cdad7-3908-4776-9d8d-efa2791a4356",
+                "key": "DB_PORT",
+                "value": "5432"
+              },
+              {
+                "id": "829698bf-42af-4fc3-a2de-e422e530026d",
+                "key": "DB_USER",
+                "value": "${postgresql.env.POSTGRES_USER}"
+              },
+              {
+                "id": "b970e7ab-3443-43dc-98af-4e7a7fd28557",
+                "key": "DB_PASSWORD",
+                "value": "${postgresql.env.POSTGRES_PASSWORD}"
+              },
+              {
+                "id": "8b26a15d-a7e8-41b1-92ed-cd888e433f95",
+                "key": "DB_NAME",
+                "value": "${postgresql.env.POSTGRES_DB}"
+              }
+            ],
+            "waitStratergy": {
+              "enabled": true,
+              "type": "log",
+              "target": "Test application server listening on",
+              "timeout": 50
+            },
+            "initScripts": []
+          }
+        }
+      },
+      {
+        "id": "postgres-1775829665700",
+        "type": "serviceNode",
+        "position": {
+          "x": 270,
+          "y": 315
+        },
+        "selected": true,
+        "dragging": false,
+        "width": 60,
+        "height": 60,
+        "data": {
+          "label": "PostgreSQL",
+          "service": {
+            "type": "postgres",
+            "image": "",
+            "command": [],
+            "ports": [],
+            "env": [
+              {
+                "id": "1",
+                "key": "POSTGRES_DB",
+                "value": "testdb"
+              },
+              {
+                "id": "2",
+                "key": "POSTGRES_USER",
+                "value": "postgres"
+              },
+              {
+                "id": "3",
+                "key": "POSTGRES_PASSWORD",
+                "value": "postgres"
+              }
+            ],
+            "initScripts": [
+              {
+                "id": "35abe775-48c9-49a0-b7f8-bc442bd72129",
+                "order": 1,
+                "script": "CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, name VARCHAR(50) NOT NULL, email VARCHAR(100) UNIQUE, status VARCHAR(50) NOT NULL, created_at DATE DEFAULT CURRENT_DATE);",
+                "description": "Creating the db table"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "type": "smoothstep",
+        "style": {
+          "strokeWidth": 2,
+          "stroke": "#393028"
+        },
+        "source": "generic-1775829664872",
+        "sourceHandle": "source-1",
+        "target": "postgres-1775829665700",
+        "targetHandle": "target-1",
+        "data": {
+          "dependencyType": "service"
+        },
+        "id": "reactflow__edge-generic-1775829664872source-1-postgres-1775829665700target-1"
+      }
+    ]
+  },
+  "scenarios": [
+    {
+      "name": "Health",
+      "description": "The health check passes.",
+      "tests": [
+        {
+          "id": "211c9941-4e06-4adb-8b0b-e3be04edd929",
+          "name": "test-api  healthy",
+          "type": "http",
+          "targetServices": [
+            "test-api"
+          ],
+          "httpConfig": {
+            "method": "GET",
+            "path": "/health",
+            "port": "8081",
+            "expectedStatus": 200,
+            "expectedBody": {
+              "mode": "contains",
+              "value": "healthy"
+            }
+          }
+        }
+      ],
+      "testOrder": [
+        "211c9941-4e06-4adb-8b0b-e3be04edd929"
+      ]
+    },
+    {
+      "name": "User saved in DB",
+      "description": "The api updates data in db.",
+      "tests": [
+        {
+          "id": "fbbf199d-0bce-44ea-8e95-cd671beedb76",
+          "name": "test-api-create-user-api",
+          "type": "http",
+          "targetServices": [
+            "test-api"
+          ],
+          "httpConfig": {
+            "method": "POST",
+            "path": "/users",
+            "port": "8081",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": "{\n\"name\": \"Atharva\",\n\"email\":\"atharva@athu.com\",\n\"status\":\"inactive\"\n}",
+            "expectedStatus": 200,
+            "expectedBody": {
+              "mode": "contains",
+              "value": "Atharva"
+            }
+          }
+        },
+        {
+          "id": "dc913a68-2c66-4691-94ab-a7778f1f6dee",
+          "name": "data-in-db",
+          "type": "database",
+          "targetServices": [
+            "postgresql"
+          ],
+          "databaseConfig": {
+            "driver": "postgres",
+            "database": "testdb",
+            "user": "postgres",
+            "password": "postgres",
+            "query": "Select name from users where name = 'Atharva';",
+            "expectedResult": {
+              "mode": "single",
+              "value": "Atharva"
+            }
+          },
+          "documentConfig": {
+            "service": "postgresql",
+            "database": "testdb",
+            "collection": "",
+            "operation": "find_one",
+            "filter": {}
+          }
+        },
+        {
+          "id": "2628c607-9d21-48ba-97a5-f9b1111ce7a7",
+          "name": "update-request-is-successful",
+          "type": "http",
+          "targetServices": [
+            "test-api"
+          ],
+          "httpConfig": {
+            "method": "PUT",
+            "path": "/users/1",
+            "port": "8081",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": "{\"status\":\"active\"}",
+            "expectedStatus": 200,
+            "expectedBody": {
+              "mode": "contains",
+              "value": "active"
+            }
+          }
+        },
+        {
+          "id": "9c1367eb-caaf-449c-9a82-19e55aaf65ea",
+          "name": "data-updated-in-db",
+          "type": "database",
+          "targetServices": [
+            "postgresql"
+          ],
+          "databaseConfig": {
+            "driver": "postgres",
+            "database": "testdb",
+            "user": "postgres",
+            "password": "postgres",
+            "query": "Select status from users where name = 'Atharva';",
+            "expectedResult": {
+              "mode": "single",
+              "value": "active"
+            }
+          }
+        }
+      ],
+      "testOrder": [
+        "fbbf199d-0bce-44ea-8e95-cd671beedb76",
+        "dc913a68-2c66-4691-94ab-a7778f1f6dee",
+        "2628c607-9d21-48ba-97a5-f9b1111ce7a7",
+        "9c1367eb-caaf-449c-9a82-19e55aaf65ea"
+      ]
+    }
+  ]
+}

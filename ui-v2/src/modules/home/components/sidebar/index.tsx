@@ -9,6 +9,7 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type React from "react";
+import { TokyoTesterBrand } from "@/components/branding/tokyo-tester-brand";
 import {
   Collapsible,
   CollapsibleContent,
@@ -162,17 +163,9 @@ export const HomeSidebar = ({ userRole }: { userRole: string | null }) => {
       <SidebarHeader className="py-2">
         <SidebarMenu>
           <SidebarMenuItem>
-            <Link
-              className="flex gap-2 justify-center items-center flex-row"
-              href="/"
-            >
-              <span className="text-xl font-semibold group-data-[collapsible=icon]:hidden">
-                Tokyo Tester
-              </span>
+            <Link className="flex items-center" href="/">
+              <TokyoTesterBrand />
             </Link>
-            <span className="italic mt-1 flex w-full justify-center items-center text-xs group-data-[collapsible=icon]:hidden">
-              Testing Platform
-            </span>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>

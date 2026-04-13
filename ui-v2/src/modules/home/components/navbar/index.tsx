@@ -17,11 +17,7 @@ export const Navbar = ({ userName, userEmail, userRole }: NavbarProps) => {
         <SidebarTrigger className="shrink-0 text-muted-foreground hover:text-foreground transition-colors" />
         <ProjectSwitcher />
       </div>
-      <UserMenu
-        userName={userName}
-        userEmail={userEmail}
-        userRole={userRole}
-      />
+      <UserMenu userName={userName} userEmail={userEmail} userRole={userRole} />
     </nav>
   );
 };
