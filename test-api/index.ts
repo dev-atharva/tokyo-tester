@@ -126,11 +126,6 @@ if (inpPort) {
 async function waitForDb(retries = 10, delay = 500) {
   for (let i = 0; i < retries; i++) {
     try {
-      console.log("DB_HOST:", process.env.DB_HOST);
-      console.log("DB_PORT:", process.env.DB_PORT);
-      console.log("DB_USER:", process.env.DB_USER);
-      console.log("DB_PASSWORD:", process.env.DB_PASSWORD);
-      console.log("DB_NAME:", process.env.DB_NAME);
       await sql`SELECT 1`;
       console.log("Database connected");
       return;
