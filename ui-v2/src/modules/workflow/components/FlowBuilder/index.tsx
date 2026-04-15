@@ -35,6 +35,8 @@ import { ServiceNode } from "../ServiceNode";
 import { WorkflowLogsDrawer } from "../WorkflowLogsDrawer";
 import { FlowCanvas } from "./FlowCanvas";
 
+const EXECUTION_POLL_INTERVAL_MS = 3000;
+
 interface FlowBuilderProps {
   workflowId: string;
   onWorkflowStart?: (workflowRunId: string) => void;
@@ -177,6 +179,40 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
       console.log("[FlowBuilder] Test Summary:", summary);
     }
   }, [summary, hasTests]);
+
+  useEffect(() => {
+    if (!activeExecution) {
+      return;
+    }
+
+    const terminalStatuses = new Set(["completed", "failed", "partial_failed"]);
+    if (terminalStatuses.has(activeExecution.status)) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const hydrateExecutionState = async () => {
+      try {
+        const { hydrateFromServer } = await import("@/modules/sync/sync-hydration");
+        if (!cancelled) {
+          await hydrateFromServer();
+        }
+      } catch (error) {
+        console.error("[FlowBuilder] Execution hydration failed:", error);
+      }
+    };
+
+    void hydrateExecutionState();
+    const interval = setInterval(() => {
+      void hydrateExecutionState();
+    }, EXECUTION_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [activeExecution]);
 
   // Inject delete handler into nodes
   useEffect(() => {

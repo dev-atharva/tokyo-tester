@@ -45,8 +45,41 @@ interface HydrationResult {
   error?: string;
 }
 
+type PersistedStoreApi = {
+  persist?: {
+    hasHydrated?: () => boolean;
+    rehydrate?: () => Promise<void> | void;
+  };
+};
+
+async function ensureClientStoresHydrated(): Promise<void> {
+  const stores: PersistedStoreApi[] = [
+    useWorkflowStore,
+    useScenarioStore,
+    useExecutionStore,
+    useScenarioRunStore,
+    useTestResultStore,
+  ];
+
+  await Promise.all(
+    stores.map(async (store) => {
+      const persistApi = store.persist;
+      if (!persistApi?.rehydrate) {
+        return;
+      }
+
+      if (persistApi.hasHydrated?.()) {
+        return;
+      }
+
+      await persistApi.rehydrate();
+    }),
+  );
+}
+
 export async function hydrateFromServer(): Promise<HydrationResult> {
   try {
+    await ensureClientStoresHydrated();
     const pullResponse = await syncService.pull();
 
     const workflowCount = hydrateWorkflows(pullResponse.workflows || []);
@@ -82,7 +115,8 @@ function hydrateWorkflows(workflows: WorkflowData[]): number {
     if (workflow.is_deleted) {
       continue;
     }
-    useWorkflowStore.getState().upsertWorkflowFromSync(deserializeWorkflow(workflow));
+    const deserialized = deserializeWorkflow(workflow);
+    useWorkflowStore.getState().upsertWorkflowFromSync(deserialized);
     count += 1;
   }
   return count;
@@ -143,14 +177,21 @@ function hydrateTestResults(testResults: TestResultData[]): number {
 }
 
 function deserializeWorkflow(data: WorkflowData): Workflow {
+  const nodes = parseJSON<FlowNode[]>(data.nodes_config, []);
+  const edges = parseJSON<FlowEdge[]>(data.edges_config, []);
+  const metadata = parseJSON<{ customTestOrder?: Record<string, string[]> }>(
+    data.metadata,
+    {},
+  );
+
   return {
     id: data.id,
     projectId: data.project_id,
     name: data.name,
     description: data.description ?? "",
-    nodes: parseJSON<FlowNode[]>(data.nodes_config, []),
-    edges: parseJSON<FlowEdge[]>(data.edges_config, []),
-    customTestOrder: {},
+    nodes,
+    edges,
+    customTestOrder: metadata.customTestOrder ?? {},
     version: data.version,
     created_at: data.created_at,
     updated_at: data.updated_at,
@@ -258,6 +299,8 @@ function deserializeTestResult(data: TestResultData): TestResult {
 }
 
 export async function initializeSyncWithHydration(): Promise<void> {
+  await ensureClientStoresHydrated();
+  await syncService.flush().catch(() => undefined);
   await hydrateFromServer().catch(() => undefined);
   syncService.start();
 }

@@ -16,6 +16,9 @@ const PERSISTED_KEYS = [
 const PROJECT_STATE_KEY_PREFIX = "cots_active_project";
 
 export async function clearProjectScopedClientState() {
+  await syncService.flushPending().catch((error) => {
+    console.error("[SyncService] Failed to flush before clearing project state:", error);
+  });
   syncService.clearQueue();
   setCurrentSessionProjectId(null);
   await Promise.all(PERSISTED_KEYS.map((key) => del(key)));
@@ -23,6 +26,12 @@ export async function clearProjectScopedClientState() {
 }
 
 export async function clearUserScopedClientState() {
+  await syncService.flushPending().catch((error) => {
+    console.error("[SyncService] Failed to flush before logout:", error);
+  });
+  syncService.stop();
+  syncService.setEnabled(false);
+  syncService.clearQueue();
   setCurrentSessionUserId(null);
   setCurrentSessionProjectId(null);
 

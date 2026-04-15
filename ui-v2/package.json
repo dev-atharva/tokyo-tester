@@ -9,7 +9,7 @@
     "lint": "biome check",
     "format": "biome format --write",
     "inngest": "npx --ignore-scripts=false inngest-cli@latest dev",
-    "db:migrate": "node --import tsx ./src/db/migrate.ts",
+    "db:migrate": "node ./src/db/migrate.mjs",
     "db:generate": "drizzle-kit generate",
     "test": "bun test"
   },

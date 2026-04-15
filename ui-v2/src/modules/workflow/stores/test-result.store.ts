@@ -92,7 +92,6 @@ export const useTestResultStore = create<TestResultStore>()(
           if (get().testResults[id]) {
             return;
           }
-          trackSync(store, id, "insert");
 
           const testResult: TestResult = addSyncMetadata(result);
 
@@ -112,8 +111,6 @@ export const useTestResultStore = create<TestResultStore>()(
             if (!sessionId || !workflowId || !testName || !testType) {
               return;
             }
-
-            trackSync(store, id, "insert");
 
             set((state) => ({
               testResults: {
@@ -140,8 +137,6 @@ export const useTestResultStore = create<TestResultStore>()(
             }));
             return;
           }
-
-          trackSync(store, id, "update");
 
           set((state) => ({
             testResults: {

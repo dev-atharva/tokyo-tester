@@ -76,7 +76,6 @@ export const useExecutionStore = create<ExecutionStore>()(
         _currentEntityId: null,
 
         startExecution: (projectId, workflowId, workflowRunId, scenarioRunIds) => {
-          trackSync(store, workflowRunId, "insert");
           const execution: WorkflowExecution = addSyncMetadata({
             workflowRunId,
             projectId,
@@ -98,7 +97,6 @@ export const useExecutionStore = create<ExecutionStore>()(
         },
 
         appendLog: (workflowRunId, message) => {
-          trackSync(store, workflowRunId, "update");
           set((state) => {
             const execution = state.executions[workflowRunId];
             if (!execution) {
@@ -124,7 +122,6 @@ export const useExecutionStore = create<ExecutionStore>()(
         },
 
         failExecution: (workflowRunId, error) => {
-          trackSync(store, workflowRunId, "update");
           set((state) => {
             const execution = state.executions[workflowRunId];
             if (!execution) {
@@ -148,7 +145,6 @@ export const useExecutionStore = create<ExecutionStore>()(
         },
 
         updateExecutionStatus: (workflowRunId, status, result) => {
-          trackSync(store, workflowRunId, "update");
           set((state) => {
             const execution = state.executions[workflowRunId];
             if (!execution) {

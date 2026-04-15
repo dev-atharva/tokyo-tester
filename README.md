@@ -2,7 +2,7 @@
 
 Tokyo Tester is a local-first end-to-end testing tool for service graphs and the infra they depend on.
 
-You build workflows in the UI, run them through the Go runner, and keep workflows, executions, and test results synced back into the app.
+You build workflows in the UI, run them through the Go runner, and keep workflow definitions, executions, logs, and test results synced back into the app.
 
 If you want a higher-level walkthrough of how the pieces fit together, see [How the system works](./docs/system-overview.md).
 
@@ -33,14 +33,27 @@ In the workflow list, use **Import Workflow**, then select the file. It gives yo
 - Provision services and dependencies through the runner
 - Execute tests against the running stack
 - Track workflow runs, logs, and results
-- Sync state between the UI and backend
+- Persist workflow definitions locally first, then sync them to the backend
+- Recover execution state from the backend when realtime delivery misses a beat
 
 ## How It Works
 
 - `ui-v2` is the Next.js app for editing workflows, scenarios, and executions
 - `runner-v2` is the Go service that provisions containers, runs tests, and cleans up
 - `docker-compose.yml` wires the UI, runner, Postgres, and Inngest together for local development
-- Sync endpoints keep local UI changes and backend data in step
+- the frontend sync layer persists queued edits locally, flushes them to `POST /api/v1/sync/batch`, and hydrates from `GET /api/v1/sync/pull/{clientId}`
+- Inngest coordinates execution, publishes realtime updates, and also persists workflow run status and logs so production runs can be recovered after reconnects or tab closes
+
+## Production Notes
+
+- `make prod` builds the standalone UI image and runs the production-like stack
+- the UI still uses Bun for app scripts, but database migration runs through `node ./src/db/migrate.mjs` because `better-sqlite3` is a Node-only runtime dependency
+- workflow definitions are synced from the browser, while execution-owned records like workflow runs, scenario runs, and test results are treated as backend-owned during execution
+- if you have an old UI image cached, rebuild the service before retesting production behavior:
+
+```bash
+docker compose build --no-cache ui
+```
 
 ## Getting Started
 

@@ -62,7 +62,7 @@ export function AppShell({
         <SyncProvider
           userId={userId}
           config={{
-            baseUrl: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080",
+            baseUrl: "",
             syncInterval: 3000,
             maxBatchSize: 100,
             enabled: true,

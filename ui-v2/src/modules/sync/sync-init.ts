@@ -10,7 +10,7 @@ export interface SyncConfig {
 
 export function initSync(config: SyncConfig = {}): void {
   const {
-    baseUrl = "http://localhost:8080",
+    baseUrl = "",
     syncInterval = 3000,
     maxBatchSize = 100,
     enabled = true,

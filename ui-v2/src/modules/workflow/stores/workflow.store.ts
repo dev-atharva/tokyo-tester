@@ -1,6 +1,7 @@
 import { del, get, set } from "idb-keyval";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { generateId } from "@/lib/generate-id";
 import type { FlowEdge, FlowNode } from "../types/react-flow-cots";
 
 const indexedDBStorage = {
@@ -52,7 +53,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
       activeWorkflowId: null,
 
       createWorkflow: (name) => {
-        const id = crypto.randomUUID();
+        const id = generateId();
 
         set((state) => ({
           workflows: {

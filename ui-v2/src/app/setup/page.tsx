@@ -4,6 +4,8 @@ import { AuthShell } from "@/modules/auth/components/auth-shell";
 import { SetupForm } from "@/modules/auth/components/setup-form";
 import { isSetupComplete } from "@/modules/auth/server/service";
 
+export const dynamic = "force-dynamic";
+
 export default async function SetupPage() {
   const [session, setupComplete] = await Promise.all([
     auth(),

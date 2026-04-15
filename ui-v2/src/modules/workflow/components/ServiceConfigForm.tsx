@@ -2,6 +2,7 @@
 import { IconPlus, IconTrash } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
+import { generateId } from "@/lib/generate-id";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -195,7 +196,7 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
       serviceType: serviceData.service.type,
       image: serviceData.service.image,
       command: (serviceData.service.command || []).map((cmd) => ({
-        id: crypto.randomUUID(),
+        id: generateId(),
         value: cmd,
       })),
       env: serviceData.service.env || [],
@@ -254,14 +255,14 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
           env: value.env
             ?.filter((e): e is NonNullable<typeof e> => Boolean(e))
             .map((e) => ({
-              id: e.id ?? crypto.randomUUID(),
+              id: e.id ?? generateId(),
               key: e.key ?? "",
               value: e.value ?? "",
             })),
           ports: value.ports
             ?.filter((p): p is NonNullable<typeof p> => Boolean(p))
             .map((p) => ({
-              id: p.id ?? crypto.randomUUID(),
+              id: p.id ?? generateId(),
               hostPort: p.hostPort ?? "",
               containerPort: p.containerPort ?? "",
             })),
@@ -276,7 +277,7 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
           initScripts: value.initScripts
             ?.filter((s): s is NonNullable<typeof s> => Boolean(s))
             .map((s) => ({
-              id: s.id ?? crypto.randomUUID(),
+              id: s.id ?? generateId(),
               order: s.order ?? 0,
               script: s.script ?? "",
               description: s.description,
@@ -297,7 +298,7 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
 
     newPresets.forEach((preset) => {
       appendEnv({
-        id: crypto.randomUUID(),
+        id: generateId(),
         key: preset.key,
         value: preset.value,
       });
@@ -375,7 +376,7 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
               size="sm"
               variant="outline"
               onClick={() =>
-                appendCommand({ id: crypto.randomUUID(), value: "" })
+                appendCommand({ id: generateId(), value: "" })
               }
               className="shadow-sm"
             >
@@ -440,7 +441,7 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
                 size="sm"
                 variant="outline"
                 onClick={() =>
-                  appendEnv({ id: crypto.randomUUID(), key: "", value: "" })
+                  appendEnv({ id: generateId(), key: "", value: "" })
                 }
                 className="shadow-sm"
               >
@@ -519,7 +520,7 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
               variant="outline"
               onClick={() =>
                 appendPort({
-                  id: crypto.randomUUID(),
+                  id: generateId(),
                   hostPort: "",
                   containerPort: "",
                 })
@@ -660,7 +661,7 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
               variant="outline"
               onClick={() =>
                 appendInitScript({
-                  id: crypto.randomUUID(),
+                  id: generateId(),
                   order: initScriptFields.length + 1,
                   script: "",
                   description: "",

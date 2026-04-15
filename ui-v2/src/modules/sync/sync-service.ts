@@ -14,6 +14,9 @@ declare global {
   }
 }
 
+const PERSISTED_SYNC_QUEUE_KEY = "cots_sync_queue";
+const DEFAULT_SYNC_BASE_URL = "";
+
 export class SyncService {
   private _baseUrl: string;
   private syncQueue: FastQueue<SyncChange>;
@@ -24,9 +27,10 @@ export class SyncService {
   private enabled: boolean = true;
   private flushCount: number = 0;
 
-  constructor(baseUrl: string = "http://localhost:8080") {
+  constructor(baseUrl: string = DEFAULT_SYNC_BASE_URL) {
     this._baseUrl = baseUrl;
     this.syncQueue = new FastQueue<SyncChange>(1024);
+    this.restoreQueue();
   }
 
   get baseUrl(): string {
@@ -117,6 +121,7 @@ export class SyncService {
     };
 
     this.syncQueue.enqueue(fullChange);
+    this.persistQueue();
     console.log(
       `[SyncService] Queued: ${change.entity_type}/${change.entity_id} (${change.change_type}) - Queue: ${this.syncQueue.getSize()}`,
     );
@@ -128,6 +133,7 @@ export class SyncService {
     }
 
     const batch = this.syncQueue.dequeueMany(this._maxBatchSize);
+    this.persistQueue();
     if (batch.length === 0) return null;
 
     console.log(`[SyncService] Flushing ${batch.length} changes...`);
@@ -152,9 +158,67 @@ export class SyncService {
     } catch (error) {
       console.error("[SyncService] Failed:", error);
       this.syncQueue.unshiftMany(batch);
+      this.persistQueue();
       console.log(`[SyncService] Re-queued ${batch.length} failed items`);
       return null;
     }
+  }
+
+  async flushPending(maxAttempts: number = 10): Promise<void> {
+    let attempts = 0;
+
+    while (!this.syncQueue.isEmpty() && attempts < maxAttempts) {
+      attempts += 1;
+      const result = await this.flush();
+      if (result === null) {
+        break;
+      }
+    }
+  }
+
+  flushOnPageHide(): boolean {
+    if (
+      !this.enabled ||
+      this.syncQueue.isEmpty() ||
+      typeof window === "undefined" ||
+      typeof navigator === "undefined" ||
+      typeof navigator.sendBeacon !== "function"
+    ) {
+      return false;
+    }
+
+    const batch = this.syncQueue.dequeueMany(this._maxBatchSize);
+    this.persistQueue();
+    if (batch.length === 0) {
+      return false;
+    }
+
+    const userId = getUserId();
+    const projectId = getProjectId();
+    const clientId = getOrCreateClientId();
+    const request: SyncBatchRequest = {
+      user_id: userId,
+      project_id: projectId,
+      client_id: clientId,
+      timestamp: new Date().toISOString(),
+      changes: batch,
+    };
+
+    const payload = JSON.stringify(request);
+    const blob = new Blob([payload], { type: "application/json" });
+    const success = navigator.sendBeacon(
+      `${this._baseUrl}/api/v1/sync/batch`,
+      blob,
+    );
+
+    if (success) {
+      console.log(`[SyncService] Beacon-flushed ${batch.length} changes`);
+      return true;
+    }
+
+    this.syncQueue.unshiftMany(batch);
+    this.persistQueue();
+    return false;
   }
 
   private async sendBatch(changes: SyncChange[]): Promise<SyncBatchResponse> {
@@ -236,6 +300,7 @@ export class SyncService {
 
   clearQueue(): void {
     this.syncQueue.clear();
+    this.persistQueue();
     console.log("[SyncService] Queue cleared");
   }
 
@@ -253,6 +318,50 @@ export class SyncService {
       flushCount: this.flushCount,
       queueSnapshot: this.syncQueue.toArray().slice(0, 10),
     };
+  }
+
+  private restoreQueue(): void {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(PERSISTED_SYNC_QUEUE_KEY);
+      if (!raw) {
+        return;
+      }
+
+      const items = JSON.parse(raw) as SyncChange[];
+      for (const item of items) {
+        this.syncQueue.enqueue(item);
+      }
+
+      console.log(`[SyncService] Restored ${items.length} queued changes`);
+    } catch (error) {
+      console.error("[SyncService] Failed to restore persisted queue:", error);
+      window.localStorage.removeItem(PERSISTED_SYNC_QUEUE_KEY);
+    }
+  }
+
+  private persistQueue(): void {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      const items = this.syncQueue.toArray();
+      if (items.length === 0) {
+        window.localStorage.removeItem(PERSISTED_SYNC_QUEUE_KEY);
+        return;
+      }
+
+      window.localStorage.setItem(
+        PERSISTED_SYNC_QUEUE_KEY,
+        JSON.stringify(items),
+      );
+    } catch (error) {
+      console.error("[SyncService] Failed to persist queue:", error);
+    }
   }
 }
 

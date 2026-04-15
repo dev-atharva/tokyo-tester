@@ -4,6 +4,8 @@ import { AuthShell } from "@/modules/auth/components/auth-shell";
 import { LoginForm } from "@/modules/auth/components/login-form";
 import { isSetupComplete } from "@/modules/auth/server/service";
 
+export const dynamic = "force-dynamic";
+
 export default async function LoginPage({
   searchParams,
 }: {

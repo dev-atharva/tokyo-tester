@@ -1,6 +1,7 @@
 import { del, get, set } from "idb-keyval";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { generateId } from "@/lib/generate-id";
 import {
   addSyncMetadata,
   markAsDeleted,
@@ -83,8 +84,7 @@ export const useScenarioRunStore = create<ScenarioRunStore>()(
           scenarioId,
           scenarioName,
         ) => {
-          const id = crypto.randomUUID();
-          trackSync(store, id, "insert");
+          const id = generateId();
           const scenarioRun: ScenarioRun = addSyncMetadata({
             id,
             projectId,
@@ -109,7 +109,6 @@ export const useScenarioRunStore = create<ScenarioRunStore>()(
         },
 
         appendScenarioLog: (scenarioRunId, message) => {
-          trackSync(store, scenarioRunId, "update");
           set((state) => {
             const run = state.scenarioRuns[scenarioRunId];
             if (!run) {
@@ -131,7 +130,6 @@ export const useScenarioRunStore = create<ScenarioRunStore>()(
         },
 
         updateScenarioRun: (scenarioRunId, updates) => {
-          trackSync(store, scenarioRunId, "update");
           set((state) => {
             const run = state.scenarioRuns[scenarioRunId];
             if (!run) {

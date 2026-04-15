@@ -1,6 +1,7 @@
 import { del, get, set } from "idb-keyval";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { generateId } from "@/lib/generate-id";
 import {
   addSyncMetadata,
   markAsDeleted,
@@ -67,7 +68,7 @@ export const useScenarioStore = create<ScenarioStore>()(
         _currentEntityId: null,
 
         createScenario: (workflowId, name = "New Scenario") => {
-          const id = crypto.randomUUID();
+          const id = generateId();
           const projectId =
             useWorkflowStore.getState().getWorkflow(workflowId)?.projectId ?? "";
           const scenario: Scenario = addSyncMetadata({
@@ -181,17 +182,30 @@ export const useScenarioStore = create<ScenarioStore>()(
         },
 
         upsertScenarioFromSync: (scenario) => {
-          set((state) => ({
-            scenarios: {
-              ...state.scenarios,
-              [scenario.id]: scenario,
-            },
-            activeScenarioIdByWorkflow: {
-              ...state.activeScenarioIdByWorkflow,
-              [scenario.workflowId]:
-                state.activeScenarioIdByWorkflow[scenario.workflowId] ?? scenario.id,
-            },
-          }));
+          set((state) => {
+            const existing = state.scenarios[scenario.id];
+
+            if (
+              existing &&
+              (existing.version > scenario.version ||
+                (existing.version === scenario.version &&
+                  existing.updated_at > scenario.updated_at))
+            ) {
+              return state;
+            }
+
+            return {
+              scenarios: {
+                ...state.scenarios,
+                [scenario.id]: scenario,
+              },
+              activeScenarioIdByWorkflow: {
+                ...state.activeScenarioIdByWorkflow,
+                [scenario.workflowId]:
+                  state.activeScenarioIdByWorkflow[scenario.workflowId] ?? scenario.id,
+              },
+            };
+          });
         },
       }),
       {

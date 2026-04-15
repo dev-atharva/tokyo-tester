@@ -42,8 +42,11 @@ The `cotsWorkFlow` Inngest function then takes over:
 - it validates the workflow again
 - it translates the graph into a service graph
 - it runs scenarios with controlled concurrency
+- it persists workflow run status and logs through the sync API
 - it streams logs and test results through realtime channels
 - it returns a summary for the overall workflow run
+
+That split matters in production. Realtime events are the fast path for a responsive UI, but the database is the durable source of truth for workflow progress, logs, scenario runs, and final results.
 
 ## How a scenario runs
 
@@ -60,6 +63,16 @@ For every scenario, the runtime:
 - cleans up the backend session when the scenario ends
 
 That makes each scenario feel like a small, self-contained run instead of one giant opaque job.
+
+## Who owns which state
+
+Not every record in the system is authored by the same side.
+
+- workflow definitions, graph nodes, edges, and scenarios are edited in the UI first
+- workflow runs, scenario runs, and test results become execution-owned once a run starts
+- Zustand still keeps local state so the UI stays responsive, but execution records are reconciled from the backend instead of being treated as browser-authored truth
+
+That ownership split is what prevents production runs from drifting when realtime delivery is delayed, a tab is backgrounded, or the browser reconnects after missing events.
 
 ## What the runner does
 
@@ -106,8 +119,10 @@ The UI keeps local state in Zustand stores, and those stores are persisted to In
 On top of that, a small sync layer watches for changes and turns them into queued operations.
 
 - store mutations are tracked as `insert`, `update`, or `delete`
-- changes are queued in memory
+- changes are queued and persisted in `localStorage`
 - `SyncService` flushes batches to the backend every few seconds
+- the queue is restored on startup and flushed before server hydration runs
+- the app also attempts an immediate flush when the page is hidden or closed, using `sendBeacon` when available
 - the batch endpoint is `POST /api/v1/sync/batch`
 - the backend uses a transaction to upsert workflows, scenarios, workflow runs, sessions, and test results
 - if the server already has a newer version, it records a conflict instead of overwriting it blindly
@@ -117,6 +132,25 @@ That gives the app a local-first feel while still keeping the database in sync w
 The backend also exposes a pull path so the UI can hydrate from server state on first load:
 
 - `GET /api/v1/sync/pull/{clientId}`
+
+During hydration, the frontend now protects newer workflow and scenario versions from being overwritten by older payloads from the server. That is especially important when a user edits locally, background sync lags for a moment, and then the app rehydrates.
+
+## Realtime in production
+
+In development, the app can feel like realtime alone is enough because everything is close together and long-lived.
+
+In a production build, a few things make that less reliable:
+
+- browser tabs can be suspended or closed at any point
+- websocket or SSE delivery can reconnect after gaps
+- a standalone Next.js build can render and hydrate on a different cadence than the dev server
+
+Because of that, Tokyo Tester now treats realtime as an accelerator, not the only delivery path. Workflow logs and execution progress are persisted, the sync queue survives tab closes, and the workflow screen polls for active runs so the UI can recover even after missed events.
+
+## Runtime notes
+
+- the UI production image runs the app with Bun, but database migration uses a small Node entrypoint because `better-sqlite3` is not supported by Bun
+- DB-backed routes are forced to render dynamically in the production build so auth and workflow pages are not incorrectly treated as static at build time
 
 ## A good first workflow to try
 
@@ -143,6 +177,7 @@ If you want the 10-second explanation:
 - the translator turns the graph into executable services and tests
 - Inngest coordinates the run
 - the runner provisions containers and executes the tests
-- sync keeps the database aligned with what changed locally
+- sync keeps workflow definitions aligned with what changed locally
+- persisted execution state lets the UI recover when realtime updates are missed
 
 That split is what makes the app good for both interactive editing and repeatable execution.

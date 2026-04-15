@@ -6,6 +6,8 @@ import { auth } from "@/auth";
 import { AppShell } from "@/modules/auth/components/app-shell";
 import { listProjectsForUser } from "@/modules/projects/server/service";
 
+export const dynamic = "force-dynamic";
+
 const roboto = Roboto({ subsets: ["latin"], variable: "--font-sans" });
 
 const geistSans = Geist({

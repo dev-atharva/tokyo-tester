@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { generateId } from "@/lib/generate-id";
 import { inngest } from "@/modules/inngest/client";
 import {
   translateWorkflowGraphToServiceGraph,
@@ -135,7 +136,7 @@ export function useWorkflowExecution({
     setIsExecuting(true);
 
     try {
-      const workflowRunId = crypto.randomUUID();
+      const workflowRunId = generateId();
       const scenarioRunIds = scenarios.map((scenario) =>
         startScenarioRun(
           scenario.projectId,

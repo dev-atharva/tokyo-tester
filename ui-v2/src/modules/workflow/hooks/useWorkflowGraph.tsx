@@ -33,11 +33,6 @@ export function useWorkflowGraph(workflowId: string) {
   // Load nodes and edges from workflow when workflow changes
   useEffect(() => {
     if (workflow) {
-      console.log("Loading workflow graph:", {
-        nodes: workflow.nodes.length,
-        edges: workflow.edges.length,
-      });
-
       setNodes(workflow.nodes);
       setEdges(workflow.edges);
     }
@@ -55,11 +50,6 @@ export function useWorkflowGraph(workflowId: string) {
       setEdges(newEdges);
 
       if (workflow) {
-        console.log("Deleting node, updating graph:", {
-          nodes: newNodes.length,
-          edges: newEdges.length,
-        });
-
         updateWorkflowGraph(workflow.id, newNodes, newEdges);
       }
     },
@@ -76,11 +66,6 @@ export function useWorkflowGraph(workflowId: string) {
       setNodes(newNodes);
 
       if (workflow) {
-        console.log("Updating node, saving graph:", {
-          nodes: newNodes.length,
-          edges: edgesRef.current.length,
-        });
-
         updateWorkflowGraph(workflow.id, newNodes, edgesRef.current);
       }
     },
@@ -95,11 +80,6 @@ export function useWorkflowGraph(workflowId: string) {
       setNodes(newNodes);
 
       if (workflow) {
-        console.log("Adding node, saving graph:", {
-          nodes: newNodes.length,
-          edges: edgesRef.current.length,
-        });
-
         updateWorkflowGraph(workflow.id, newNodes, edgesRef.current);
       }
     },
@@ -115,11 +95,6 @@ export function useWorkflowGraph(workflowId: string) {
       setEdges(newEdges);
 
       if (workflow) {
-        console.log("Connecting nodes, saving graph:", {
-          nodes: nodesRef.current.length,
-          edges: newEdges.length,
-        });
-
         updateWorkflowGraph(workflow.id, nodesRef.current, newEdges);
       }
     },

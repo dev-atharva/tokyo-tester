@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { isSetupComplete } from "@/modules/auth/server/service";
 
+export const dynamic = "force-dynamic";
+
 export default async function Page() {
   const [session, setupComplete] = await Promise.all([
     auth(),

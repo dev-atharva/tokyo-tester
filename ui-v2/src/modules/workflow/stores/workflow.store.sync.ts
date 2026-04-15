@@ -1,6 +1,7 @@
 import { del, get, set } from "idb-keyval";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { generateId } from "@/lib/generate-id";
 import {
   addSyncMetadata,
   markAsDeleted,
@@ -77,7 +78,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
         setHydrated: (v) => set({ hydrated: v }),
 
         createWorkflow: (projectId, name, description) => {
-          const id = crypto.randomUUID();
+          const id = generateId();
           const workflow: Workflow = addSyncMetadata({
             id,
             projectId,
@@ -175,12 +176,25 @@ export const useWorkflowStore = create<WorkflowStore>()(
         },
 
         upsertWorkflowFromSync: (workflow) => {
-          set((state) => ({
-            workflows: {
-              ...state.workflows,
-              [workflow.id]: workflow,
-            },
-          }));
+          set((state) => {
+            const existing = state.workflows[workflow.id];
+
+            if (
+              existing &&
+              (existing.version > workflow.version ||
+                (existing.version === workflow.version &&
+                  existing.updated_at > workflow.updated_at))
+            ) {
+              return state;
+            }
+
+            return {
+              workflows: {
+                ...state.workflows,
+                [workflow.id]: workflow,
+              },
+            };
+          });
         },
       }),
 

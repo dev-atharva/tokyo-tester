@@ -15,9 +15,11 @@ import { initializeSyncWithHydration } from "./sync-hydration";
 import {
   checkSyncHealth,
   initSync,
+  stopSync,
   type SyncConfig,
   syncNow,
 } from "./sync-init";
+import { syncService } from "./sync-service";
 
 interface SyncContextValue {
   isInitialized: boolean;
@@ -64,6 +66,8 @@ export function SyncProvider({
 
   useEffect(() => {
     if (!userId || !activeProjectId) {
+      stopSync();
+      syncService.setEnabled(false);
       setInitialized(false);
       setIsHydrating(false);
       return;
@@ -73,7 +77,7 @@ export function SyncProvider({
       try {
         // Initialize sync config
         initSync({
-          baseUrl: config.baseUrl || "http://localhost:8080",
+          baseUrl: config.baseUrl ?? "",
           syncInterval: config.syncInterval || 3000,
           maxBatchSize: config.maxBatchSize || 100,
           enabled: config.enabled !== false,
@@ -94,6 +98,11 @@ export function SyncProvider({
     };
 
     initialize();
+
+    return () => {
+      stopSync();
+      syncService.setEnabled(false);
+    };
   }, [
     checkHealth,
     config.baseUrl,
@@ -119,6 +128,30 @@ export function SyncProvider({
 
     return () => clearInterval(interval);
   }, [isInitialized, statusPollingInterval, checkHealth, userId, activeProjectId]);
+
+  useEffect(() => {
+    if (!isInitialized || !userId || !activeProjectId || typeof document === "undefined" || typeof window === "undefined") {
+      return;
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        void syncNow();
+      }
+    };
+
+    const handlePageHide = () => {
+      syncService.flushOnPageHide();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", handlePageHide);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", handlePageHide);
+    };
+  }, [isInitialized, userId, activeProjectId]);
 
   const forceSync = async () => {
     try {

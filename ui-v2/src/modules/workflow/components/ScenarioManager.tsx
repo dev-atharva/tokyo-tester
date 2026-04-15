@@ -28,6 +28,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
+import { generateId } from "@/lib/generate-id";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -443,7 +444,7 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
                       className="h-7 px-2.5 text-xs shadow-sm"
                       onClick={() => {
                         const newTest: ScenarioTestDefinition = {
-                          id: crypto.randomUUID(),
+                          id: generateId(),
                           name: `Test ${activeScenario.tests.length + 1}`,
                           type: "http",
                           targetServices: [],

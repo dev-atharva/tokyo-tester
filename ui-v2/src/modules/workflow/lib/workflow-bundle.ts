@@ -1,3 +1,4 @@
+import { generateId } from "@/lib/generate-id";
 import {
   translateWorkflowGraphToServiceGraph,
   validateScenario,
@@ -232,12 +233,12 @@ function cloneScenarioForImport(
 ): WorkflowBundleScenario {
   const idMap = new Map<string, string>();
   for (const test of scenario.tests) {
-    idMap.set(test.id, crypto.randomUUID());
+    idMap.set(test.id, generateId());
   }
 
   const tests = scenario.tests.map((test) => {
     const nextTest = cloneValue(test);
-    nextTest.id = idMap.get(test.id) || crypto.randomUUID();
+    nextTest.id = idMap.get(test.id) || generateId();
     nextTest.dependsOnTestIds = (test.dependsOnTestIds || [])
       .map((id) => idMap.get(id))
       .filter((id): id is string => Boolean(id));
@@ -268,7 +269,6 @@ function sanitizeNodesForBundle(nodes: FlowNode[]): FlowNode[] {
     selectable: node.selectable,
     connectable: node.connectable,
     resizing: node.resizing,
-    measured: cloneValue(node.measured),
     width: node.width,
     height: node.height,
     parentId: node.parentId,
@@ -280,8 +280,6 @@ function sanitizeNodesForBundle(nodes: FlowNode[]): FlowNode[] {
     className: node.className,
     ariaLabel: node.ariaLabel,
     focusable: node.focusable,
-    origin: cloneValue(node.origin),
-    handles: cloneValue(node.handles),
     data: {
       label: node.data.label,
       description: node.data.description,

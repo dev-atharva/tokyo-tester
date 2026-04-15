@@ -66,20 +66,21 @@ export function syncMiddleware<T extends object>(
         set(partial as never);
       }
 
-      const nextState = get();
+      const currentState = get();
 
       if (!enabled) return;
+
+      const entityId = getEntityId(currentState);
+      if (!entityId) return;
 
       // Schedule sync to avoid render conflicts
       queueMicrotask(() => {
         try {
-          const entityId = getEntityId(nextState);
-          if (!entityId) return;
-
           const changeType = tracker.consume(entityId);
           if (!changeType) return;
 
-          const data = serializeEntity(nextState, entityId);
+          const latestState = get();
+          const data = serializeEntity(latestState, entityId);
           if (data === null) return;
 
           syncService.queueChange({

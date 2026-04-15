@@ -3,6 +3,8 @@ import { auth } from "@/auth";
 import { Toaster } from "@/components/ui/sonner";
 import { isSetupComplete } from "@/modules/auth/server/service";
 
+export const dynamic = "force-dynamic";
+
 export default async function WorkflowLayout({
   children,
 }: Readonly<{
