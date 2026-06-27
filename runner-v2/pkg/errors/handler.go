@@ -32,13 +32,12 @@ func ResponseWithError(w http.ResponseWriter, err error) {
 			Error: err.Error(),
 			Code:  ErrInternal.String(),
 		}
-
-		logger.Error("request error", "status_code", statusCode, "error_code", response.Code, "error", response.Error)
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(statusCode)
-		json.NewEncoder(w).Encode(response)
 	}
+	logger.Error("request error", "status_code", statusCode, "error_code", response.Code, "error", response.Error)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(response)
 }
 
 func RespondValidationError(w http.ResponseWriter, message string, fieldErrors map[string]string) {

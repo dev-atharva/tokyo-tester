@@ -114,8 +114,10 @@ func (o *Orchestrator) WrapErrorWithLogs(ctx context.Context, err error, service
 
 	if serviceName != "" {
 		logs, logErr := o.GetLogsForService(ctx, serviceName)
-		if logErr != nil {
+		if logErr == nil {
 			enhancedErr.ContainerLogs = logs
+		} else {
+			enhancedErr.ContainerLogs = fmt.Sprintf("Failed to retrieve container logs: %v", logErr)
 		}
 	}
 

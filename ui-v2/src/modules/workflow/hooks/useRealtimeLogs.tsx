@@ -10,14 +10,64 @@ import { useExecutionStore } from "../stores/execution.store.sync";
 import { useScenarioRunStore } from "../stores/scenario-run.store.sync";
 import { useTestResultStore } from "../stores/test-result.store";
 import type {
-  ScenarioTestResultEvent,
   ScenarioRunStatus,
+  ScenarioTestResultEvent,
   WorkflowRunStatus,
 } from "../types/react-flow-cots";
 
 interface UseRealtimeLogsProps {
   onComplete?: (result: unknown) => void;
   onError?: (error: string) => void;
+}
+
+type AggregatedScenarioResult = {
+  scenarioId: string;
+  scenarioName: string;
+  backendSessionId?: string | null;
+  status?: ScenarioRunStatus;
+  success?: boolean;
+  error?: string | null;
+};
+
+type AggregatedWorkflowResult = {
+  status?: WorkflowRunStatus;
+  scenarioResults?: AggregatedScenarioResult[];
+};
+
+function isWorkflowRunStatus(value: unknown): value is WorkflowRunStatus {
+  return (
+    value === "pending" ||
+    value === "running" ||
+    value === "completed" ||
+    value === "failed" ||
+    value === "partial_failed"
+  );
+}
+
+function extractWorkflowError(
+  explicitError: string | undefined,
+  result: unknown,
+): string | undefined {
+  if (explicitError) {
+    return explicitError;
+  }
+  if (!result || typeof result !== "object") {
+    return undefined;
+  }
+
+  const scenarioResults = (result as AggregatedWorkflowResult).scenarioResults;
+  if (!Array.isArray(scenarioResults)) {
+    return undefined;
+  }
+  return scenarioResults
+    .filter((scenario) => scenario.error)
+    .map((scenario) =>
+      scenario.error
+        ? `${scenario.scenarioName || scenario.scenarioId}: ${scenario.error}`
+        : null,
+    )
+    .filter((message): message is string => Boolean(message))
+    .join("\n");
 }
 
 export function useRealtimeLogs({
@@ -32,12 +82,20 @@ export function useRealtimeLogs({
   });
 
   const appendLog = useExecutionStore((state) => state.appendLog);
-  const updateExecutionStatus = useExecutionStore((state) => state.updateExecutionStatus);
+  const updateExecutionStatus = useExecutionStore(
+    (state) => state.updateExecutionStatus,
+  );
   const failExecution = useExecutionStore((state) => state.failExecution);
-  const appendScenarioLog = useScenarioRunStore((state) => state.appendScenarioLog);
-  const updateScenarioRun = useScenarioRunStore((state) => state.updateScenarioRun);
+  const appendScenarioLog = useScenarioRunStore(
+    (state) => state.appendScenarioLog,
+  );
+  const updateScenarioRun = useScenarioRunStore(
+    (state) => state.updateScenarioRun,
+  );
   const scenarioRuns = useScenarioRunStore((state) => state.scenarioRuns);
-  const updateTestResult = useTestResultStore((state) => state.updateTestResult);
+  const updateTestResult = useTestResultStore(
+    (state) => state.updateTestResult,
+  );
 
   const processedEventIds = useRef(new Set<string>());
 
@@ -67,7 +125,8 @@ export function useRealtimeLogs({
 
     if (scenarioId) {
       const scenarioRun = Object.values(scenarioRuns).find(
-        (run) => run.workflowRunId === workflowRunId && run.scenarioId === scenarioId,
+        (run) =>
+          run.workflowRunId === workflowRunId && run.scenarioId === scenarioId,
       );
       if (scenarioRun) {
         let nextStatus: ScenarioRunStatus | undefined;
@@ -97,12 +156,50 @@ export function useRealtimeLogs({
       result &&
       typeof result === "object" &&
       "status" in result &&
-      typeof result.status === "string"
-        ? (result.status as WorkflowRunStatus)
+      isWorkflowRunStatus(result.status)
+        ? result.status
         : undefined;
 
     if (!scenarioId && aggregatedStatus) {
-      updateExecutionStatus(workflowRunId, aggregatedStatus, result);
+      const aggregatedResult =
+        result && typeof result === "object"
+          ? (result as AggregatedWorkflowResult)
+          : undefined;
+      const workflowError = extractWorkflowError(error, result);
+      const aggregatedScenarioResults = aggregatedResult?.scenarioResults;
+
+      if (Array.isArray(aggregatedScenarioResults)) {
+        for (const aggregatedScenario of aggregatedScenarioResults) {
+          const scenarioRun = Object.values(scenarioRuns).find(
+            (run) =>
+              run.workflowRunId === workflowRunId &&
+              run.scenarioId === aggregatedScenario.scenarioId,
+          );
+          if (!scenarioRun) {
+            continue;
+          }
+          updateScenarioRun(scenarioRun.id, {
+            backendSessionId:
+              aggregatedScenario.backendSessionId ||
+              scenarioRun.backendSessionId,
+            status:
+              aggregatedScenario.status ??
+              (aggregatedScenario.success === true
+                ? "completed"
+                : aggregatedScenario.success === false
+                  ? "failed"
+                  : scenarioRun.status),
+            error: aggregatedScenario.error ?? scenarioRun.error,
+          });
+        }
+      }
+
+      updateExecutionStatus(
+        workflowRunId,
+        aggregatedStatus,
+        result,
+        workflowError,
+      );
       if (aggregatedStatus === "completed") {
         onComplete?.(result);
       }
@@ -152,7 +249,8 @@ export function useRealtimeLogs({
     processedEventIds.current.add(bulkId);
 
     const scenarioRun = Object.values(scenarioRuns).find(
-      (run) => run.workflowRunId === workflowRunId && run.scenarioId === scenarioId,
+      (run) =>
+        run.workflowRunId === workflowRunId && run.scenarioId === scenarioId,
     );
     if (scenarioRun) {
       const hasRunning = results.some(
@@ -189,9 +287,15 @@ export function useRealtimeLogs({
       });
     }
 
-    for (const result of [...results].sort((left, right) => left.sequence - right.sequence)) {
+    for (const result of [...results].sort(
+      (left, right) => left.sequence - right.sequence,
+    )) {
       updateTestResult(result.testResultId, {
-        sessionId: backendSessionId || scenarioRun?.backendSessionId || scenarioRun?.id || scenarioId,
+        sessionId:
+          backendSessionId ||
+          scenarioRun?.backendSessionId ||
+          scenarioRun?.id ||
+          scenarioId,
         projectId,
         workflowRunId,
         workflowId,
@@ -200,7 +304,7 @@ export function useRealtimeLogs({
         scenarioName,
         testName: result.testName,
         testType: result.testType || "database",
-        status: result.status as "pending" | "running" | "passed" | "failed",
+        status: result.status,
         resultData: result.resultData ?? null,
         durationMs: result.durationMs ?? 0,
         executedAt: result.executedAt ?? new Date().toISOString(),

@@ -102,6 +102,24 @@ function getBackendError(resultData: unknown): string | null {
   return null;
 }
 
+function renderErrorPanel(title: string, message: string) {
+  return (
+    <div className=" rounded-lg border border-red-50/80 dark:bg-red-950/20 dark:border-red-800/500 p-3">
+      <div className="flex items-start gap-2">
+        <IconCircleX className="size-4 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+        <div className="flex-1 min-w-0 space-y-1">
+          <div className="text-xs font-semibold text-red-900 dark:text-red-200 ">
+            {title}
+          </div>
+          <div className="text-xs text-red-700 dark:text-red-300 leading-relaxed whitespace-pre-wrap">
+            {message}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   workflowId,
   open,
@@ -312,6 +330,11 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                       </div>
                       {statusBadge(selectedExecution.status)}
                     </div>
+                    {selectedExecution.error &&
+                      renderErrorPanel(
+                        "Workflow Error",
+                        selectedExecution.error,
+                      )}
                   </div>
 
                   <ScrollArea className="flex-1 p-4">
@@ -345,6 +368,8 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                             const passedCount = scenarioResults.filter(
                               (r) => r.status === "passed",
                             ).length;
+                            const scenarioError =
+                              scenarioRun.error?.trim() || null;
 
                             const totalCount = scenarioResults.length;
 
@@ -384,18 +409,26 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                                   </div>
 
                                   {totalCount > 0 && (
-                                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                                      <div
-                                        style={{
-                                          width: `${(passedCount / totalCount) * 100}%`,
-                                        }}
-                                        className=" h-full  bg-emerald-500 transition-all duration-300"
-                                      ></div>
-                                      <span className="font-medium text-muted-foreground min-w-15 text-right">
-                                        {passedCount}/{totalCount} passed
-                                      </span>
+                                    <div className="space-y-1">
+                                      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                                        <div
+                                          style={{
+                                            width: `${(passedCount / totalCount) * 100}%`,
+                                          }}
+                                          className=" h-full  bg-emerald-500 transition-all duration-300"
+                                        ></div>
+                                        <span className=" text-xs font-medium text-muted-foreground">
+                                          {passedCount}/{totalCount} passed
+                                        </span>
+                                      </div>
                                     </div>
                                   )}
+
+                                  {scenarioError &&
+                                    renderErrorPanel(
+                                      "Scenario Error",
+                                      scenarioError,
+                                    )}
 
                                   {failedResults.length > 0 && (
                                     <div className="space-y-2 pt-2 border-t">
@@ -404,21 +437,11 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                                       </div>
                                       {failedResults.map(
                                         (failedResult, idx) => (
-                                          <div
-                                            key={idx}
-                                            className="rounded-lg border border-red-200 bg-red-50/80 dark:bg-red-950/20 dark:border-red-800/50 p-3"
-                                          >
-                                            <div className="flex items-start gap-2">
-                                              <IconCircleX className="size-4 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
-                                              <div className="flex-1 min-w-0 space-y-1">
-                                                <div className="text-xs font-semibold text-red-900 dark:text-red-200">
-                                                  {failedResult.testName}
-                                                </div>
-                                                <div className="text-xs text-red-700 dark:text-red-300 leading-relaxed">
-                                                  {failedResult.error}
-                                                </div>
-                                              </div>
-                                            </div>
+                                          <div key={idx}>
+                                            {renderErrorPanel(
+                                              failedResult.testName,
+                                              failedResult.error || "",
+                                            )}
                                           </div>
                                         ),
                                       )}

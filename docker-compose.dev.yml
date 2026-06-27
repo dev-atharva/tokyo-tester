@@ -14,7 +14,7 @@ services:
     volumes:
       - ./runner-v2:/app
       - runner_dev_data:/app/data
-      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:${CONTAINER_DOCKER_SOCKET_PATH:-/var/run/docker.sock}
 
   ui:
     build:
@@ -32,6 +32,8 @@ services:
       AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
       NEXT_PUBLIC_INNGEST_URL: ${NEXT_PUBLIC_INNGEST_URL:-http://localhost:8288}
+    extra_hosts:
+      - "host.docker.internal=host-gateway"
     volumes:
       - ./ui-v2:/app
       - /app/node_modules

@@ -10,11 +10,13 @@ node_modules/
 
 # Compiled API binary
 runner-v2/cots-api
+runner-v2/tmp/
 
 # Local Go caches
 runner-v2/.gocache/
 runner-v2/.gomodcache/
 runner-v2/.env
+.env.docker-socket
 
 # ui db
 ui-v2/data/

@@ -42,6 +42,24 @@ function getBackendError(resultData: unknown): string | null {
   return null;
 }
 
+function renderErrorPanel(title: string, message: string) {
+  return (
+    <div className="mt-3 rounded-lg border border-red-200/80 bg-red-50/80 dark:bg-red-950/20 dark:border-red-800/50 p-3">
+      <div className="flex items-center gap-2">
+        <IconCircleX className="size-4 text-red-600 dark:text-red-400 mt-0.5 shrink-0 " />
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-red-700 dark:text-red-300 ">
+            {title}
+          </div>
+          <div className="text-sm text-red-700 dark:text-red-300 font-medium leading-relaxed whitespace-pre-wrap">
+            {message}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function deriveScenarioStatus(statuses: string[], fallback?: string): string {
   if (statuses.length === 0) {
     return fallback && fallback !== "unknown" ? fallback : "pending";
@@ -193,6 +211,8 @@ export function WorkflowLogsDrawer({
                   </div>
                 )}
               </div>
+              {execution.error &&
+                renderErrorPanel("Workflow Error", execution.error)}
             </section>
 
             <section className="space-y-4">
@@ -214,22 +234,26 @@ export function WorkflowLogsDrawer({
                       results.map((result) => result.status),
                       scenarioRun.status,
                     );
+                    const scenarioError = scenarioRun.error?.trim() || null;
 
                     return (
                       <div
                         key={scenarioRun.id}
                         className="rounded-xl border border-border/60 bg-card shadow-sm hover:shadow-md transition-all duration-200"
                       >
-                        <div className="p-5 pb-4 border-4 bg-muted/20">
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-semibold text-base mb-1.5 truncate">
+                        <div className=" px-5 py-4 border-b bg-muted/20">
+                          <div className="flex items-center justify-between gap-3 mb-1">
+                            <h4 className="font-semibold text-sm truncate">
                               {scenarioRun.scenarioName}
                             </h4>
+                            <div className="shrink-0">
+                              {statusBadge(scenarioStatus)}
+                            </div>
                             <div className=" flex items-center gap-2 text-xs text-muted-foreground">
                               <span className="font-medium">Session:</span>
                               <code className="px-1.5 py-0.5 rounded bg-muted/60 font-mono">
                                 {scenarioRun.backendSessionId
-                                  ? `${scenarioRun.backendSessionId.slice(0, 8)}`
+                                  ? scenarioRun.backendSessionId.slice(0,8)
                                   : "pending"}
                               </code>
                             </div>

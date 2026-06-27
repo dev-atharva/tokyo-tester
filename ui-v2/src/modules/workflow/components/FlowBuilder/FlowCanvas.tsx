@@ -66,7 +66,7 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
     type: "smoothstep",
     style: {
       strokeWidth: 2,
-      stroke: "#393028",
+      stroke: "var(--foreground)",
     },
   };
   return (

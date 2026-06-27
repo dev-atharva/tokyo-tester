@@ -25,7 +25,7 @@ export const testResultChannel = channel("testResult").addTopic(
           testResultId: z.string(),
           testName: z.string(),
           testType: z.string().optional(),
-          status: z.string(),
+          status: z.enum(["pending", "running", "passed", "failed"]),
           resultData: z.unknown().optional(),
           durationMs: z.number().optional(),
           executedAt: z.string().optional(),

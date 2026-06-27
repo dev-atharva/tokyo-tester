@@ -442,6 +442,12 @@ export interface WorkflowLogEvent {
   error?: string;
 }
 
+export type ScenarioTestResultStatus =
+  | "pending"
+  | "running"
+  | "passed"
+  | "failed";
+
 export interface ScenarioTestResultEvent {
   workflowRunId: string;
   projectId: string;
@@ -455,7 +461,7 @@ export interface ScenarioTestResultEvent {
     testResultId: string;
     testName: string;
     testType?: string;
-    status: string;
+    status: ScenarioTestResultStatus;
     resultData?: unknown;
     durationMs?: number;
     executedAt?: string;

@@ -3,6 +3,7 @@ import {
   validateWorkflowGraph,
 } from "@/modules/utils/scenario-translator";
 import type {
+  JsonValue,
   WorkflowResult,
   WorkflowRunInput,
 } from "@/modules/workflow/types/react-flow-cots";
@@ -30,7 +31,9 @@ export const cotsWorkFlow = inngest.createFunction(
 
     const workflowValidation = validateWorkflowGraph(input.nodes, input.edges);
     if (!workflowValidation.valid) {
-      const message = workflowValidation.errors.map((error) => error.message).join(", ");
+      const message = workflowValidation.errors
+        .map((error) => error.message)
+        .join(", ");
       await log(`Workflow validation failed: ${message}`, "failed", {
         stage: "validation",
         error: message,
@@ -60,6 +63,18 @@ export const cotsWorkFlow = inngest.createFunction(
       : summary.passedScenarios > 0
         ? "partial_failed"
         : "failed";
+    const scenarioSnapshots: JsonValue[] = scenarioResults.map((scenario) => ({
+      scenarioId: scenario.scenarioId,
+      scenarioName: scenario.scenarioName,
+      backendSessionId: scenario.backendSessionId ?? null,
+      success: scenario.success,
+      status: scenario.status,
+      error: scenario.error ?? null,
+    }));
+    const workflowError = scenarioResults
+      .filter((scenario) => !scenario.success && scenario.error)
+      .map((scenario) => `${scenario.scenarioName}: ${scenario.error}`)
+      .join("\n");
 
     await log(
       `Workflow run complete: ${summary.passedScenarios}/${summary.totalScenarios} scenarios passed`,
@@ -69,10 +84,16 @@ export const cotsWorkFlow = inngest.createFunction(
         result: {
           ...summary,
           status,
+          success,
+          scenarioResults: scenarioSnapshots,
         },
+        error: workflowError || undefined,
       },
     );
 
-    return toWorkflowResult(workflowRunId, scenarioResults) satisfies WorkflowResult;
+    return toWorkflowResult(
+      workflowRunId,
+      scenarioResults,
+    ) satisfies WorkflowResult;
   },
 );

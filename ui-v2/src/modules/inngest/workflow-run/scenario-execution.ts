@@ -25,7 +25,15 @@ type WorkflowErrorResponse = {
   container_logs?: Record<string, string>;
 };
 
-type ServiceGraph = ReturnType<typeof import("@/modules/utils/scenario-translator").translateWorkflowGraphToServiceGraph>;
+type ServiceGraph = ReturnType<
+  typeof import("@/modules/utils/scenario-translator").translateWorkflowGraphToServiceGraph
+>;
+type ScenarioStage = "validation" | "provision" | "execution";
+
+type ParsedWorkflowError = {
+  message: string;
+  serviceLogs?: Record<string, string>;
+};
 
 function formatContainerLogs(logs?: Record<string, string>) {
   if (!logs || Object.keys(logs).length === 0) {
@@ -35,6 +43,31 @@ function formatContainerLogs(logs?: Record<string, string>) {
   return Object.entries(logs)
     .map(([service, serviceLogs]) => `[${service}]\n${serviceLogs}`)
     .join("\n\n");
+}
+
+function normalizeErrorMessages(message: string) {
+  return message.replace(/^Error:\s*/, "").trim();
+}
+
+function parseWorkflowErrorBody(
+  body: string,
+  fallBackMessgae: string,
+): ParsedWorkflowError {
+  if (!body.trim()) {
+    return { message: fallBackMessgae };
+  }
+
+  try {
+    const errData = JSON.parse(body) as WorkflowErrorResponse;
+    return {
+      message: normalizeErrorMessages(errData.error || fallBackMessgae),
+      serviceLogs: errData.container_logs ?? errData.details,
+    };
+  } catch {
+    return {
+      message: `${fallBackMessgae}: ${body.slice(0, 500)}`,
+    };
+  }
 }
 
 function buildExecutionContext(
@@ -53,6 +86,26 @@ function buildExecutionContext(
   };
 }
 
+async function parseJsonResponse<T>(
+  response: Response,
+  requestLabel: string,
+): Promise<T> {
+  const body = await response.text();
+  if (!body.trim()) {
+    throw new Error(
+      `${requestLabel} returned ${response.status} with an empty body`,
+    );
+  }
+
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    throw new Error(
+      `${requestLabel} returned ${response.status} with a non-JSON body: ${body.slice(0, 500)}`,
+    );
+  }
+}
+
 export async function executeScenario(
   runtime: WorkflowRuntime,
   serviceGraph: ServiceGraph,
@@ -69,12 +122,16 @@ export async function executeScenario(
   const validation = validateScenario(serviceGraph, scenario);
   if (!validation.valid) {
     const error = validation.errors.map((item) => item.message).join(", ");
-    await log(`Scenario "${scenario.name}" failed validation: ${error}`, "failed", {
-      scenarioId: scenario.id,
-      scenarioName: scenario.name,
-      stage: "validation",
-      error,
-    });
+    await log(
+      `Scenario "${scenario.name}" failed validation: ${error}`,
+      "failed",
+      {
+        scenarioId: scenario.id,
+        scenarioName: scenario.name,
+        stage: "validation",
+        error,
+      },
+    );
 
     return {
       scenarioId: scenario.id,
@@ -87,19 +144,24 @@ export async function executeScenario(
 
   const translated = translateScenarioToExecutionBundle(serviceGraph, scenario);
   let backendSessionId: string | undefined;
+  let stage: ScenarioStage = "provision";
 
   try {
-    await log(`Scenario "${scenario.name}" translated service bundle`, "running", {
-      scenarioId: scenario.id,
-      scenarioName: scenario.name,
-      stage: "provision",
-      result: JSON.parse(
-        JSON.stringify({
-          services: translated.services,
-          tests: translated.tests,
-        }),
-      ) as JsonValue,
-    });
+    await log(
+      `Scenario "${scenario.name}" translated service bundle`,
+      "running",
+      {
+        scenarioId: scenario.id,
+        scenarioName: scenario.name,
+        stage: "provision",
+        result: JSON.parse(
+          JSON.stringify({
+            services: translated.services,
+            tests: translated.tests,
+          }),
+        ) as JsonValue,
+      },
+    );
 
     await log(
       `Provisioning ${translated.services.length} services for "${scenario.name}"`,
@@ -125,10 +187,31 @@ export async function executeScenario(
     );
 
     if (!provisionRes.ok) {
-      throw new Error(await provisionRes.text());
+      const body = await provisionRes.text();
+      const { message, serviceLogs } = parseWorkflowErrorBody(
+        body,
+        `POST /services returned ${provisionRes.status}`,
+      );
+
+      if (serviceLogs) {
+        await log(
+          `Scenario "${scenario.name}" captured logs from started services during provisioning:\n${formatContainerLogs(serviceLogs)}`,
+          "failed",
+          {
+            scenarioId: scenario.id,
+            scenarioName: scenario.name,
+            stage: "provision",
+            error: message,
+          },
+        );
+      }
+      throw new Error(message);
     }
 
-    const provisionData: CreateServicesResponse = await provisionRes.json();
+    const provisionData = await parseJsonResponse<CreateServicesResponse>(
+      provisionRes,
+      "POST /services",
+    );
     backendSessionId = provisionData.session_id;
 
     await emitScenarioTestResults(
@@ -176,6 +259,8 @@ export async function executeScenario(
       })),
     );
 
+    stage = "execution";
+
     const testRes = await fetchWithTimeout(
       `${COTS_API_BASE_URL}/tests/${backendSessionId}`,
       {
@@ -191,28 +276,32 @@ export async function executeScenario(
 
     if (!testRes.ok) {
       const body = await testRes.text();
-      let errorMessage = body;
-      try {
-        const errorData = JSON.parse(body) as WorkflowErrorResponse;
-        errorMessage = errorData.error || body;
-        if (errorData.container_logs) {
-          await log(
-            `Scenario "${scenario.name}" failed with container logs:\n${formatContainerLogs(errorData.container_logs)}`,
-            "failed",
-            {
-              scenarioId: scenario.id,
-              scenarioName: scenario.name,
-              backendSessionId,
-              stage: "execution",
-              error: errorMessage,
-            },
-          );
-        }
-      } catch {}
-      throw new Error(errorMessage);
+      const { message, serviceLogs } = parseWorkflowErrorBody(
+        body,
+        `POST /tests/${backendSessionId} returned ${testRes.status}`,
+      );
+
+      if (serviceLogs) {
+        await log(
+          `Scenario "${scenario.name}" failed with container logs: \n${formatContainerLogs(serviceLogs)}`,
+          "failed",
+          {
+            scenarioId: scenario.id,
+            scenarioName: scenario.name,
+            backendSessionId,
+            stage: "execution",
+            error: message,
+          },
+        );
+      }
+      throw new Error(message);
     }
 
-    const testData: RunTestsResponse = await testRes.json();
+    const testData: RunTestsResponse =
+      await parseJsonResponse<RunTestsResponse>(
+        testRes,
+        `POST /tests/${backendSessionId}`,
+      );
 
     await emitScenarioTestResults(
       scenario.id,
@@ -257,7 +346,7 @@ export async function executeScenario(
       scenarioId: scenario.id,
       scenarioName: scenario.name,
       backendSessionId,
-      stage: "execution",
+      stage,
       error: message,
     });
 
@@ -300,13 +389,17 @@ export async function executeScenario(
           cleanupError instanceof Error
             ? cleanupError.message
             : String(cleanupError);
-        await log(`Cleanup for scenario "${scenario.name}" failed: ${message}`, "failed", {
-          scenarioId: scenario.id,
-          scenarioName: scenario.name,
-          backendSessionId,
-          stage: "cleanup",
-          error: message,
-        });
+        await log(
+          `Cleanup for scenario "${scenario.name}" failed: ${message}`,
+          "failed",
+          {
+            scenarioId: scenario.id,
+            scenarioName: scenario.name,
+            backendSessionId,
+            stage: "cleanup",
+            error: message,
+          },
+        );
       }
     }
   }

@@ -59,6 +59,7 @@ interface ExecutionStore {
     workflowRunId: string,
     status: WorkflowRunStatus,
     result?: unknown,
+    error?: string,
   ) => void;
   getExecution: (workflowRunId: string) => WorkflowExecution | null;
   getActiveExecution: () => WorkflowExecution | null;
@@ -75,7 +76,12 @@ export const useExecutionStore = create<ExecutionStore>()(
         activeWorkflowRunId: null,
         _currentEntityId: null,
 
-        startExecution: (projectId, workflowId, workflowRunId, scenarioRunIds) => {
+        startExecution: (
+          projectId,
+          workflowId,
+          workflowRunId,
+          scenarioRunIds,
+        ) => {
           const execution: WorkflowExecution = addSyncMetadata({
             workflowRunId,
             projectId,
@@ -144,7 +150,7 @@ export const useExecutionStore = create<ExecutionStore>()(
           });
         },
 
-        updateExecutionStatus: (workflowRunId, status, result) => {
+        updateExecutionStatus: (workflowRunId, status, result, error) => {
           set((state) => {
             const execution = state.executions[workflowRunId];
             if (!execution) {
@@ -158,6 +164,7 @@ export const useExecutionStore = create<ExecutionStore>()(
                   ...execution,
                   status,
                   result: result ?? execution.result,
+                  error: error ?? execution.error,
                   finishedAt:
                     status === "running" ? execution.finishedAt : Date.now(),
                   version: execution.version + 1,
@@ -168,11 +175,14 @@ export const useExecutionStore = create<ExecutionStore>()(
           });
         },
 
-        getExecution: (workflowRunId) => get().executions[workflowRunId] || null,
+        getExecution: (workflowRunId) =>
+          get().executions[workflowRunId] || null,
 
         getActiveExecution: () => {
           const { activeWorkflowRunId, executions } = get();
-          return activeWorkflowRunId ? executions[activeWorkflowRunId] || null : null;
+          return activeWorkflowRunId
+            ? executions[activeWorkflowRunId] || null
+            : null;
         },
 
         getWorkflowExecutions: (workflowId) =>

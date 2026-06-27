@@ -51,15 +51,15 @@ services:
       DB_TYPE: ${RUNNER_DB_TYPE:-sqlite}
       DB_PATH: /app/data/cots.db
       DATABASE_URL: ${RUNNER_DATABASE_URL:-}
-      DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
-      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+      DOCKER_HOST: ${RUNNER_DOCKER_HOST:-unix:///var/run/docker.sock}
+      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: ${TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE:-/var/run/docker.sock}
       TESTCONTAINERS_HOST_OVERRIDE: ${TESTCONTAINERS_HOST_OVERRIDE:-host.docker.internal}
       JANITOR_ENABLED: ${JANITOR_ENABLED:-false}
     ports:
       - "8080:8080"
     volumes:
       - runner_data:/app/data
-      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:${CONTAINER_DOCKER_SOCKET_PATH:-/var/run/docker.sock}
     depends_on:
       inngest:
         condition: service_started

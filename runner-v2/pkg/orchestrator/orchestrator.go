@@ -41,7 +41,7 @@ func (o *Orchestrator) ProvisionServices(ctx context.Context, services []config.
 	logger.InfoContext(ctx, "creating shared Docker network")
 	dockerNetwork, err := network.New(ctx, network.WithLabels(provider.ResourceLabels(ctx, provider.ResourceTypeNetwork)))
 	if err != nil {
-		return fmt.Errorf("failed to create the docker network ")
+		return fmt.Errorf("failed to create the docker network: %w", err)
 	}
 	o.network = dockerNetwork
 	logger.InfoContext(ctx, "Docker network created", "network_name", dockerNetwork.Name)
