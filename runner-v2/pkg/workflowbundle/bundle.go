@@ -41,13 +41,14 @@ type FlowNodeData struct {
 }
 
 type ServiceNodeData struct {
-	Type          string                `json:"type"`
-	Image         string                `json:"image,omitempty"`
-	Command       []string              `json:"command,omitempty"`
-	Ports         []PortMapping         `json:"ports,omitempty"`
-	Env           []EnvironmentVariable `json:"env,omitempty"`
-	WaitStratergy *WaitStrategyState    `json:"waitStratergy,omitempty"`
-	InitScripts   []InitScript          `json:"initScripts,omitempty"`
+	Type          string                 `json:"type"`
+	Image         string                 `json:"image,omitempty"`
+	Command       []string               `json:"command,omitempty"`
+	Ports         []PortMapping          `json:"ports,omitempty"`
+	Env           []EnvironmentVariable  `json:"env,omitempty"`
+	WaitStratergy *WaitStrategyState     `json:"waitStratergy,omitempty"`
+	InitScripts   []InitScript           `json:"initScripts,omitempty"`
+	Registry      *config.RegistryConfig `json:"registry,omitempty"`
 }
 
 type PortMapping struct {
@@ -404,8 +405,9 @@ func translateServices(nodes []FlowNode, serviceDeps map[string][]string) ([]con
 	for _, node := range nodes {
 		serviceName := SanitizeName(node.Data.Label)
 		cfg := config.ServiceConfig{
-			Name: serviceName,
-			Type: node.Data.Service.Type,
+			Name:     serviceName,
+			Type:     node.Data.Service.Type,
+			Registry: node.Data.Service.Registry,
 		}
 		if cfg.Type == "generic" {
 			cfg.Image = node.Data.Service.Image

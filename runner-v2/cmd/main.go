@@ -85,9 +85,13 @@ func main() {
 		}
 
 		if database != nil {
-			if *runMigrations {
+			if *runMigrations || cfg.WorkflowWorker.Enabled {
 				migrator := db.NewMigrator(database, cfg.Database.Type)
 				if err := migrator.RunMigrations(); err != nil {
+					if cfg.WorkflowWorker.Enabled {
+						log.Error("workflow worker migrations failed", "error", err)
+						os.Exit(1)
+					}
 					log.Warn("failed to run migrations", "error", err)
 				} else {
 					log.Info("Database migrations completed")
@@ -115,32 +119,57 @@ func main() {
 	}
 
 	handler := api.NewHandler(database, cfg.App)
-	router := api.NewRouter(handler, syncHandler, cfg.Telemetry.Enabled)
 	appCtx, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
+	var workflowService *api.WorkflowService
+	if cfg.WorkflowWorker.Enabled {
+		store, ok := database.(db.WorkflowJobStore)
+		if !ok {
+			log.Error("configured database does not support embedded workflow jobs")
+			os.Exit(1)
+		}
+		workflowService, err = api.NewWorkflowService(handler, database, store, cfg.WorkflowWorker)
+		if err != nil {
+			log.Error("failed to initialize workflow worker", "error", err)
+			os.Exit(1)
+		}
+		handler.SetWorkflowService(workflowService)
+	}
+	router := api.NewRouter(handler, syncHandler, cfg.Telemetry.Enabled)
 
 	var janitorService *janitor.Service
-	if cfg.Janitor.Enabled {
+	if cfg.Janitor.Enabled || cfg.WorkflowWorker.Enabled {
 		janitorService, err = janitor.NewService(database, cfg.Janitor)
 		if err != nil {
+			if cfg.WorkflowWorker.Enabled {
+				log.Error("failed to initialize workflow resource cleaner", "error", err)
+				os.Exit(1)
+			}
 			log.Warn("failed to initialize janitor service", "error", err)
 		} else {
+			handler.SetSessionResourceCleaner(janitorService)
 			defer func() {
 				if err := janitorService.Close(); err != nil {
 					log.Warn("failed to close janitor service", "error", err)
 				}
 			}()
-			go janitorService.Run(appCtx)
-			log.Info("Docker janitor started",
-				"startup_sweep", cfg.Janitor.StartupSweep,
-				"interval_sec", cfg.Janitor.IntervalSec,
-				"orphan_ttl_sec", cfg.Janitor.OrphanTTLSec,
-				"mode", cfg.Janitor.Mode,
-				"dry_run", cfg.Janitor.DryRun,
-			)
+			if cfg.Janitor.Enabled {
+				go janitorService.Run(appCtx)
+				log.Info("Docker janitor started",
+					"startup_sweep", cfg.Janitor.StartupSweep,
+					"interval_sec", cfg.Janitor.IntervalSec,
+					"orphan_ttl_sec", cfg.Janitor.OrphanTTLSec,
+					"mode", cfg.Janitor.Mode,
+					"dry_run", cfg.Janitor.DryRun,
+				)
+			}
 		}
 	} else {
 		log.Info("Docker janitor disabled")
+	}
+	if workflowService != nil {
+		workflowService.Start(appCtx)
+		log.Info("embedded workflow worker started", "concurrency", cfg.WorkflowWorker.Concurrency, "scenario_concurrency", cfg.WorkflowWorker.ScenarioConcurrency)
 	}
 
 	server := &http.Server{
@@ -166,6 +195,9 @@ func main() {
 
 	log.Info("Shutting down the server gracefully")
 	appCancel()
+	if workflowService != nil {
+		workflowService.Wait()
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

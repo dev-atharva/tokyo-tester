@@ -1,23 +1,21 @@
 "use client";
 
 import {
-  type WorkflowExecution,
   useExecutionStore,
+  type WorkflowExecution,
 } from "@/modules/workflow/stores/execution.store.sync";
+import { useScenarioStore } from "@/modules/workflow/stores/scenario.store.sync";
 import {
   type ScenarioRun,
   useScenarioRunStore,
 } from "@/modules/workflow/stores/scenario-run.store.sync";
 import {
-  useScenarioStore,
-} from "@/modules/workflow/stores/scenario.store.sync";
-import {
   type TestResult,
   useTestResultStore,
 } from "@/modules/workflow/stores/test-result.store";
 import {
-  type Workflow,
   useWorkflowStore,
+  type Workflow,
 } from "../workflow/stores/workflow.store.sync";
 import type {
   FlowEdge,
@@ -29,7 +27,6 @@ import { syncService } from "./sync-service";
 import type {
   ScenarioData,
   SessionData,
-  SyncPullResponse,
   TestResultData,
   WorkflowData,
   WorkflowRunData,
@@ -84,7 +81,9 @@ export async function hydrateFromServer(): Promise<HydrationResult> {
 
     const workflowCount = hydrateWorkflows(pullResponse.workflows || []);
     const scenarioCount = hydrateScenarios(pullResponse.scenarios || []);
-    const workflowRunCount = hydrateWorkflowRuns(pullResponse.workflow_runs || []);
+    const workflowRunCount = hydrateWorkflowRuns(
+      pullResponse.workflow_runs || [],
+    );
     const scenarioRunCount = hydrateScenarioRuns(pullResponse.sessions || []);
     const testResultCount = hydrateTestResults(pullResponse.test_results || []);
 
@@ -128,7 +127,9 @@ function hydrateScenarios(scenarios: ScenarioData[]): number {
     if (scenario.is_deleted) {
       continue;
     }
-    useScenarioStore.getState().upsertScenarioFromSync(deserializeScenario(scenario));
+    useScenarioStore
+      .getState()
+      .upsertScenarioFromSync(deserializeScenario(scenario));
     count += 1;
   }
   return count;
@@ -220,7 +221,10 @@ function deserializeScenario(data: ScenarioData): Scenario {
 }
 
 function deserializeWorkflowRun(data: WorkflowRunData): WorkflowExecution {
-  const metadata = parseJSON<{ scenario_run_ids?: string[] }>(data.metadata, {});
+  const metadata = parseJSON<{ scenario_run_ids?: string[] }>(
+    data.metadata,
+    {},
+  );
 
   return {
     workflowRunId: data.id,

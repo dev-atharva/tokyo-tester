@@ -54,6 +54,52 @@ type Database interface {
 	Ping(ctx context.Context) error
 }
 
+// WorkflowJobStore is implemented by SQLite-backed databases that support the
+// embedded durable workflow worker. It is intentionally separate from
+// Database so PostgreSQL installations keep working until a distributed queue
+// adapter is introduced.
+type WorkflowJobStore interface {
+	CreateWorkflowJob(ctx context.Context, job *WorkflowJob) (*WorkflowJob, bool, error)
+	EnqueueWorkflowJob(ctx context.Context, job *WorkflowJob, run *WorkflowRun, sessions []*Session) (*WorkflowJob, bool, error)
+	GetWorkflowJob(ctx context.Context, workflowRunID string) (*WorkflowJob, error)
+	ClaimWorkflowJob(ctx context.Context, ownerID string, now time.Time, leaseDuration time.Duration, maxRecoveries int) (*WorkflowJob, error)
+	HeartbeatWorkflowJob(ctx context.Context, jobID, ownerID string, now time.Time, leaseDuration time.Duration) error
+	ReleaseWorkflowJob(ctx context.Context, jobID, ownerID string, now time.Time) error
+	CompleteWorkflowJob(ctx context.Context, jobID, ownerID string, now time.Time) error
+	FailWorkflowJob(ctx context.Context, jobID, ownerID, message string, now time.Time) error
+	AppendWorkflowRunEvent(ctx context.Context, event *WorkflowRunEvent) (*WorkflowRunEvent, error)
+	AppendWorkflowLogEvent(ctx context.Context, event *WorkflowRunEvent, message, scenarioRunID string) (*WorkflowRunEvent, error)
+	ListWorkflowRunEvents(ctx context.Context, workflowRunID string, afterID int64, limit int) ([]WorkflowRunEvent, error)
+	DeleteWorkflowRunEventsBefore(ctx context.Context, cutoff time.Time) error
+}
+
+type WorkflowJob struct {
+	ID                string
+	WorkflowRunID     string
+	ProjectID         string
+	RequestHash       string
+	PayloadCiphertext []byte
+	PayloadNonce      []byte
+	Status            string
+	LeaseOwner        string
+	LeaseExpiresAt    *time.Time
+	HeartbeatAt       *time.Time
+	RecoveryCount     int
+	LastError         string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	StartedAt         *time.Time
+	CompletedAt       *time.Time
+}
+
+type WorkflowRunEvent struct {
+	ID            int64     `json:"id"`
+	WorkflowRunID string    `json:"workflow_run_id"`
+	EventType     string    `json:"event_type"`
+	Payload       string    `json:"payload"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
 type Workflow struct {
 	ID          string    `json:"id"`
 	ProjectID   string    `json:"project_id"`

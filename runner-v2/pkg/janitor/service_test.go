@@ -96,6 +96,31 @@ func (f *fakeDocker) Close() error {
 	return nil
 }
 
+func TestCleanupSessionResourcesRemovesContainersBeforeNetworks(t *testing.T) {
+	docker := &fakeDocker{
+		containers: []containerTypes.Summary{{ID: "container-recovery"}},
+		networks:   []networkTypes.Summary{{ID: "network-recovery"}},
+	}
+	service := &Service{cfg: config.JanitorConfig{}, docker: docker}
+
+	if err := service.CleanupSessionResources(context.Background(), "scenario-run-1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(docker.removedContainers) != 1 || docker.removedContainers[0] != "container-recovery" {
+		t.Fatalf("unexpected removed containers: %v", docker.removedContainers)
+	}
+	if len(docker.removedNetworks) != 1 || docker.removedNetworks[0] != "network-recovery" {
+		t.Fatalf("unexpected removed networks: %v", docker.removedNetworks)
+	}
+}
+
+func TestCleanupSessionResourcesRejectsDryRunRecovery(t *testing.T) {
+	service := &Service{cfg: config.JanitorConfig{DryRun: true}, docker: &fakeDocker{}}
+	if err := service.CleanupSessionResources(context.Background(), "scenario-run-1"); err == nil {
+		t.Fatal("expected dry-run recovery cleanup to fail")
+	}
+}
+
 func TestSweepPreservesActiveLeasedResources(t *testing.T) {
 	now := time.Date(2026, 4, 6, 12, 0, 0, 0, time.UTC)
 	leaseExpires := now.Add(2 * time.Minute)

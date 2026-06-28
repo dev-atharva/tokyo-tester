@@ -2,6 +2,7 @@ package janitor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -249,6 +250,43 @@ func (s *Service) Sweep(ctx context.Context) error {
 	)
 
 	return nil
+}
+
+// CleanupSessionResources removes managed Docker resources for one persisted
+// scenario. Recovery calls this before reprovisioning so resources left by an
+// interrupted runner never overlap with the resumed scenario.
+func (s *Service) CleanupSessionResources(ctx context.Context, sessionID string) error {
+	if s == nil || s.docker == nil || strings.TrimSpace(sessionID) == "" {
+		return nil
+	}
+	if s.cfg.DryRun {
+		return fmt.Errorf("cannot recover session resources while JANITOR_DRY_RUN=true")
+	}
+	labels := filters.NewArgs(
+		filters.Arg("label", provider.LabelManaged+"=true"),
+		filters.Arg("label", provider.LabelSessionID+"="+sessionID),
+	)
+	containers, err := s.docker.ContainerList(ctx, containerTypes.ListOptions{All: true, Filters: labels})
+	if err != nil {
+		return fmt.Errorf("list session containers: %w", err)
+	}
+	var cleanupErrors []error
+	for _, container := range containers {
+		if err := s.docker.ContainerRemove(ctx, container.ID, containerTypes.RemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("remove container %s: %w", container.ID, err))
+		}
+	}
+	networks, err := s.docker.NetworkList(ctx, networkTypes.ListOptions{Filters: labels})
+	if err != nil {
+		cleanupErrors = append(cleanupErrors, fmt.Errorf("list session networks: %w", err))
+	} else {
+		for _, network := range networks {
+			if err := s.docker.NetworkRemove(ctx, network.ID); err != nil {
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("remove network %s: %w", network.ID, err))
+			}
+		}
+	}
+	return errors.Join(cleanupErrors...)
 }
 
 func (s *Service) classifyContainer(ctx context.Context, container containerTypes.Summary, now time.Time, lookupCache map[string]sessionLookupResult) (containerDecision, bool, error) {

@@ -40,9 +40,9 @@ In the workflow list, use **Import Workflow**, then select the file. It gives yo
 
 - `ui-v2` is the Next.js app for editing workflows, scenarios, and executions
 - `runner-v2` is the Go service that provisions containers, runs tests, and cleans up
-- `docker-compose.yml` wires the UI, runner, Postgres, and Inngest together for local development
+- `docker-compose.yml` wires the UI and runner together with separate SQLite volumes
 - the frontend sync layer persists queued edits locally, flushes them to `POST /api/v1/sync/batch`, and hydrates from `GET /api/v1/sync/pull/{clientId}`
-- Inngest coordinates execution, publishes realtime updates, and also persists workflow run status and logs so production runs can be recovered after reconnects or tab closes
+- the runner's embedded SQLite worker coordinates execution, persists checkpoints, and streams replayable SSE updates to the UI
 
 ## Production Notes
 
@@ -63,13 +63,15 @@ The easiest way to run everything locally is with Docker:
 make dev
 ```
 
-That starts the dev stack with the UI, runner, and supporting services.
+That starts the dev stack with the UI and runner.
 
 Useful commands:
 
 ```bash
 make prod
+make check
 make down
+make reset # also deletes local database volumes
 ```
 
 If you want to run pieces manually, the main environment values live in [`.env.example`](./.env.example).
@@ -77,15 +79,14 @@ If you want to run pieces manually, the main environment values live in [`.env.e
 Common ports:
 
 - UI: `http://localhost:3000`
-- Runner API: `http://localhost:8080`
-- Inngest dev server: `http://localhost:8288`
+- Runner API when using the host-runner development fallback: `http://localhost:8080`
 
 ## Built With
 
 - Next.js
 - React
 - Zustand
-- Inngest
+- SQLite durable worker
 - Go
 - Chi
 - Docker

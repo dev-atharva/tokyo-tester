@@ -154,6 +154,15 @@ export class SyncService {
         );
       }
 
+      if (!response.success || (response.errors?.length ?? 0) > 0) {
+        this.syncQueue.unshiftMany(batch);
+        this.persistQueue();
+        console.warn(
+          `[SyncService] Re-queued ${batch.length} changes because the server rolled back the batch`,
+        );
+        return null;
+      }
+
       return response;
     } catch (error) {
       console.error("[SyncService] Failed:", error);

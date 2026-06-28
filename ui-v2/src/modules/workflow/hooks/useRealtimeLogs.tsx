@@ -1,18 +1,20 @@
 "use client";
 
-import { useInngestSubscription } from "@inngest/realtime/hooks";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  fetchLogsRealtimeSubscriptionToken,
-  fetchTestResultRealtimeSubscriptionToken,
-} from "@/modules/utils/get-subscribe-token";
+  type AggregatedWorkflowResult,
+  buildWorkflowEventsUrl,
+  extractWorkflowError,
+  isWorkflowRunStatus,
+  resolveScenarioLogStatus,
+  resolveScenarioTestStatus,
+} from "../lib/realtime-events";
 import { useExecutionStore } from "../stores/execution.store.sync";
 import { useScenarioRunStore } from "../stores/scenario-run.store.sync";
 import { useTestResultStore } from "../stores/test-result.store";
 import type {
-  ScenarioRunStatus,
   ScenarioTestResultEvent,
-  WorkflowRunStatus,
+  WorkflowLogEvent,
 } from "../types/react-flow-cots";
 
 interface UseRealtimeLogsProps {
@@ -20,68 +22,19 @@ interface UseRealtimeLogsProps {
   onError?: (error: string) => void;
 }
 
-type AggregatedScenarioResult = {
-  scenarioId: string;
-  scenarioName: string;
-  backendSessionId?: string | null;
-  status?: ScenarioRunStatus;
-  success?: boolean;
-  error?: string | null;
-};
-
-type AggregatedWorkflowResult = {
-  status?: WorkflowRunStatus;
-  scenarioResults?: AggregatedScenarioResult[];
-};
-
-function isWorkflowRunStatus(value: unknown): value is WorkflowRunStatus {
-  return (
-    value === "pending" ||
-    value === "running" ||
-    value === "completed" ||
-    value === "failed" ||
-    value === "partial_failed"
-  );
-}
-
-function extractWorkflowError(
-  explicitError: string | undefined,
-  result: unknown,
-): string | undefined {
-  if (explicitError) {
-    return explicitError;
-  }
-  if (!result || typeof result !== "object") {
-    return undefined;
-  }
-
-  const scenarioResults = (result as AggregatedWorkflowResult).scenarioResults;
-  if (!Array.isArray(scenarioResults)) {
-    return undefined;
-  }
-  return scenarioResults
-    .filter((scenario) => scenario.error)
-    .map((scenario) =>
-      scenario.error
-        ? `${scenario.scenarioName || scenario.scenarioId}: ${scenario.error}`
-        : null,
-    )
-    .filter((message): message is string => Boolean(message))
-    .join("\n");
-}
-
 export function useRealtimeLogs({
   onComplete,
   onError,
 }: UseRealtimeLogsProps = {}) {
-  const { latestData: latestLogData } = useInngestSubscription({
-    refreshToken: fetchLogsRealtimeSubscriptionToken,
-  });
-  const { latestData: latestResultData } = useInngestSubscription({
-    refreshToken: fetchTestResultRealtimeSubscriptionToken,
-  });
-
   const appendLog = useExecutionStore((state) => state.appendLog);
+  const activeWorkflowRunId = useExecutionStore(
+    (state) => state.activeWorkflowRunId,
+  );
+  const activeExecution = useExecutionStore((state) =>
+    state.activeWorkflowRunId
+      ? state.executions[state.activeWorkflowRunId]
+      : undefined,
+  );
   const updateExecutionStatus = useExecutionStore(
     (state) => state.updateExecutionStatus,
   );
@@ -98,6 +51,87 @@ export function useRealtimeLogs({
   );
 
   const processedEventIds = useRef(new Set<string>());
+  const processedRunId = useRef<string | null>(null);
+  const [runnerLogQueue, setRunnerLogQueue] = useState<
+    Array<{
+      topic: "workflowlog";
+      data: WorkflowLogEvent;
+      eventId: string;
+    }>
+  >([]);
+  const [runnerResultQueue, setRunnerResultQueue] = useState<
+    Array<{
+      topic: "testresult";
+      data: ScenarioTestResultEvent;
+      eventId: string;
+    }>
+  >([]);
+  const [runnerConnected, setRunnerConnected] = useState(false);
+  const activeExecutionStatus = activeExecution?.status;
+  const activeProjectId = activeExecution?.projectId;
+  const updateReplayCursor = useExecutionStore(
+    (state) => state.updateReplayCursor,
+  );
+
+  const latestLogData = runnerLogQueue[0] ?? null;
+  const latestResultData = runnerResultQueue[0] ?? null;
+
+  useEffect(() => {
+    if (processedRunId.current === activeWorkflowRunId) return;
+    processedRunId.current = activeWorkflowRunId;
+    processedEventIds.current.clear();
+    setRunnerLogQueue([]);
+    setRunnerResultQueue([]);
+  }, [activeWorkflowRunId]);
+
+  useEffect(() => {
+    if (
+      !activeWorkflowRunId ||
+      !activeProjectId ||
+      (activeExecutionStatus !== "pending" &&
+        activeExecutionStatus !== "running")
+    ) {
+      setRunnerConnected(false);
+      return;
+    }
+
+    const cursor =
+      useExecutionStore.getState().executions[activeWorkflowRunId]?.lastEventId;
+    const source = new EventSource(
+      buildWorkflowEventsUrl(activeWorkflowRunId, activeProjectId, cursor),
+    );
+    source.onopen = () => setRunnerConnected(true);
+    source.onerror = () => setRunnerConnected(false);
+    source.addEventListener("workflowlog", (event) => {
+      try {
+        setRunnerLogQueue((queued) => [
+          ...queued,
+          {
+            topic: "workflowlog",
+            data: JSON.parse(event.data) as WorkflowLogEvent,
+            eventId: event.lastEventId,
+          },
+        ]);
+      } catch (error) {
+        console.error("Failed to parse runner workflow event", error);
+      }
+    });
+    source.addEventListener("testresult", (event) => {
+      try {
+        setRunnerResultQueue((queued) => [
+          ...queued,
+          {
+            topic: "testresult",
+            data: JSON.parse(event.data) as ScenarioTestResultEvent,
+            eventId: event.lastEventId,
+          },
+        ]);
+      } catch (error) {
+        console.error("Failed to parse runner test result event", error);
+      }
+    });
+    return () => source.close();
+  }, [activeExecutionStatus, activeProjectId, activeWorkflowRunId]);
 
   useEffect(() => {
     if (!latestLogData || latestLogData.topic !== "workflowlog") {
@@ -117,9 +151,13 @@ export function useRealtimeLogs({
     } = latestLogData.data;
     const eventId = `workflowlog:${workflowRunId}:${scenarioId || "workflow"}:${timestamp}:${sequence}`;
     if (processedEventIds.current.has(eventId)) {
+      setRunnerLogQueue((queued) => queued.slice(1));
       return;
     }
     processedEventIds.current.add(eventId);
+    if (latestLogData.eventId) {
+      updateReplayCursor(workflowRunId, latestLogData.eventId);
+    }
 
     appendLog(workflowRunId, message);
 
@@ -129,23 +167,10 @@ export function useRealtimeLogs({
           run.workflowRunId === workflowRunId && run.scenarioId === scenarioId,
       );
       if (scenarioRun) {
-        let nextStatus: ScenarioRunStatus | undefined;
-
-        if (status === "failed") {
-          nextStatus = "failed";
-        } else if (status === "completed") {
-          nextStatus = "completed";
-        } else if (
-          scenarioRun.status !== "completed" &&
-          scenarioRun.status !== "failed"
-        ) {
-          nextStatus = "running";
-        }
-
         appendScenarioLog(scenarioRun.id, message);
         updateScenarioRun(scenarioRun.id, {
           backendSessionId,
-          status: nextStatus,
+          status: resolveScenarioLogStatus(scenarioRun.status, status),
           error: error ?? scenarioRun.error,
         });
       }
@@ -202,8 +227,18 @@ export function useRealtimeLogs({
       );
       if (aggregatedStatus === "completed") {
         onComplete?.(result);
+      } else if (
+        aggregatedStatus === "failed" ||
+        aggregatedStatus === "partial_failed"
+      ) {
+        onError?.(workflowError ?? "Workflow execution failed");
       }
+      setRunnerLogQueue((queued) => queued.slice(1));
       return;
+    }
+
+    if (status === "running" && !scenarioId) {
+      updateExecutionStatus(workflowRunId, "running");
     }
 
     if (status === "completed") {
@@ -215,6 +250,7 @@ export function useRealtimeLogs({
       failExecution(workflowRunId, error ?? "Workflow execution failed");
       onError?.(error ?? "Workflow execution failed");
     }
+    setRunnerLogQueue((queued) => queued.slice(1));
   }, [
     latestLogData,
     appendLog,
@@ -225,6 +261,7 @@ export function useRealtimeLogs({
     onComplete,
     failExecution,
     onError,
+    updateReplayCursor,
   ]);
 
   useEffect(() => {
@@ -244,46 +281,22 @@ export function useRealtimeLogs({
     } = latestResultData.data;
 
     if (processedEventIds.current.has(bulkId)) {
+      setRunnerResultQueue((queued) => queued.slice(1));
       return;
     }
     processedEventIds.current.add(bulkId);
+    if (latestResultData.eventId) {
+      updateReplayCursor(workflowRunId, latestResultData.eventId);
+    }
 
     const scenarioRun = Object.values(scenarioRuns).find(
       (run) =>
         run.workflowRunId === workflowRunId && run.scenarioId === scenarioId,
     );
     if (scenarioRun) {
-      const hasRunning = results.some(
-        (result: ScenarioTestResultEvent["results"][number]) =>
-          result.status === "running" || result.status === "pending",
-      );
-      const hasFailed = results.some(
-        (result: ScenarioTestResultEvent["results"][number]) =>
-          result.status === "failed",
-      );
-      const hasPassed =
-        results.length > 0 &&
-        results.every(
-          (result: ScenarioTestResultEvent["results"][number]) =>
-            result.status === "passed",
-        );
-
-      let nextScenarioStatus = scenarioRun.status;
-      if (hasFailed) {
-        nextScenarioStatus = "failed";
-      } else if (hasPassed) {
-        nextScenarioStatus = "completed";
-      } else if (
-        hasRunning &&
-        scenarioRun.status !== "completed" &&
-        scenarioRun.status !== "failed"
-      ) {
-        nextScenarioStatus = "running";
-      }
-
       updateScenarioRun(scenarioRun.id, {
         backendSessionId,
-        status: nextScenarioStatus,
+        status: resolveScenarioTestStatus(scenarioRun.status, results),
       });
     }
 
@@ -311,9 +324,16 @@ export function useRealtimeLogs({
         containerLogs: result.containerLogs,
       });
     }
-  }, [latestResultData, updateScenarioRun, scenarioRuns, updateTestResult]);
+    setRunnerResultQueue((queued) => queued.slice(1));
+  }, [
+    latestResultData,
+    updateScenarioRun,
+    scenarioRuns,
+    updateTestResult,
+    updateReplayCursor,
+  ]);
 
   return {
-    isConnected: !!(latestLogData && latestResultData),
+    isConnected: runnerConnected,
   };
 }

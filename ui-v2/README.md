@@ -19,8 +19,6 @@ DB_PATH=./data/tokyo-tester-auth.db
 
 AUTH_SECRET=replace-with-a-long-random-secret
 AUTH_TRUST_HOST=true
-NEXT_PUBLIC_API_URL=http://localhost:8080
-NEXT_PUBLIC_INNGEST_URL=http://localhost:8288
 ```
 
 3. Run the auth/database migration:
