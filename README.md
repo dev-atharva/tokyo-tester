@@ -27,6 +27,14 @@ In the workflow list, use **Import Workflow**, then select the file. It gives yo
 - HTTP and database tests
 - scenarios that show how runs are organized
 
+For a substantially deeper exercise, build the fixture image with `make test-api-build` and
+import [`test-payment-platform.json`](./test-payment-platform.json). It covers every supported
+provider and test executor through an asynchronous payment-settlement flow. The companion
+[`test-payment-resilience.json`](./test-payment-resilience.json) deliberately finishes with
+partial failures so logs, continuation, provisioning errors, and cleanup can be inspected.
+The full matrix is intentionally opt-in through `make test-complex-e2e` because it can use
+4–6 GB of Docker memory and requires several large image downloads.
+
 ## What It Does
 
 - Build workflow graphs in the UI

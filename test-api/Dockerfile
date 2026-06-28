@@ -1,4 +1,4 @@
-FROM oven/bun:latest
+FROM oven/bun:1.3.1
 
 WORKDIR /app
 
@@ -10,4 +10,4 @@ COPY . .
 
 EXPOSE 8081
 
-CMD ["bun","run","index.ts"]
+CMD ["bun", "run", "start"]

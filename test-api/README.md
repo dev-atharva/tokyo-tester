@@ -1,15 +1,39 @@
-# test-api
+# Tokyo Tester fixture application
 
-To install dependencies:
+This image contains several deterministic application roles used by the sample workflow bundles.
+
+## Roles
+
+- No `APP_ROLE`: the backward-compatible PostgreSQL user API on port `8081`.
+- `payment-api`: payment orchestration HTTP API on port `8080`.
+- `settlement-worker`: RabbitMQ consumer that settles payments and emits Kafka events.
+- `fault-lab`: deterministic status and delay endpoints used by the resilience bundle.
+- `crash-on-start`: exits with code 42 to test provisioning diagnostics.
+
+Build both supported image tags from the repository root:
 
 ```bash
-bun install
+make test-api-build
 ```
 
-To run:
+Then import either [`test-payment-platform.json`](../test-payment-platform.json) or
+[`test-payment-resilience.json`](../test-payment-resilience.json) in the Tokyo Tester UI.
+
+The passing fixture provisions up to ten containers and can require 4–6 GB of Docker memory.
+The first run also downloads PostgreSQL, MySQL, MariaDB, Redis, Memcached, MongoDB, RabbitMQ,
+Kafka, and the fixture image. Run the complete automated matrix explicitly with:
 
 ```bash
-bun run index.ts
+make test-complex-e2e
 ```
 
-This project was created using `bun init` in bun v1.3.1. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+Unit tests and type checking remain lightweight:
+
+```bash
+cd test-api
+bun run typecheck
+bun test
+```
+
+All credentials in the bundles are deterministic fixture-only values and must not be reused
+outside local testing.

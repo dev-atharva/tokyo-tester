@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 1,
+  "kind": "cots.workflow-bundle",
+  "workflow": {
+    "name": "Complex Payment Platform",
+    "description": "Full provider-matrix fixture covering a payment API, asynchronous settlement, durable state, caches, audit history, and messaging.",
+    "nodes": [
+      {
+        "id": "payment-api-node",
+        "type": "serviceNode",
+        "position": { "x": 40, "y": 260 },
+        "data": {
+          "label": "payment_api",
+          "service": {
+            "type": "generic",
+            "image": "tokyo-test-api:latest",
+            "ports": [{ "id": "payment-http", "hostPort": "", "containerPort": "8080" }],
+            "env": [
+              { "id": "pa-role", "key": "APP_ROLE", "value": "payment-api" },
+              { "id": "pa-port", "key": "PORT", "value": "8080" },
+              { "id": "pa-pg-host", "key": "POSTGRES_HOST", "value": "${ledger_postgres.host}" },
+              { "id": "pa-pg-port", "key": "POSTGRES_PORT", "value": "5432" },
+              { "id": "pa-pg-db", "key": "POSTGRES_DB", "value": "payments" },
+              { "id": "pa-pg-user", "key": "POSTGRES_USER", "value": "payments" },
+              { "id": "pa-pg-pass", "key": "POSTGRES_PASSWORD", "value": "payments" },
+              { "id": "pa-my-host", "key": "MYSQL_HOST", "value": "${merchant_mysql.host}" },
+              { "id": "pa-my-port", "key": "MYSQL_PORT", "value": "3306" },
+              { "id": "pa-my-db", "key": "MYSQL_DB", "value": "merchants" },
+              { "id": "pa-my-user", "key": "MYSQL_USER", "value": "payments" },
+              { "id": "pa-my-pass", "key": "MYSQL_PASSWORD", "value": "payments" },
+              { "id": "pa-ma-host", "key": "MARIA_HOST", "value": "${risk_mariadb.host}" },
+              { "id": "pa-ma-port", "key": "MARIA_PORT", "value": "3306" },
+              { "id": "pa-ma-db", "key": "MARIA_DB", "value": "risk" },
+              { "id": "pa-ma-user", "key": "MARIA_USER", "value": "payments" },
+              { "id": "pa-ma-pass", "key": "MARIA_PASSWORD", "value": "payments" },
+              { "id": "pa-red-host", "key": "REDIS_HOST", "value": "${redis_cache.host}" },
+              { "id": "pa-red-port", "key": "REDIS_PORT", "value": "6379" },
+              { "id": "pa-mem", "key": "MEMCACHED_SERVERS", "value": "${memcached_cache.host}:11211" },
+              { "id": "pa-mongo", "key": "MONGODB_URI", "value": "mongodb://audit:audit@${audit_mongodb.host}:27017/?authSource=admin" },
+              { "id": "pa-mongo-db", "key": "MONGODB_DATABASE", "value": "payments_audit" },
+              { "id": "pa-rabbit", "key": "RABBITMQ_URL", "value": "amqp://payments:payments@${settlement_rabbitmq.host}:5672/" },
+              { "id": "pa-rabbit-q", "key": "RABBITMQ_QUEUE", "value": "payment.settlement" },
+              { "id": "pa-kafka", "key": "KAFKA_BROKERS", "value": "${events_kafka.host}:9092" },
+              { "id": "pa-kafka-topic", "key": "KAFKA_TOPIC", "value": "payment.settled" }
+            ],
+            "waitStratergy": { "enabled": true, "type": "log", "target": "payment api ready", "timeout": 120 },
+            "initScripts": []
+          }
+        }
+      },
+      {
+        "id": "settlement-worker-node",
+        "type": "serviceNode",
+        "position": { "x": 240, "y": 260 },
+        "data": {
+          "label": "settlement_worker",
+          "service": {
+            "type": "generic",
+            "image": "tokyo-test-api:latest",
+            "ports": [],
+            "env": [
+              { "id": "sw-role", "key": "APP_ROLE", "value": "settlement-worker" },
+              { "id": "sw-pg-host", "key": "POSTGRES_HOST", "value": "${ledger_postgres.host}" },
+              { "id": "sw-pg-port", "key": "POSTGRES_PORT", "value": "5432" },
+              { "id": "sw-pg-db", "key": "POSTGRES_DB", "value": "payments" },
+              { "id": "sw-pg-user", "key": "POSTGRES_USER", "value": "payments" },
+              { "id": "sw-pg-pass", "key": "POSTGRES_PASSWORD", "value": "payments" },
+              { "id": "sw-my-host", "key": "MYSQL_HOST", "value": "${merchant_mysql.host}" },
+              { "id": "sw-my-port", "key": "MYSQL_PORT", "value": "3306" },
+              { "id": "sw-my-db", "key": "MYSQL_DB", "value": "merchants" },
+              { "id": "sw-my-user", "key": "MYSQL_USER", "value": "payments" },
+              { "id": "sw-my-pass", "key": "MYSQL_PASSWORD", "value": "payments" },
+              { "id": "sw-ma-host", "key": "MARIA_HOST", "value": "${risk_mariadb.host}" },
+              { "id": "sw-ma-port", "key": "MARIA_PORT", "value": "3306" },
+              { "id": "sw-ma-db", "key": "MARIA_DB", "value": "risk" },
+              { "id": "sw-ma-user", "key": "MARIA_USER", "value": "payments" },
+              { "id": "sw-ma-pass", "key": "MARIA_PASSWORD", "value": "payments" },
+              { "id": "sw-red-host", "key": "REDIS_HOST", "value": "${redis_cache.host}" },
+              { "id": "sw-red-port", "key": "REDIS_PORT", "value": "6379" },
+              { "id": "sw-mem", "key": "MEMCACHED_SERVERS", "value": "${memcached_cache.host}:11211" },
+              { "id": "sw-mongo", "key": "MONGODB_URI", "value": "mongodb://audit:audit@${audit_mongodb.host}:27017/?authSource=admin" },
+              { "id": "sw-mongo-db", "key": "MONGODB_DATABASE", "value": "payments_audit" },
+              { "id": "sw-rabbit", "key": "RABBITMQ_URL", "value": "amqp://payments:payments@${settlement_rabbitmq.host}:5672/" },
+              { "id": "sw-rabbit-q", "key": "RABBITMQ_QUEUE", "value": "payment.settlement" },
+              { "id": "sw-kafka", "key": "KAFKA_BROKERS", "value": "${events_kafka.host}:9092" },
+              { "id": "sw-kafka-topic", "key": "KAFKA_TOPIC", "value": "payment.settled" }
+            ],
+            "waitStratergy": { "enabled": true, "type": "log", "target": "settlement worker ready", "timeout": 120 },
+            "initScripts": []
+          }
+        }
+      },
+      {
+        "id": "ledger-postgres-node",
+        "type": "serviceNode",
+        "position": { "x": 480, "y": 20 },
+        "data": {
+          "label": "ledger_postgres",
+          "service": {
+            "type": "postgres",
+            "ports": [],
+            "env": [
+              { "id": "pg-db", "key": "POSTGRES_DB", "value": "payments" },
+              { "id": "pg-user", "key": "POSTGRES_USER", "value": "payments" },
+              { "id": "pg-pass", "key": "POSTGRES_PASSWORD", "value": "payments" }
+            ],
+            "initScripts": [{
+              "id": "pg-schema",
+              "order": 1,
+              "description": "Payment ledger schema",
+              "script": "CREATE TABLE payments (payment_id TEXT PRIMARY KEY, merchant_id TEXT NOT NULL, amount BIGINT NOT NULL, currency CHAR(3) NOT NULL, status TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), settled_at TIMESTAMPTZ); CREATE TABLE ledger_entries (entry_key TEXT PRIMARY KEY, payment_id TEXT NOT NULL REFERENCES payments(payment_id), entry_type TEXT NOT NULL, amount BIGINT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()); CREATE TABLE settlement_events (event_key TEXT PRIMARY KEY, payment_id TEXT NOT NULL REFERENCES payments(payment_id), published BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
+            }]
+          }
+        }
+      },
+      {
+        "id": "merchant-mysql-node",
+        "type": "serviceNode",
+        "position": { "x": 480, "y": 120 },
+        "data": {
+          "label": "merchant_mysql",
+          "service": {
+            "type": "mysql",
+            "ports": [],
+            "env": [
+              { "id": "my-db", "key": "MYSQL_DB", "value": "merchants" },
+              { "id": "my-user", "key": "MYSQL_USER", "value": "payments" },
+              { "id": "my-pass", "key": "MYSQL_PASSWORD", "value": "payments" }
+            ],
+            "initScripts": [{ "id": "my-seed", "order": 1, "script": "CREATE TABLE merchants (merchant_id VARCHAR(64) PRIMARY KEY, status VARCHAR(20) NOT NULL); INSERT INTO merchants VALUES ('merchant-demo', 'active');" }]
+          }
+        }
+      },
+      {
+        "id": "risk-mariadb-node",
+        "type": "serviceNode",
+        "position": { "x": 480, "y": 220 },
+        "data": {
+          "label": "risk_mariadb",
+          "service": {
+            "type": "mariadb",
+            "ports": [],
+            "env": [
+              { "id": "ma-db", "key": "MARIA_DB", "value": "risk" },
+              { "id": "ma-user", "key": "MARIA_USER", "value": "payments" },
+              { "id": "ma-pass", "key": "MARIA_PASSWORD", "value": "payments" }
+            ],
+            "initScripts": [{ "id": "ma-seed", "order": 1, "script": "CREATE TABLE risk_rules (currency CHAR(3) PRIMARY KEY, max_amount BIGINT NOT NULL, enabled BOOLEAN NOT NULL); INSERT INTO risk_rules VALUES ('USD', 1000000, TRUE);" }]
+          }
+        }
+      },
+      { "id": "redis-node", "type": "serviceNode", "position": { "x": 480, "y": 320 }, "data": { "label": "redis_cache", "service": { "type": "redis", "ports": [], "env": [], "initScripts": [] } } },
+      { "id": "memcached-node", "type": "serviceNode", "position": { "x": 680, "y": 20 }, "data": { "label": "memcached_cache", "service": { "type": "memcached", "ports": [], "env": [], "initScripts": [] } } },
+      {
+        "id": "mongodb-node",
+        "type": "serviceNode",
+        "position": { "x": 680, "y": 120 },
+        "data": { "label": "audit_mongodb", "service": { "type": "mongodb", "ports": [], "env": [
+          { "id": "mo-db", "key": "MONGO_INITDB_DATABASE", "value": "payments_audit" },
+          { "id": "mo-user", "key": "MONGO_INITDB_ROOT_USERNAME", "value": "audit" },
+          { "id": "mo-pass", "key": "MONGO_INITDB_ROOT_PASSWORD", "value": "audit" }
+        ], "initScripts": [] } }
+      },
+      {
+        "id": "rabbit-node",
+        "type": "serviceNode",
+        "position": { "x": 680, "y": 220 },
+        "data": { "label": "settlement_rabbitmq", "service": { "type": "rabbitmq", "ports": [], "env": [
+          { "id": "ra-user", "key": "RABBITMQ_DEFAULT_USER", "value": "payments" },
+          { "id": "ra-pass", "key": "RABBITMQ_DEFAULT_PASS", "value": "payments" }
+        ], "initScripts": [] } }
+      },
+      {
+        "id": "kafka-node",
+        "type": "serviceNode",
+        "position": { "x": 680, "y": 320 },
+        "data": { "label": "events_kafka", "service": { "type": "kafka", "ports": [], "env": [], "initScripts": [
+          { "id": "ka-topic", "order": 1, "script": "kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic payment.settled --partitions 1 --replication-factor 1" }
+        ] } }
+      }
+    ],
+    "edges": [
+      { "id": "payment-worker", "source": "payment-api-node", "target": "settlement-worker-node" },
+      { "id": "payment-pg", "source": "payment-api-node", "target": "ledger-postgres-node" },
+      { "id": "payment-my", "source": "payment-api-node", "target": "merchant-mysql-node" },
+      { "id": "payment-ma", "source": "payment-api-node", "target": "risk-mariadb-node" },
+      { "id": "payment-red", "source": "payment-api-node", "target": "redis-node" },
+      { "id": "payment-mem", "source": "payment-api-node", "target": "memcached-node" },
+      { "id": "worker-mem", "source": "settlement-worker-node", "target": "memcached-node" },
+      { "id": "payment-mongo", "source": "payment-api-node", "target": "mongodb-node" },
+      { "id": "payment-rabbit", "source": "payment-api-node", "target": "rabbit-node" },
+      { "id": "payment-kafka", "source": "payment-api-node", "target": "kafka-node" }
+    ]
+  },
+  "scenarios": [
+    {
+      "name": "Complete asynchronous payment settlement",
+      "description": "Exercises every service provider and every test executor against one isolated payment stack.",
+      "tests": [
+        { "id": "ready", "name": "payment-ready", "type": "http", "targetServices": ["payment_api"], "httpConfig": { "method": "GET", "path": "/ready", "port": "8080", "expectedStatus": 200, "expectedBody": { "mode": "json", "value": { "status": "ready", "role": "payment-api", "dependencies": 8 } } } },
+        { "id": "runtime", "name": "runtime-interpolation", "type": "shell", "targetServices": ["payment_api"], "dependsOnTestIds": ["ready"], "shellConfig": { "command": "test -n \"$API_HOST\" && test -n \"$API_PORT\" && printf payment-runtime-ready", "env": { "API_HOST": "${payment_api.host}", "API_PORT": "${payment_api.port.8080}" }, "expectedOutput": "payment-runtime-ready", "expectedExitCode": 0 } },
+        { "id": "submit", "name": "submit-payment", "type": "http", "targetServices": ["payment_api"], "dependsOnTestIds": ["runtime"], "httpConfig": { "method": "POST", "path": "/payments", "port": "8080", "headers": { "Content-Type": "application/json", "Idempotency-Key": "fixture-pay-001" }, "body": "{\"paymentId\":\"pay-e2e-001\",\"merchantId\":\"merchant-demo\",\"amount\":1250,\"currency\":\"USD\"}", "expectedStatus": 202, "expectedBody": { "mode": "json", "value": { "paymentId": "pay-e2e-001", "status": "pending", "duplicate": false } } } },
+        { "id": "wait", "name": "await-settlement", "type": "http", "targetServices": ["payment_api"], "dependsOnTestIds": ["submit"], "httpConfig": { "method": "GET", "path": "/payments/pay-e2e-001/wait?status=settled&timeoutMs=20000", "port": "8080", "expectedStatus": 200, "expectedBody": { "mode": "json", "value": { "paymentId": "pay-e2e-001", "status": "settled" } } } },
+        { "id": "duplicate", "name": "idempotent-replay", "type": "http", "targetServices": ["payment_api"], "dependsOnTestIds": ["wait"], "httpConfig": { "method": "POST", "path": "/payments", "port": "8080", "headers": { "Content-Type": "application/json", "Idempotency-Key": "fixture-pay-001" }, "body": "{\"paymentId\":\"pay-e2e-001\",\"merchantId\":\"merchant-demo\",\"amount\":1250,\"currency\":\"USD\"}", "expectedStatus": 200, "expectedBody": { "mode": "json", "value": { "paymentId": "pay-e2e-001", "status": "settled", "duplicate": true } } } },
+        { "id": "risk-reject", "name": "risk-rule-rejects-large-payment", "type": "http", "targetServices": ["payment_api"], "dependsOnTestIds": ["duplicate"], "httpConfig": { "method": "POST", "path": "/payments", "port": "8080", "headers": { "Content-Type": "application/json", "Idempotency-Key": "fixture-risk-reject" }, "body": "{\"paymentId\":\"pay-risk-001\",\"merchantId\":\"merchant-demo\",\"amount\":1000001,\"currency\":\"USD\"}", "expectedStatus": 422, "expectedBody": { "mode": "contains", "value": "risk rules" } } },
+        { "id": "pg-payment", "name": "postgres-payment-settled", "type": "database", "targetServices": ["ledger_postgres"], "dependsOnTestIds": ["risk-reject"], "databaseConfig": { "driver": "postgres", "database": "payments", "user": "payments", "password": "payments", "query": "SELECT status FROM payments WHERE payment_id = 'pay-e2e-001'", "expectedResult": { "mode": "single", "value": "settled" } } },
+        { "id": "pg-ledger", "name": "postgres-balanced-ledger", "type": "database", "targetServices": ["ledger_postgres"], "dependsOnTestIds": ["pg-payment"], "databaseConfig": { "driver": "postgres", "database": "payments", "user": "payments", "password": "payments", "query": "SELECT COUNT(*) FROM ledger_entries WHERE payment_id = 'pay-e2e-001'", "expectedResult": { "mode": "single", "value": 2 } } },
+        { "id": "mysql", "name": "mysql-merchant-active", "type": "database", "targetServices": ["merchant_mysql"], "dependsOnTestIds": ["pg-ledger"], "databaseConfig": { "driver": "mysql", "database": "merchants", "user": "payments", "password": "payments", "query": "SELECT status FROM merchants WHERE merchant_id = 'merchant-demo'", "expectedResult": { "mode": "single", "value": "active" } } },
+        { "id": "maria", "name": "mariadb-risk-rule", "type": "database", "targetServices": ["risk_mariadb"], "dependsOnTestIds": ["mysql"], "databaseConfig": { "driver": "mariadb", "database": "risk", "user": "payments", "password": "payments", "query": "SELECT max_amount FROM risk_rules WHERE currency = 'USD'", "expectedResult": { "mode": "single", "value": 1000000 } } },
+        { "id": "redis", "name": "redis-payment-status", "type": "cache", "targetServices": ["redis_cache"], "dependsOnTestIds": ["maria"], "cacheConfig": { "service": "redis_cache", "cacheType": "redis", "operation": "get", "key": "payment:pay-e2e-001:status", "expectedValue": "settled" } },
+        { "id": "memcached", "name": "memcached-merchant-status", "type": "cache", "targetServices": ["memcached_cache"], "dependsOnTestIds": ["redis"], "cacheConfig": { "service": "memcached_cache", "cacheType": "memcached", "operation": "get", "key": "merchant:merchant-demo", "expectedValue": "active" } },
+        { "id": "mongo", "name": "mongodb-audit-count", "type": "document", "targetServices": ["audit_mongodb"], "dependsOnTestIds": ["memcached"], "documentConfig": { "service": "audit_mongodb", "database": "payments_audit", "collection": "payment_audit", "operation": "count_documents", "filter": { "paymentId": "pay-e2e-001" }, "expectedCount": 2 } },
+        { "id": "rabbit", "name": "rabbitmq-independent-roundtrip", "type": "queue", "targetServices": ["settlement_rabbitmq"], "dependsOnTestIds": ["mongo"], "queueConfig": { "service": "settlement_rabbitmq", "brokerType": "rabbitmq", "operation": "produce_and_consume", "topic": "fixture.verification", "message": "rabbit-ok", "timeout": 15 } },
+        { "id": "kafka", "name": "kafka-settlement-event", "type": "queue", "targetServices": ["events_kafka"], "dependsOnTestIds": ["rabbit"], "queueConfig": { "service": "events_kafka", "brokerType": "kafka", "operation": "consume", "topic": "payment.settled", "partition": 0, "timeout": 20, "fromBeginning": true, "expectedCount": 1, "expectedMessage": "{\"paymentId\":\"pay-e2e-001\",\"status\":\"settled\",\"amount\":1250,\"currency\":\"USD\"}" } },
+        { "id": "settle-delay", "name": "final-observation-delay", "type": "delay", "targetServices": ["payment_api"], "dependsOnTestIds": ["kafka"], "delayConfig": { "durationMs": 200 } }
+      ],
+      "testOrder": ["ready", "runtime", "submit", "wait", "duplicate", "risk-reject", "pg-payment", "pg-ledger", "mysql", "maria", "redis", "memcached", "mongo", "rabbit", "kafka", "settle-delay"]
+    },
+    {
+      "name": "Concurrent cache isolation",
+      "description": "A lightweight second scenario that can run beside the full payment matrix.",
+      "tests": [
+        { "id": "redis-set", "name": "redis-isolation-set", "type": "cache", "targetServices": ["redis_cache"], "cacheConfig": { "service": "redis_cache", "cacheType": "redis", "operation": "set", "key": "fixture:isolation", "value": "isolated", "ttl": 30 } },
+        { "id": "redis-get", "name": "redis-isolation-get", "type": "cache", "targetServices": ["redis_cache"], "dependsOnTestIds": ["redis-set"], "cacheConfig": { "service": "redis_cache", "cacheType": "redis", "operation": "get", "key": "fixture:isolation", "expectedValue": "isolated" } },
+        { "id": "mem-set", "name": "memcached-isolation-set", "type": "cache", "targetServices": ["memcached_cache"], "dependsOnTestIds": ["redis-get"], "cacheConfig": { "service": "memcached_cache", "cacheType": "memcached", "operation": "set", "key": "fixture-isolation", "value": "isolated", "ttl": 30 } },
+        { "id": "mem-get", "name": "memcached-isolation-get", "type": "cache", "targetServices": ["memcached_cache"], "dependsOnTestIds": ["mem-set"], "cacheConfig": { "service": "memcached_cache", "cacheType": "memcached", "operation": "get", "key": "fixture-isolation", "expectedValue": "isolated" } },
+        { "id": "cache-delay", "name": "cache-observation-delay", "type": "delay", "targetServices": ["redis_cache"], "dependsOnTestIds": ["mem-get"], "delayConfig": { "durationMs": 100 } }
+      ],
+      "testOrder": ["redis-set", "redis-get", "mem-set", "mem-get", "cache-delay"]
+    }
+  ]
+}

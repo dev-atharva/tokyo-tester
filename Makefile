@@ -11,7 +11,7 @@ ENV_LOADER = set -a; \
 	if [ -f ./.env ]; then . ./.env; fi; \
 	set +a;
 
-.PHONY: help ensure-docker-socket dev dev-docker dev-host-runner dev-support runner-dev prod down reset test test-go test-ui check compose-check
+.PHONY: help ensure-docker-socket dev dev-docker dev-host-runner dev-support runner-dev prod down reset test test-go test-ui test-test-api test-api-build test-complex-e2e check compose-check
 
 help: ## Show available commands
 	@printf "Tokyo Tester commands\n\n"
@@ -68,7 +68,7 @@ dev-host-runner: dev-support ## Run the UI in Docker and the runner on the host
 prod: ensure-docker-socket ## Run the local production-like stack
 	@$(ENV_LOADER) $(COMPOSE) $(COMPOSE_FILES) up --build -d
 
-test: test-go test-ui ## Run backend and frontend tests
+test: test-go test-ui test-test-api ## Run backend and frontend tests
 
 test-go: ## Run all Go tests
 	@cd runner-v2 && GOCACHE="$${GOCACHE:-/tmp/tokyo-tester-go-cache}" go test ./...
@@ -77,6 +77,15 @@ test-ui: ## Type-check and test the UI, including Node-based auth tests
 	@cd ui-v2 && bunx next typegen && bunx tsc --noEmit
 	@cd ui-v2 && bun test src/modules/workflow src/modules/sync
 	@cd ui-v2 && node --import tsx --test src/modules/auth/server/service.test.ts
+
+test-test-api: ## Type-check and unit-test the reusable test application
+	@cd test-api && bun run typecheck && bun test
+
+test-api-build: ensure-docker-socket ## Build both compatible tags for the workflow fixture image
+	@$(ENV_LOADER) docker build -t tokyo-test-api:latest -t bun-user-api:latest ./test-api
+
+test-complex-e2e: test-api-build ## Run the opt-in, resource-heavy payment provider matrix
+	@cd runner-v2 && RUN_COMPLEX_PAYMENT_E2E=1 GOCACHE="$${GOCACHE:-/tmp/tokyo-tester-go-cache}" go test -count=1 -timeout=60m ./e2e -run TestComplexPaymentFixturesE2E
 
 compose-check: ## Validate production and development Compose files
 	@AUTH_SECRET=compose-check-auth-secret WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" $(COMPOSE) $(COMPOSE_FILES) config --quiet
