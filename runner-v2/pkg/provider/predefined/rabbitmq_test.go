@@ -2,6 +2,7 @@ package predefined
 
 import (
 	"context"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -55,6 +56,16 @@ func TestRabbitMQProviderProvision(t *testing.T) {
 	}
 	if !strings.HasPrefix(runtime.EnvVars["RABBITMQ_HTTP_URL"], "http://admin:secret@") {
 		t.Fatalf("unexpected RABBITMQ_HTTP_URL: %q", runtime.EnvVars["RABBITMQ_HTTP_URL"])
+	}
+	for envName, port := range map[string]string{"RABBITMQ_AMQP_URL": "5672", "RABBITMQ_HTTP_URL": "15672"} {
+		parsedURL, err := url.Parse(runtime.EnvVars[envName])
+		if err != nil {
+			t.Fatal(err)
+		}
+		endpoint, err := runtime.Endpoint(port)
+		if err != nil || parsedURL.Host != endpoint {
+			t.Fatalf("%s host = %q, endpoint = %q, error = %v", envName, parsedURL.Host, endpoint, err)
+		}
 	}
 	if runtime.MappedPorts["5672"] == "" || runtime.MappedPorts["15672"] == "" {
 		t.Fatalf("expected mapped ports for amqp and management, got %#v", runtime.MappedPorts)

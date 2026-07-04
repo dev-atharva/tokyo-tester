@@ -11,7 +11,7 @@ ENV_LOADER = set -a; \
 	if [ -f ./.env ]; then . ./.env; fi; \
 	set +a;
 
-.PHONY: help ensure-docker-socket dev dev-docker dev-host-runner dev-support runner-dev prod down reset test test-go test-ui test-test-api test-api-build test-complex-e2e check compose-check
+.PHONY: help ensure-docker-socket doctor dev dev-docker dev-host-runner dev-support runner-dev prod down reset test test-go test-ui test-test-api test-api-build test-complex-e2e check compose-check
 
 help: ## Show available commands
 	@printf "Tokyo Tester commands\n\n"
@@ -22,7 +22,10 @@ help: ## Show available commands
 ensure-docker-socket: ## Detect the Docker socket and write .env.docker-socket
 	@bash ./scripts/detect-docker-socket.sh
 
-dev: ensure-docker-socket ## Run the dev stack; auto-falls back to a host runner for non-standard Docker Sockets
+doctor: ensure-docker-socket ## Check Docker, Compose, host tools, configuration, and development ports
+	@bash ./scripts/dev-doctor.sh
+
+dev: doctor ## Run the dev stack; auto-falls back to a host runner for non-standard Docker Sockets
 	@$(ENV_LOADER) \
 	if [ "$${DOCKER_SOCKET_PATH:-/var/run/docker.sock}" = "/var/run/docker.sock" ]; then \
 		printf "Using fully dockerized dev stack.\n"; \

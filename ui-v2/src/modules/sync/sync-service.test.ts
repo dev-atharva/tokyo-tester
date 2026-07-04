@@ -12,6 +12,39 @@ afterEach(() => {
 });
 
 describe("sync service", () => {
+  test("flushPending includes changes queued by store microtasks", async () => {
+    setCurrentSessionUserId("user-1");
+    setCurrentSessionProjectId("project-1");
+    let requests = 0;
+    globalThis.fetch = (async () => {
+      requests += 1;
+      return new Response(
+        JSON.stringify({
+          success: true,
+          processed_count: 1,
+          errors: [],
+          server_version: 1,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const service = new SyncService();
+    queueMicrotask(() => {
+      service.queueChange({
+        entity_type: "workflow_run",
+        entity_id: "workflow-run-1",
+        change_type: "insert",
+        data: { id: "workflow-run-1" },
+      });
+    });
+
+    await service.flushPending();
+
+    expect(requests).toBe(1);
+    expect(service.getQueueSize()).toBe(0);
+  });
+
   test("retains a batch when the server reports a transactional rollback", async () => {
     setCurrentSessionUserId("user-1");
     setCurrentSessionProjectId("project-1");

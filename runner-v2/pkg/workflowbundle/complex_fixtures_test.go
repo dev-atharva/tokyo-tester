@@ -54,6 +54,40 @@ func TestComplexPaymentBundleCoversProviderAndExecutorMatrix(t *testing.T) {
 			t.Errorf("bundle does not cover executor %q", executorType)
 		}
 	}
+
+	translated, err := bundle.TranslateScenario(bundle.Scenarios[0])
+	if err != nil {
+		t.Fatalf("translate payment scenario: %v", err)
+	}
+	for _, testConfig := range translated.Tests {
+		if testConfig.Name != "mongodb-audit-count" {
+			continue
+		}
+		if count, ok := testConfig.Config["expected_count"].(int); !ok || count != 2 {
+			t.Fatalf("expected concrete document count 2, got %#v (%T)", testConfig.Config["expected_count"], testConfig.Config["expected_count"])
+		}
+		return
+	}
+	t.Fatal("translated payment scenario is missing mongodb-audit-count")
+}
+
+func TestDocumentExpectationsTranslateToConcreteValues(t *testing.T) {
+	expectedCount := 3
+	expectedExists := false
+	config := buildTestConfig(ScenarioTestDefinition{
+		Type: "document",
+		DocumentConfig: &DocumentConfig{
+			ExpectedCount:  &expectedCount,
+			ExpectedExists: &expectedExists,
+		},
+	}, "mongodb", map[string]bool{"mongodb": true})
+
+	if count, ok := config["expected_count"].(int); !ok || count != expectedCount {
+		t.Fatalf("expected concrete count %d, got %#v (%T)", expectedCount, config["expected_count"], config["expected_count"])
+	}
+	if exists, ok := config["expected_exists"].(bool); !ok || exists != expectedExists {
+		t.Fatalf("expected concrete exists value %t, got %#v (%T)", expectedExists, config["expected_exists"], config["expected_exists"])
+	}
 }
 
 func TestPaymentResilienceBundleHasIntentionalFailureTopology(t *testing.T) {

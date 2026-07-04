@@ -2,6 +2,7 @@ package predefined
 
 import (
 	"context"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -56,6 +57,14 @@ func TestMongoDBProviderProvision(t *testing.T) {
 	}
 	if !strings.HasPrefix(runtime.EnvVars["MONGODB_URI"], "mongodb://") {
 		t.Fatalf("unexpected MONGODB_URI: %q", runtime.EnvVars["MONGODB_URI"])
+	}
+	parsedURI, err := url.Parse(runtime.EnvVars["MONGODB_URI"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint, err := runtime.Endpoint("27017")
+	if err != nil || parsedURI.Host != endpoint {
+		t.Fatalf("MONGODB_URI host = %q, endpoint = %q, error = %v", parsedURI.Host, endpoint, err)
 	}
 	if runtime.MappedPorts["27017"] == "" {
 		t.Fatalf("expected mapped port for mongodb, got %#v", runtime.MappedPorts)

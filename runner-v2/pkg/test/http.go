@@ -14,11 +14,19 @@ import (
 	"github.com/dev-atharva/cots/pkg/orchestrator"
 )
 
-type HTTPExecutor struct{}
+type HTTPExecutor struct {
+	client *http.Client
+}
 
 func (e *HTTPExecutor) Execute(ctx context.Context, testCfg config.TestConfig, registry *orchestrator.RuntimeRegsitry) error {
-	method := getStringOrDefault(testCfg.Config, "method", "GET")
-	path := getStringOrDefault(testCfg.Config, "path", "/")
+	method, err := getStringOrDefault(testCfg.Config, "method", "GET")
+	if err != nil {
+		return err
+	}
+	path, err := getStringOrDefault(testCfg.Config, "path", "/")
+	if err != nil {
+		return err
+	}
 	serviceName, ok := testCfg.Config["service"].(string)
 	if !ok {
 		return fmt.Errorf("http test requires 'service' configuration")
@@ -29,13 +37,16 @@ func (e *HTTPExecutor) Execute(ctx context.Context, testCfg config.TestConfig, r
 		return fmt.Errorf("service not found: %s", serviceName)
 	}
 
-	port := getStringOrDefault(testCfg.Config, "port", "80")
-	hostPort, ok := runtime.MappedPorts[port]
-	if !ok {
-		return fmt.Errorf("port %s not mapped for service %s", port, serviceName)
+	port, err := getStringOrDefault(testCfg.Config, "port", "80")
+	if err != nil {
+		return err
+	}
+	endpoint, err := runtime.Endpoint(port)
+	if err != nil {
+		return err
 	}
 
-	url := fmt.Sprintf("http://%s:%s%s", runtime.Host, hostPort, path)
+	url := fmt.Sprintf("http://%s%s", endpoint, path)
 
 	var body io.Reader
 	if bodyStr, ok := testCfg.Config["body"].(string); ok {
@@ -46,16 +57,17 @@ func (e *HTTPExecutor) Execute(ctx context.Context, testCfg config.TestConfig, r
 		return fmt.Errorf("failed to create request : %w", err)
 	}
 
-	if headers, ok := testCfg.Config["headers"].(map[string]any); ok {
-		for key, val := range headers {
-			if strval, ok := val.(string); ok {
-				req.Header.Set(key, strval)
-			}
-		}
+	headers, _, err := getStringMap(testCfg.Config, "headers")
+	if err != nil {
+		return err
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
 	}
 
-	client := &http.Client{
-		Timeout: 30 * time.Second,
+	client := e.client
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
 	}
 
 	resp, err := client.Do(req)
@@ -65,19 +77,10 @@ func (e *HTTPExecutor) Execute(ctx context.Context, testCfg config.TestConfig, r
 
 	defer resp.Body.Close()
 
-	if expectedRaw, ok := testCfg.Config["expected_status"]; ok {
-		var expectedStatus int
-
-		switch v := expectedRaw.(type) {
-		case int:
-			expectedStatus = v
-		case float64:
-			expectedStatus = int(v)
-		default:
-			return fmt.Errorf("expected_status must be a number, got %T", expectedRaw)
-		}
-
-		if resp.StatusCode != expectedStatus {
+	if expectedStatus, found, err := getInt64Config(testCfg.Config, "expected_status"); err != nil {
+		return err
+	} else if found {
+		if resp.StatusCode != int(expectedStatus) {
 			return fmt.Errorf("expected status %d, got %d", expectedStatus, resp.StatusCode)
 		}
 	}
@@ -87,7 +90,11 @@ func (e *HTTPExecutor) Execute(ctx context.Context, testCfg config.TestConfig, r
 		return fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if expectedBody, exists := testCfg.Config["expected_body"]; exists {
+	expectedBody, exists, err := lookupConfigValue(testCfg.Config, "expected_body")
+	if err != nil {
+		return err
+	}
+	if exists {
 		switch expected := expectedBody.(type) {
 		case string:
 			if !strings.Contains(string(bodyBytes), expected) {
@@ -127,6 +134,11 @@ func normalizeNumber(v any) any {
 		return float64(n)
 	case int64:
 		return float64(n)
+	case json.Number:
+		if parsed, err := n.Float64(); err == nil {
+			return parsed
+		}
+		return n
 	default:
 		return v
 	}

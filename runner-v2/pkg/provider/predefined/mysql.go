@@ -41,6 +41,7 @@ func (p *MysqlProvider) Provision(ctx context.Context, cfg config.ServiceConfig,
 		_ = container.Terminate(ctx)
 		return nil, nil, fmt.Errorf("failed to get container host: %w", err)
 	}
+	host = types.AddressableHost(host)
 
 	mappedPort, err := container.MappedPort(ctx, "3306")
 	if err != nil {

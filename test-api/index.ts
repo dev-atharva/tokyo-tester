@@ -2,8 +2,6 @@ import { App } from "@tinyhttp/app";
 import dotenv from "dotenv";
 import { json } from "milliparsec";
 import { httpPort, role } from "./src/config";
-import { configureLegacy } from "./src/legacy";
-import { configureFaultLab, configurePaymentAPI, configureWorker } from "./src/roles";
 
 dotenv.config({ override: false });
 
@@ -16,10 +14,21 @@ const app = new App();
 app.use(json());
 
 let close: () => Promise<unknown>;
-if (role === "legacy") close = await configureLegacy(app);
-else if (role === "payment-api") close = await configurePaymentAPI(app);
-else if (role === "settlement-worker") close = await configureWorker();
-else close = configureFaultLab(app);
+if (role === "legacy") {
+  const { configureLegacy } = await import("./src/legacy");
+  close = await configureLegacy(app);
+} else if (role === "payment-api") {
+  await import("./src/bun-mongodb-compat");
+  const { configurePaymentAPI } = await import("./src/roles");
+  close = await configurePaymentAPI(app);
+} else if (role === "settlement-worker") {
+  await import("./src/bun-mongodb-compat");
+  const { configureWorker } = await import("./src/roles");
+  close = await configureWorker();
+} else {
+  const { configureFaultLab } = await import("./src/fault-lab");
+  close = configureFaultLab(app);
+}
 
 const server = role === "settlement-worker"
   ? null

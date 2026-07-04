@@ -35,5 +35,8 @@ bun run typecheck
 bun test
 ```
 
+The Docker image pins Bun 1.3.14. A small startup compatibility guard handles BSON's
+`node:v8` snapshot probe, which Bun currently exposes but does not implement.
+
 All credentials in the bundles are deterministic fixture-only values and must not be reused
 outside local testing.

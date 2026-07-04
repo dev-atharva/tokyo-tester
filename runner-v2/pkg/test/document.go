@@ -6,6 +6,7 @@ import (
 
 	"github.com/dev-atharva/cots/pkg/config"
 	"github.com/dev-atharva/cots/pkg/orchestrator"
+	"github.com/dev-atharva/cots/pkg/types"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -42,6 +43,10 @@ func (e *DocumentExecutor) Execute(ctx context.Context, testCfg config.TestConfi
 	mongoURI := runtime.EnvVars["MONGODB_URI"]
 	if mongoURI == "" {
 		return fmt.Errorf("MONGODB_URI not found in the service runtime")
+	}
+	mongoURI, err := types.NormalizeURLHost(mongoURI)
+	if err != nil {
+		return fmt.Errorf("invalid MONGODB_URI: %w", err)
 	}
 
 	client, err := mongo.Connect(options.Client().ApplyURI(mongoURI))
@@ -102,8 +107,12 @@ func (e *DocumentExecutor) findOne(ctx context.Context, collection *mongo.Collec
 		return fmt.Errorf("find_one failed: %w", err)
 	}
 
-	expected, ok := toDocumentMap(cfg["expected_document"])
-	if !ok {
+	expectedValue, found, err := lookupConfigValue(cfg, "expected_document")
+	if err != nil {
+		return err
+	}
+	expected, ok := toDocumentMap(expectedValue)
+	if !found || !ok {
 		return fmt.Errorf("find_one requires 'expected_document' object")
 	}
 
@@ -130,8 +139,12 @@ func (e *DocumentExecutor) findMany(ctx context.Context, collection *mongo.Colle
 		return fmt.Errorf("failed to decode find_many results: %w", err)
 	}
 
-	expectedDocs, ok := toDocumentList(cfg["expected_documents"])
-	if !ok {
+	expectedValue, found, err := lookupConfigValue(cfg, "expected_documents")
+	if err != nil {
+		return err
+	}
+	expectedDocs, ok := toDocumentList(expectedValue)
+	if !found || !ok {
 		return fmt.Errorf("find_many requires 'expected_documents' array")
 	}
 
@@ -197,8 +210,11 @@ func (e *DocumentExecutor) countDocuments(ctx context.Context, collection *mongo
 		return fmt.Errorf("count_documents failed: %w", err)
 	}
 
-	expectedCount, ok := getExpectedCount(cfg["expected_count"])
-	if !ok {
+	expectedCount, found, err := getInt64Config(cfg, "expected_count")
+	if err != nil {
+		return err
+	}
+	if !found {
 		return fmt.Errorf("count_documents requires 'expected_count'")
 	}
 	if count != expectedCount {
@@ -218,7 +234,10 @@ func (e *DocumentExecutor) exists(ctx context.Context, collection *mongo.Collect
 		return fmt.Errorf("exists failed: %w", err)
 	}
 
-	expectedExists := getBoolOrDefault(cfg, "expected_exists", true)
+	expectedExists, err := getBoolOrDefault(cfg, "expected_exists", true)
+	if err != nil {
+		return err
+	}
 	actualExists := count > 0
 	if actualExists != expectedExists {
 		return fmt.Errorf("expected exists=%v, got exists=%v", expectedExists, actualExists)
@@ -256,21 +275,6 @@ func toDocumentList(value any) ([]map[string]any, bool) {
 		return v, true
 	default:
 		return nil, false
-	}
-}
-
-func getExpectedCount(value any) (int64, bool) {
-	switch v := value.(type) {
-	case int:
-		return int64(v), true
-	case int32:
-		return int64(v), true
-	case int64:
-		return v, true
-	case float64:
-		return int64(v), true
-	default:
-		return 0, false
 	}
 }
 

@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -18,7 +19,10 @@ func (e *ShellExecutor) Execute(ctx context.Context, testCfg config.TestConfig, 
 		return fmt.Errorf("shell test requires 'command' in configuration")
 	}
 
-	env := e.buildEnvironment(registry, testCfg.Config)
+	env, err := e.buildEnvironment(registry, testCfg.Config)
+	if err != nil {
+		return err
+	}
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Env = env
@@ -28,14 +32,24 @@ func (e *ShellExecutor) Execute(ctx context.Context, testCfg config.TestConfig, 
 		return fmt.Errorf("command failed %w\nOutput: %s", err, string(output))
 	}
 
-	if expectedOutput, ok := testCfg.Config["expected_output"].(string); ok {
+	expectedOutputValue, ok, err := lookupConfigValue(testCfg.Config, "expected_output")
+	if err != nil {
+		return err
+	}
+	if ok {
+		expectedOutput, ok := expectedOutputValue.(string)
+		if !ok {
+			return fmt.Errorf("expected_output must be a string")
+		}
 		if !strings.Contains(string(output), expectedOutput) {
 			return fmt.Errorf("output does not match expected string: %s\n ActualOutput: %s", expectedOutput, string(output))
 		}
 	}
 
-	if expectedCode, ok := testCfg.Config["expected_exit_code"].(int); ok {
-		if cmd.ProcessState.ExitCode() != expectedCode {
+	if expectedCode, found, err := getInt64Config(testCfg.Config, "expected_exit_code"); err != nil {
+		return err
+	} else if found {
+		if cmd.ProcessState.ExitCode() != int(expectedCode) {
 			return fmt.Errorf("expected exit code %d, got %d", expectedCode, cmd.ProcessState.ExitCode())
 		}
 	}
@@ -43,19 +57,18 @@ func (e *ShellExecutor) Execute(ctx context.Context, testCfg config.TestConfig, 
 	return nil
 }
 
-func (e *ShellExecutor) buildEnvironment(registry *orchestrator.RuntimeRegsitry, cfg map[string]any) []string {
-	env := []string{}
-
-	if envVars, ok := cfg["env"].(map[string]any); ok {
-		for key, val := range envVars {
-			if strVal, ok := val.(string); ok {
-				interpolated, err := registry.InterpolateEnvVars(map[string]string{key: strVal})
-				if err == nil {
-					env = append(env, fmt.Sprintf("%s=%s", key, interpolated[key]))
-				}
-			}
-		}
+func (e *ShellExecutor) buildEnvironment(registry *orchestrator.RuntimeRegsitry, cfg map[string]any) ([]string, error) {
+	env := os.Environ()
+	envVars, _, err := getStringMap(cfg, "env")
+	if err != nil {
+		return nil, err
 	}
-
-	return env
+	for key, value := range envVars {
+		interpolated, err := registry.InterpolateEnvVars(map[string]string{key: value})
+		if err != nil {
+			return nil, fmt.Errorf("failed to interpolate shell environment variable %s: %w", key, err)
+		}
+		env = append(env, fmt.Sprintf("%s=%s", key, interpolated[key]))
+	}
+	return env, nil
 }

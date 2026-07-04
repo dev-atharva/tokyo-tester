@@ -8,6 +8,7 @@ import {
   isWorkflowRunStatus,
   resolveScenarioLogStatus,
   resolveScenarioTestStatus,
+  workflowStatusFromLogEvent,
 } from "../lib/realtime-events";
 import { useExecutionStore } from "../stores/execution.store.sync";
 import { useScenarioRunStore } from "../stores/scenario-run.store.sync";
@@ -237,16 +238,18 @@ export function useRealtimeLogs({
       return;
     }
 
-    if (status === "running" && !scenarioId) {
+    const workflowStatus = workflowStatusFromLogEvent(scenarioId, status);
+
+    if (workflowStatus === "running") {
       updateExecutionStatus(workflowRunId, "running");
     }
 
-    if (status === "completed") {
+    if (workflowStatus === "completed") {
       updateExecutionStatus(workflowRunId, "completed", result);
       onComplete?.(result);
     }
 
-    if (status === "failed" && !scenarioId) {
+    if (workflowStatus === "failed") {
       failExecution(workflowRunId, error ?? "Workflow execution failed");
       onError?.(error ?? "Workflow execution failed");
     }

@@ -174,6 +174,11 @@ export class SyncService {
   }
 
   async flushPending(maxAttempts: number = 10): Promise<void> {
+    // Zustand sync middleware enqueues changes in a microtask after updating its
+    // store. Let those changes reach this queue before deciding there is
+    // nothing to flush (notably when a workflow run has just been created).
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
     let attempts = 0;
 
     while (!this.syncQueue.isEmpty() && attempts < maxAttempts) {

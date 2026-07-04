@@ -30,6 +30,51 @@ export function isWorkflowRunStatus(
   );
 }
 
+export function shouldPollExecutionFallback({
+  workflowRunId,
+  projectId,
+  status,
+  realtimeConnected,
+}: {
+  workflowRunId?: string | null;
+  projectId?: string;
+  status?: WorkflowRunStatus;
+  realtimeConnected: boolean;
+}): boolean {
+  return Boolean(
+    workflowRunId &&
+      projectId &&
+      (status === "pending" || status === "running") &&
+      !realtimeConnected,
+  );
+}
+
+export function workflowStatusFromLogEvent(
+  scenarioId: string | undefined,
+  status: string | undefined,
+): WorkflowRunStatus | undefined {
+  if (scenarioId || !isWorkflowRunStatus(status)) {
+    return undefined;
+  }
+  return status;
+}
+
+export function shouldNotifyTestRunCompletion({
+  workflowRunId,
+  allComplete,
+  wasObservedActive,
+  alreadyNotified,
+}: {
+  workflowRunId: string | null;
+  allComplete: boolean;
+  wasObservedActive: boolean;
+  alreadyNotified: boolean;
+}): boolean {
+  return Boolean(
+    workflowRunId && allComplete && wasObservedActive && !alreadyNotified,
+  );
+}
+
 export function buildWorkflowEventsUrl(
   workflowRunId: string,
   projectId: string,

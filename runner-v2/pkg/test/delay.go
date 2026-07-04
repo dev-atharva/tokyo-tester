@@ -12,23 +12,16 @@ import (
 type DelayExecutor struct{}
 
 func (e *DelayExecutor) Execute(ctx context.Context, testCfg config.TestConfig, _ *orchestrator.RuntimeRegsitry) error {
-	rawDuration, ok := testCfg.Config["duration_ms"]
-	if !ok {
+	_, found, err := lookupConfigValue(testCfg.Config, "duration_ms")
+	if err != nil {
+		return err
+	}
+	if !found {
 		return fmt.Errorf("delay test requires 'duration_ms' in the configuration")
 	}
-
-	var durationMs int
-	switch value := rawDuration.(type) {
-	case int:
-		durationMs = value
-	case int32:
-		durationMs = int(value)
-	case int64:
-		durationMs = int(value)
-	case float64:
-		durationMs = int(value)
-	default:
-		return fmt.Errorf("duration_ms must be a number, got %T", rawDuration)
+	durationMs, err := getIntOrDefault(testCfg.Config, "duration_ms", 0)
+	if err != nil {
+		return err
 	}
 
 	if durationMs <= 0 {

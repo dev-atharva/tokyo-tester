@@ -59,7 +59,11 @@ func (e *DatabaseExecutor) Execute(ctx context.Context, testCfg config.TestConfi
 	}
 	defer rows.Close()
 
-	if expectedResult, ok := testCfg.Config["expected_result"]; ok {
+	expectedResult, ok, err := lookupConfigValue(testCfg.Config, "expected_result")
+	if err != nil {
+		return err
+	}
+	if ok {
 		return e.validateResult(rows, expectedResult)
 	}
 	return nil
@@ -77,29 +81,49 @@ func resolveSQLDriverName(driver string) string {
 func (e *DatabaseExecutor) buildConnectionString(driver string, runtime *types.ServiceRuntime, cfg map[string]any) (string, error) {
 	switch driver {
 	case "mysql", "mariadb":
-		database := getStringOrDefault(cfg, "database", "testdb")
-		user := getStringOrDefault(cfg, "user", "root")
-		password := getStringOrDefault(cfg, "password", "root")
-		port, ok := runtime.MappedPorts["3306"]
-		if !ok {
-			return "", fmt.Errorf("mysql port 3306 not exposed")
+		database, err := getStringOrDefault(cfg, "database", "testdb")
+		if err != nil {
+			return "", err
+		}
+		user, err := getStringOrDefault(cfg, "user", "root")
+		if err != nil {
+			return "", err
+		}
+		password, err := getStringOrDefault(cfg, "password", "root")
+		if err != nil {
+			return "", err
+		}
+		endpoint, err := runtime.Endpoint("3306")
+		if err != nil {
+			return "", err
 		}
 		// user:password@tcp(host:port)/dbname?params
 		return fmt.Sprintf(
-			"%s:%s@tcp(%s:%s)/%s?parseTime=true&multiStatements=true",
+			"%s:%s@tcp(%s)/%s?parseTime=true&multiStatements=true",
 			user,
 			password,
-			runtime.Host,
-			port,
+			endpoint,
 			database,
 		), nil
 
 	case "postgres":
-		database := getStringOrDefault(cfg, "database", "testdb")
-		user := getStringOrDefault(cfg, "user", "postgres")
-		password := getStringOrDefault(cfg, "password", "postgres")
-		port := runtime.MappedPorts["5432"]
-		return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", runtime.Host, port, user, password, database), nil
+		database, err := getStringOrDefault(cfg, "database", "testdb")
+		if err != nil {
+			return "", err
+		}
+		user, err := getStringOrDefault(cfg, "user", "postgres")
+		if err != nil {
+			return "", err
+		}
+		password, err := getStringOrDefault(cfg, "password", "postgres")
+		if err != nil {
+			return "", err
+		}
+		port, ok := runtime.MappedPorts["5432"]
+		if !ok || port == "" {
+			return "", fmt.Errorf("postgres port 5432 not exposed")
+		}
+		return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", types.AddressableHost(runtime.Host), port, user, password, database), nil
 	default:
 		return "", fmt.Errorf("unsuopported driver: %s", driver)
 	}
@@ -401,11 +425,4 @@ func convertToFloat64(val any) (float64, bool) {
 	default:
 		return 0, false
 	}
-}
-
-func getStringOrDefault(cfg map[string]any, key, defaultValue string) string {
-	if val, ok := cfg[key].(string); ok {
-		return val
-	}
-	return defaultValue
 }

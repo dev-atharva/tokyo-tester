@@ -6,6 +6,9 @@ import {
   isWorkflowRunStatus,
   resolveScenarioLogStatus,
   resolveScenarioTestStatus,
+  shouldNotifyTestRunCompletion,
+  shouldPollExecutionFallback,
+  workflowStatusFromLogEvent,
 } from "./realtime-events";
 
 describe("runner realtime event reducers", () => {
@@ -24,6 +27,72 @@ describe("runner realtime event reducers", () => {
     expect(isWorkflowRunStatus("completed")).toBe(true);
     expect(isWorkflowRunStatus("partial_failed")).toBe(true);
     expect(isWorkflowRunStatus("unknown")).toBe(false);
+  });
+
+  test("polls only when an active execution loses realtime updates", () => {
+    const activeRun = {
+      workflowRunId: "run-1",
+      projectId: "project-1",
+      status: "running" as const,
+    };
+
+    expect(
+      shouldPollExecutionFallback({
+        ...activeRun,
+        realtimeConnected: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPollExecutionFallback({
+        ...activeRun,
+        realtimeConnected: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPollExecutionFallback({
+        ...activeRun,
+        status: "completed",
+        realtimeConnected: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("does not treat scenario completion as workflow completion", () => {
+    expect(
+      workflowStatusFromLogEvent("scenario-1", "completed"),
+    ).toBeUndefined();
+    expect(workflowStatusFromLogEvent(undefined, "completed")).toBe(
+      "completed",
+    );
+    expect(workflowStatusFromLogEvent(undefined, "running")).toBe("running");
+  });
+
+  test("notifies only for a run observed while it was active", () => {
+    const completedRun = {
+      workflowRunId: "run-1",
+      allComplete: true,
+      alreadyNotified: false,
+    };
+
+    expect(
+      shouldNotifyTestRunCompletion({
+        ...completedRun,
+        wasObservedActive: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldNotifyTestRunCompletion({
+        ...completedRun,
+        wasObservedActive: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldNotifyTestRunCompletion({
+        ...completedRun,
+        wasObservedActive: true,
+        alreadyNotified: true,
+      }),
+    ).toBe(false);
   });
 
   test("aggregates scenario errors when the workflow event has no explicit error", () => {

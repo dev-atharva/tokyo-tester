@@ -614,8 +614,18 @@ func buildTestConfig(
 			"update":             valueOrDefaultAny(testDef.DocumentConfig, func(cfg *DocumentConfig) any { return cfg.Update }, nil),
 			"expected_document":  valueOrDefaultAny(testDef.DocumentConfig, func(cfg *DocumentConfig) any { return cfg.ExpectedDocument }, nil),
 			"expected_documents": valueOrDefaultAny(testDef.DocumentConfig, func(cfg *DocumentConfig) any { return cfg.ExpectedDocuments }, nil),
-			"expected_count":     valueOrDefaultAny(testDef.DocumentConfig, func(cfg *DocumentConfig) any { return cfg.ExpectedCount }, nil),
-			"expected_exists":    valueOrDefaultAny(testDef.DocumentConfig, func(cfg *DocumentConfig) any { return cfg.ExpectedExists }, nil),
+			"expected_count": valueOrDefaultAny(testDef.DocumentConfig, func(cfg *DocumentConfig) any {
+				if cfg.ExpectedCount == nil {
+					return nil
+				}
+				return *cfg.ExpectedCount
+			}, nil),
+			"expected_exists": valueOrDefaultAny(testDef.DocumentConfig, func(cfg *DocumentConfig) any {
+				if cfg.ExpectedExists == nil {
+					return nil
+				}
+				return *cfg.ExpectedExists
+			}, nil),
 		}
 	case "http":
 		return map[string]any{

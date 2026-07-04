@@ -23,6 +23,7 @@ import { useRealtimeTestResults } from "../../hooks/useRealTimeTestReults";
 import { useRealtimeLogs } from "../../hooks/useRealtimeLogs";
 import { useWorkflowExecution } from "../../hooks/useWorkflowExecution";
 import { useWorkflowGraph } from "../../hooks/useWorkflowGraph";
+import { shouldPollExecutionFallback } from "../../lib/realtime-events";
 import { useExecutionStore } from "../../stores/execution.store.sync";
 import { useUIStore } from "../../stores/ui.store";
 import { useWorkflowStore } from "../../stores/workflow.store.sync";
@@ -35,7 +36,7 @@ import { ServiceNode } from "../ServiceNode";
 import { WorkflowLogsDrawer } from "../WorkflowLogsDrawer";
 import { FlowCanvas } from "./FlowCanvas";
 
-const EXECUTION_POLL_INTERVAL_MS = 3000;
+const EXECUTION_FALLBACK_POLL_INTERVAL_MS = 15000;
 
 interface FlowBuilderProps {
   workflowId: string;
@@ -111,7 +112,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   });
 
   // Realtime logs
-  useRealtimeLogs({
+  const { isConnected: isRunnerRealtimeConnected } = useRealtimeLogs({
     onComplete: onWorkComplete,
     onError,
   });
@@ -180,39 +181,58 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
     }
   }, [summary, hasTests]);
 
-  useEffect(() => {
-    if (!activeExecution) {
-      return;
-    }
+  const activeExecutionStatus = activeExecution?.status;
+  const activeExecutionProjectId = activeExecution?.projectId;
 
-    const terminalStatuses = new Set(["completed", "failed", "partial_failed"]);
-    if (terminalStatuses.has(activeExecution.status)) {
+  useEffect(() => {
+    if (
+      !shouldPollExecutionFallback({
+        workflowRunId: activeWorkflowRunId,
+        projectId: activeExecutionProjectId,
+        status: activeExecutionStatus,
+        realtimeConnected: isRunnerRealtimeConnected,
+      })
+    ) {
       return;
     }
 
     let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     const hydrateExecutionState = async () => {
       try {
-        const { hydrateFromServer } = await import("@/modules/sync/sync-hydration");
-        if (!cancelled) {
-          await hydrateFromServer();
-        }
+        const { hydrateFromServer } = await import(
+          "@/modules/sync/sync-hydration"
+        );
+        if (cancelled) return;
+        await hydrateFromServer();
       } catch (error) {
         console.error("[FlowBuilder] Execution hydration failed:", error);
+      } finally {
+        if (!cancelled) {
+          timeoutId = setTimeout(
+            hydrateExecutionState,
+            EXECUTION_FALLBACK_POLL_INTERVAL_MS,
+          );
+        }
       }
     };
 
-    void hydrateExecutionState();
-    const interval = setInterval(() => {
-      void hydrateExecutionState();
-    }, EXECUTION_POLL_INTERVAL_MS);
+    timeoutId = setTimeout(
+      hydrateExecutionState,
+      EXECUTION_FALLBACK_POLL_INTERVAL_MS,
+    );
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [activeExecution]);
+  }, [
+    activeExecutionProjectId,
+    activeExecutionStatus,
+    activeWorkflowRunId,
+    isRunnerRealtimeConnected,
+  ]);
 
   // Inject delete handler into nodes
   useEffect(() => {

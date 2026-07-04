@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/dev-atharva/cots/pkg/session"
+	"github.com/dev-atharva/cots/pkg/types"
 )
 
 // Resolves test result references in config
@@ -61,13 +62,13 @@ func resolveTestReference(ref string, sess *session.Session) (string, error) {
 	if ok {
 		// Example: ${user-api.host} -> runtime.Host
 		if len(parts) == 1 {
-			return runtime.Host, nil //default value is host
+			return types.AddressableHost(runtime.Host), nil //default value is host
 		}
 		field := parts[1]
 
 		switch field {
 		case "host":
-			return runtime.Host, nil
+			return types.AddressableHost(runtime.Host), nil
 		case "port":
 			//eg. ${serviceName.port:1234}
 			if len(parts) > 2 {

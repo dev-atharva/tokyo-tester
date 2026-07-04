@@ -30,7 +30,10 @@ func (e *CacheExecutor) Execute(ctx context.Context, testCfg config.TestConfig, 
 		return fmt.Errorf("service not found : %s", serviceName)
 	}
 
-	cacheType := getStringOrDefault(testCfg.Config, "cache_type", "")
+	cacheType, err := getStringOrDefault(testCfg.Config, "cache_type", "")
+	if err != nil {
+		return err
+	}
 	if cacheType == "" {
 		cacheType = e.inferCacheType(runtime.EnvVars, serviceName)
 	}
@@ -62,11 +65,19 @@ func (e *CacheExecutor) executeRedis(ctx context.Context, testCfg config.TestCon
 		return fmt.Errorf("redis port 6379 not mapped")
 	}
 
-	addr := fmt.Sprintf("%s:%s", runtime.Host, port)
+	addr := types.JoinHostPort(runtime.Host, port)
+	password, err := getStringOrDefault(testCfg.Config, "password", "")
+	if err != nil {
+		return err
+	}
+	db, err := getIntOrDefault(testCfg.Config, "db", 0)
+	if err != nil {
+		return err
+	}
 	client := redis.NewClient(&redis.Options{
 		Addr:         addr,
-		Password:     getStringOrDefault(testCfg.Config, "password", ""),
-		DB:           getIntOrDefault(testCfg.Config, "db", 0),
+		Password:     password,
+		DB:           db,
 		DialTimeout:  5 * time.Second,
 		ReadTimeout:  3 * time.Second,
 		WriteTimeout: 3 * time.Second,
@@ -106,10 +117,11 @@ func (e *CacheExecutor) redisSet(ctx context.Context, client *redis.Client, test
 	if !ok {
 		return fmt.Errorf("set operation requires 'value' in the config")
 	}
-	ttl := time.Duration(0)
-	if ttlSec, ok := testCfg.Config["ttl"].(int); ok {
-		ttl = time.Duration(ttlSec) * time.Second
+	ttlSeconds, err := getIntOrDefault(testCfg.Config, "ttl", 0)
+	if err != nil {
+		return err
 	}
+	ttl := time.Duration(ttlSeconds) * time.Second
 	valueStr := fmt.Sprintf("%v", value)
 	return client.Set(ctx, key, valueStr, ttl).Err()
 }
@@ -122,7 +134,11 @@ func (e *CacheExecutor) redisGet(ctx context.Context, client *redis.Client, test
 
 	result, err := client.Get(ctx, key).Result()
 	if err == redis.Nil {
-		if expectedValue, ok := testCfg.Config["expected_value"]; ok && expectedValue != nil {
+		expectedValue, ok, lookupErr := lookupConfigValue(testCfg.Config, "expected_value")
+		if lookupErr != nil {
+			return lookupErr
+		}
+		if ok && expectedValue != nil {
 			return fmt.Errorf("key %s does not exist , expected: %v", key, expectedValue)
 		}
 		return nil
@@ -131,7 +147,11 @@ func (e *CacheExecutor) redisGet(ctx context.Context, client *redis.Client, test
 		return fmt.Errorf("get operation failed : %w", err)
 	}
 
-	if expectedValue, ok := testCfg.Config["expected_value"]; ok {
+	expectedValue, ok, err := lookupConfigValue(testCfg.Config, "expected_value")
+	if err != nil {
+		return err
+	}
+	if ok {
 		expectedStr := fmt.Sprintf("%v", expectedValue)
 		if result != expectedStr {
 			return fmt.Errorf("expected value %q, got %q", expectedStr, result)
@@ -151,7 +171,15 @@ func (e *CacheExecutor) redisExists(ctx context.Context, client *redis.Client, t
 		return fmt.Errorf("exists operation failed : %w", err)
 	}
 
-	if expectedExists, ok := testCfg.Config["expected_exists"].(bool); ok {
+	_, found, err := lookupConfigValue(testCfg.Config, "expected_exists")
+	if err != nil {
+		return err
+	}
+	if found {
+		expectedExists, err := getBoolOrDefault(testCfg.Config, "expected_exists", true)
+		if err != nil {
+			return err
+		}
 		exists := count > 0
 		if exists != expectedExists {
 			return fmt.Errorf("expected exists=%v, got exists=%v", expectedExists, exists)
@@ -174,7 +202,7 @@ func (e *CacheExecutor) executeMemcached(_ context.Context, testCfg config.TestC
 		return fmt.Errorf("memcached port 11211 not mapped")
 	}
 
-	addr := fmt.Sprintf("%s:%s", runtime.Host, port)
+	addr := types.JoinHostPort(runtime.Host, port)
 	client := memcache.New(addr)
 	client.Timeout = 3 * time.Second
 
@@ -207,10 +235,11 @@ func (e *CacheExecutor) memCachedSet(client *memcache.Client, testCfg config.Tes
 		return fmt.Errorf("set opertaion requires 'value' in config")
 	}
 
-	expiration := int32(0)
-	if ttlSec, ok := testCfg.Config["ttl"].(int); ok {
-		expiration = int32(ttlSec)
+	ttlSeconds, err := getIntOrDefault(testCfg.Config, "ttl", 0)
+	if err != nil {
+		return err
 	}
+	expiration := int32(ttlSeconds)
 
 	valueStr := fmt.Sprintf("%v", value)
 	item := &memcache.Item{
@@ -230,7 +259,11 @@ func (e *CacheExecutor) memCachedGet(client *memcache.Client, testCfg config.Tes
 
 	item, err := client.Get(key)
 	if err == memcache.ErrCacheMiss {
-		if expectedValue, ok := testCfg.Config["expected_value"]; ok && expectedValue != nil {
+		expectedValue, ok, lookupErr := lookupConfigValue(testCfg.Config, "expected_value")
+		if lookupErr != nil {
+			return lookupErr
+		}
+		if ok && expectedValue != nil {
 			return fmt.Errorf("key %s does not exist, expected : %v", key, expectedValue)
 		}
 		return nil
@@ -240,7 +273,11 @@ func (e *CacheExecutor) memCachedGet(client *memcache.Client, testCfg config.Tes
 		return fmt.Errorf("get operation failed: %w", err)
 	}
 
-	if expectedValue, ok := testCfg.Config["expected_value"]; ok {
+	expectedValue, ok, err := lookupConfigValue(testCfg.Config, "expected_value")
+	if err != nil {
+		return err
+	}
+	if ok {
 		expectedStr := fmt.Sprintf("%v", expectedValue)
 		if string(item.Value) != expectedStr {
 			return fmt.Errorf("expected value %q, got %q", expectedStr, string(item.Value))
@@ -260,15 +297,4 @@ func (e *CacheExecutor) memCachedDelete(client *memcache.Client, testCfg config.
 		return nil
 	}
 	return err
-}
-
-func getIntOrDefault(cfg map[string]any, key string, defaultValue int) int {
-	if val, ok := cfg[key].(int); ok {
-		return val
-	}
-
-	if val, ok := cfg[key].(float64); ok {
-		return int(val)
-	}
-	return defaultValue
 }
