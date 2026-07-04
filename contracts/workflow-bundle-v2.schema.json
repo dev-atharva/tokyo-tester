@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tokyotester.dev/schemas/workflow-bundle/v2.json",
+  "title": "Tokyo Tester workflow bundle",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "workflow", "scenarios"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "kind": { "const": "cots.workflow-bundle" },
+    "workflow": { "$ref": "#/$defs/workflow" },
+    "scenarios": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/scenario" } }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "workflow": {
+      "type": "object",
+      "required": ["name", "nodes", "edges"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "nodes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/node" } },
+        "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" } }
+      },
+      "additionalProperties": false
+    },
+    "node": {
+      "type": "object",
+      "required": ["id", "data"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "data": {
+          "type": "object",
+          "required": ["label", "service"],
+          "properties": {
+            "label": { "type": "string", "minLength": 1 },
+            "service": { "$ref": "#/$defs/service" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "service": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["generic", "postgres", "mysql", "mariadb", "redis", "memcached", "mongodb", "rabbitmq", "kafka"] },
+        "image": { "type": "string" },
+        "command": { "type": "array", "items": { "type": "string" } },
+        "ports": { "type": "array", "items": { "$ref": "#/$defs/port" } },
+        "env": { "type": "array", "items": { "$ref": "#/$defs/env" } },
+        "waitStratergy": { "$ref": "#/$defs/waitStrategy" },
+        "initScripts": { "type": "array", "items": { "$ref": "#/$defs/initScript" } }
+      },
+      "additionalProperties": false
+    },
+    "port": {
+      "type": "object",
+      "required": ["hostPort", "containerPort"],
+      "properties": {
+        "id": { "type": "string" },
+        "hostPort": { "type": "string" },
+        "containerPort": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "env": {
+      "type": "object",
+      "required": ["key", "value"],
+      "properties": { "id": { "type": "string" }, "key": { "type": "string" }, "value": { "type": "string" } },
+      "additionalProperties": false
+    },
+    "waitStrategy": {
+      "type": "object",
+      "required": ["enabled", "type"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "type": { "enum": ["log", "port", "exec"] },
+        "target": { "type": "string" },
+        "timeout": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "initScript": {
+      "type": "object",
+      "required": ["order", "script"],
+      "properties": {
+        "id": { "type": "string" }, "order": { "type": "integer" }, "script": { "type": "string" }, "description": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "edge": {
+      "type": "object",
+      "required": ["source", "target", "data"],
+      "properties": {
+        "id": { "type": "string" },
+        "source": { "type": "string" },
+        "target": { "type": "string" },
+        "data": {
+          "type": "object",
+          "required": ["relation", "readiness"],
+          "properties": {
+            "relation": { "enum": ["calls", "reads", "writes", "publishes", "consumes"] },
+            "readiness": { "enum": ["none", "source_requires_target", "target_requires_source"] },
+            "label": { "type": "string" }, "description": { "type": "string" }, "protocol": { "type": "string" }, "needsReview": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": true
+    },
+    "scenario": {
+      "type": "object",
+      "required": ["name", "tests", "testOrder"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "tests": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/test" } },
+        "testOrder": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "additionalProperties": false
+    },
+    "test": {
+      "type": "object",
+      "required": ["id", "name", "type", "targetServices"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 }, "name": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["http", "database", "document", "cache", "queue", "shell", "delay"] },
+        "targetServices": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "dependsOnTestIds": { "type": "array", "items": { "type": "string" } },
+        "httpConfig": { "type": "object" }, "databaseConfig": { "type": "object" }, "documentConfig": { "type": "object" },
+        "cacheConfig": { "type": "object" }, "queueConfig": { "type": "object" }, "shellConfig": { "type": "object" }, "delayConfig": { "type": "object" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

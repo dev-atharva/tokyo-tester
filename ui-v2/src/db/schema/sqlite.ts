@@ -57,6 +57,23 @@ export const sqliteProjectMembers = sqliteTable(
   }),
 );
 
+export const sqliteAgentTokens = sqliteTable("agent_token", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  tokenHash: text("tokenHash").notNull().unique(),
+  userId: text("userId")
+    .notNull()
+    .references(() => sqliteUsers.id, { onDelete: "cascade" }),
+  projectId: text("projectId")
+    .notNull()
+    .references(() => sqliteProjects.id, { onDelete: "cascade" }),
+  scopes: text("scopes").notNull(),
+  expiresAt: integer("expiresAt", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
 export const sqliteAccounts = sqliteTable(
   "account",
   {

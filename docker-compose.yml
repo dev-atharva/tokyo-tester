@@ -3,6 +3,7 @@ services:
     build:
       context: ./runner-v2
       dockerfile: Dockerfile
+      target: runner
     container_name: tokyo-tester-runner
     environment:
       APP_ENV: ${RUNNER_APP_ENV:-production}
@@ -58,6 +59,47 @@ services:
     command: ["sh", "-c", "bun run db:migrate && bun run start"]
     restart: unless-stopped
 
+  mcp:
+    profiles: ["agent"]
+    build:
+      context: ./runner-v2
+      dockerfile: Dockerfile
+      target: mcp
+    container_name: tokyo-tester-mcp
+    environment:
+      PORT: 8090
+      TOKYO_TESTER_APP_URL: http://ui:3000
+      MCP_ALLOWED_ORIGIN: ${TOKYO_TESTER_PUBLIC_ORIGIN:-}
+    depends_on:
+      ui:
+        condition: service_healthy
+    networks:
+      - tokyo-tester
+    restart: unless-stopped
+
+  edge:
+    profiles: ["agent"]
+    image: caddy:2.10-alpine
+    container_name: tokyo-tester-edge
+    environment:
+      TOKYO_TESTER_DOMAIN: ${TOKYO_TESTER_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      ui:
+        condition: service_healthy
+      mcp:
+        condition: service_healthy
+    networks:
+      - tokyo-tester
+    restart: unless-stopped
+
 networks:
   tokyo-tester:
     name: tokyo-tester
@@ -66,3 +108,5 @@ networks:
 volumes:
   runner_data:
   ui_data:
+  caddy_data:
+  caddy_config:

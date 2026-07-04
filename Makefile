@@ -69,7 +69,7 @@ dev-host-runner: dev-support ## Run the UI in Docker and the runner on the host
 	@$(MAKE) runner-dev
 
 prod: ensure-docker-socket ## Run the local production-like stack
-	@$(ENV_LOADER) $(COMPOSE) $(COMPOSE_FILES) up --build -d
+	@$(ENV_LOADER) $(COMPOSE) $(COMPOSE_FILES) --profile agent up --build -d
 
 test: test-go test-ui test-test-api ## Run backend and frontend tests
 
@@ -91,7 +91,7 @@ test-complex-e2e: test-api-build ## Run the opt-in, resource-heavy payment provi
 	@cd runner-v2 && RUN_COMPLEX_PAYMENT_E2E=1 GOCACHE="$${GOCACHE:-/tmp/tokyo-tester-go-cache}" go test -count=1 -timeout=60m ./e2e -run TestComplexPaymentFixturesE2E
 
 compose-check: ## Validate production and development Compose files
-	@AUTH_SECRET=compose-check-auth-secret WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" $(COMPOSE) $(COMPOSE_FILES) config --quiet
+	@AUTH_SECRET=compose-check-auth-secret WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" $(COMPOSE) $(COMPOSE_FILES) --profile agent config --quiet
 	@AUTH_SECRET=compose-check-auth-secret WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" $(COMPOSE) $(DEV_COMPOSE_FILES) config --quiet
 
 check: test compose-check ## Run tests and validate deployment configuration

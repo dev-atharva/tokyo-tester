@@ -48,6 +48,8 @@ The full matrix is intentionally opt-in through `make test-complex-e2e` because 
 
 - `ui-v2` is the Next.js app for editing workflows, scenarios, and executions
 - `runner-v2` is the Go service that provisions containers, runs tests, and cleans up
+- the separately deployed `mcp` process exposes agent-safe tools and has no Docker socket or database access
+- Caddy routes public `/mcp` traffic to that process while keeping the runner private
 - `docker-compose.yml` wires the UI and runner together with separate SQLite volumes
 - the frontend sync layer persists queued edits locally, flushes them to `POST /api/v1/sync/batch`, and hydrates from `GET /api/v1/sync/pull/{clientId}`
 - the runner's embedded SQLite worker coordinates execution, persists checkpoints, and streams replayable SSE updates to the UI
@@ -88,6 +90,27 @@ Common ports:
 
 - UI: `http://localhost:3000`
 - Runner API when using the host-runner development fallback: `http://localhost:8080`
+
+## AI Agent Integration
+
+The production Compose stack exposes a remote MCP endpoint at `https://<TOKYO_TESTER_DOMAIN>/mcp`. The MCP process forwards project-scoped operations to the authenticated UI/API and never receives filesystem or Docker access.
+
+The current authentication path is an explicitly private-beta personal token. While signed in, create one with `POST /api/v1/agent/tokens`:
+
+```json
+{
+  "name": "My coding agent",
+  "projectId": "<project-id>",
+  "scopes": ["read", "workflow:write", "run"],
+  "expiresInDays": 30
+}
+```
+
+The raw `tt_pat_...` token is returned once. Configure the MCP client to send it as `Authorization: Bearer <token>`. Use the repository skill at [`.agents/skills/tokyo-tester`](./.agents/skills/tokyo-tester) to guide repository inspection, workflow authoring, validation, execution, and repair.
+
+Revoke a token with `DELETE /api/v1/agent/tokens/<token-id>` from an authenticated session.
+
+Before opening MCP registration broadly, replace private-beta tokens with an OAuth 2.1 authorization server and MCP protected-resource discovery. The MCP adapter is intentionally isolated so that authentication transport can change without touching workflow execution.
 
 ## Built With
 

@@ -59,6 +59,23 @@ export const pgProjectMembers = pgTable(
   }),
 );
 
+export const pgAgentTokens = pgTable("agent_token", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  tokenHash: text("tokenHash").notNull().unique(),
+  userId: text("userId")
+    .notNull()
+    .references(() => pgUsers.id, { onDelete: "cascade" }),
+  projectId: text("projectId")
+    .notNull()
+    .references(() => pgProjects.id, { onDelete: "cascade" }),
+  scopes: text("scopes").notNull(),
+  expiresAt: timestamp("expiresAt", { mode: "date" }).notNull(),
+  createdAt: timestamp("createdAt", { mode: "date" })
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const pgAccounts = pgTable(
   "account",
   {

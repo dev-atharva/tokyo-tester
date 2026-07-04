@@ -5,6 +5,7 @@ import postgres from "postgres";
 import { assertDatabaseConfig } from "./env";
 import {
   pgAccounts,
+  pgAgentTokens,
   pgProjectMembers,
   pgProjects,
   pgSessions,
@@ -13,6 +14,7 @@ import {
 } from "./schema/postgres";
 import {
   sqliteAccounts,
+  sqliteAgentTokens,
   sqliteProjectMembers,
   sqliteProjects,
   sqliteSessions,
@@ -32,6 +34,7 @@ type SqliteConnection = {
     projects: typeof sqliteProjects;
     projectMembers: typeof sqliteProjectMembers;
     accounts: typeof sqliteAccounts;
+    agentTokens: typeof sqliteAgentTokens;
     sessions: typeof sqliteSessions;
     verificationTokens: typeof sqliteVerificationTokens;
   };
@@ -46,6 +49,7 @@ type PostgresConnection = {
     projects: typeof pgProjects;
     projectMembers: typeof pgProjectMembers;
     accounts: typeof pgAccounts;
+    agentTokens: typeof pgAgentTokens;
     sessions: typeof pgSessions;
     verificationTokens: typeof pgVerificationTokens;
   };
@@ -88,6 +92,7 @@ export function getDb(): DatabaseConnection {
         projects: pgProjects,
         projectMembers: pgProjectMembers,
         accounts: pgAccounts,
+        agentTokens: pgAgentTokens,
         sessions: pgSessions,
         verificationTokens: pgVerificationTokens,
       },
@@ -109,6 +114,7 @@ export function getDb(): DatabaseConnection {
       projects: sqliteProjects,
       projectMembers: sqliteProjectMembers,
       accounts: sqliteAccounts,
+      agentTokens: sqliteAgentTokens,
       sessions: sqliteSessions,
       verificationTokens: sqliteVerificationTokens,
     },
