@@ -13,6 +13,7 @@ import {
   type TestResult,
   useTestResultStore,
 } from "@/modules/workflow/stores/test-result.store";
+import { normalizeEdges } from "../workflow/lib/edge-model";
 import {
   useWorkflowStore,
   type Workflow,
@@ -179,7 +180,7 @@ function hydrateTestResults(testResults: TestResultData[]): number {
 
 function deserializeWorkflow(data: WorkflowData): Workflow {
   const nodes = parseJSON<FlowNode[]>(data.nodes_config, []);
-  const edges = parseJSON<FlowEdge[]>(data.edges_config, []);
+  const edges = normalizeEdges(parseJSON<FlowEdge[]>(data.edges_config, []));
   const metadata = parseJSON<{ customTestOrder?: Record<string, string[]> }>(
     data.metadata,
     {},

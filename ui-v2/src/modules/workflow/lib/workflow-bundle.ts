@@ -6,13 +6,19 @@ import {
 } from "@/modules/utils/scenario-translator";
 import type { Workflow } from "../stores/workflow.store.sync";
 import type {
+  FlowEdge,
   FlowNode,
   Scenario,
   WorkflowBundle,
   WorkflowBundleScenario,
 } from "../types/react-flow-cots";
+import {
+  EDGE_READINESS_OPTIONS,
+  EDGE_RELATIONS,
+  normalizeEdges,
+} from "./edge-model";
 
-export const WORKFLOW_BUNDLE_SCHEMA_VERSION = 1;
+export const WORKFLOW_BUNDLE_SCHEMA_VERSION = 2;
 export const WORKFLOW_BUNDLE_KIND = "cots.workflow-bundle";
 
 type ExportableWorkflow = Pick<
@@ -40,7 +46,7 @@ export function createWorkflowBundle(
       name: workflow.name,
       description: workflow.description || "",
       nodes: sanitizeNodesForBundle(workflow.nodes),
-      edges: cloneValue(workflow.edges),
+      edges: sanitizeEdgesForBundle(workflow.edges),
     },
     scenarios: scenarios.map((scenario) => ({
       name: scenario.name,
@@ -64,7 +70,7 @@ export function parseWorkflowBundle(raw: string): WorkflowBundle {
   }
 
   validateWorkflowBundle(parsed);
-  return parsed;
+  return normalizeWorkflowBundle(parsed);
 }
 
 export function validateWorkflowBundle(
@@ -76,7 +82,7 @@ export function validateWorkflowBundle(
 
   const bundle = value as Partial<WorkflowBundle>;
 
-  if (bundle.schemaVersion !== WORKFLOW_BUNDLE_SCHEMA_VERSION) {
+  if (bundle.schemaVersion !== 1 && bundle.schemaVersion !== 2) {
     throw new Error(
       `Unsupported workflow bundle schema version: ${String(bundle.schemaVersion)}.`,
     );
@@ -100,6 +106,18 @@ export function validateWorkflowBundle(
 
   if (!Array.isArray(bundle.workflow.edges)) {
     throw new Error("Workflow bundle workflow.edges must be an array.");
+  }
+
+  for (const edge of bundle.workflow.edges) {
+    if (edge.data?.relation && !EDGE_RELATIONS.includes(edge.data.relation)) {
+      throw new Error(`Edge "${edge.id}" has an invalid relation.`);
+    }
+    if (
+      edge.data?.readiness &&
+      !EDGE_READINESS_OPTIONS.includes(edge.data.readiness)
+    ) {
+      throw new Error(`Edge "${edge.id}" has invalid readiness metadata.`);
+    }
   }
 
   if (!Array.isArray(bundle.scenarios) || bundle.scenarios.length === 0) {
@@ -149,12 +167,45 @@ export function materializeWorkflowBundle(
       name: getUniqueWorkflowName(bundle.workflow.name, existingWorkflowNames),
       description: bundle.workflow.description || "",
       nodes: sanitizeNodesForBundle(bundle.workflow.nodes),
-      edges: cloneValue(bundle.workflow.edges),
+      edges: normalizeEdges(
+        cloneValue(bundle.workflow.edges),
+        bundle.schemaVersion === 1,
+      ),
     },
     scenarios: bundle.scenarios.map((scenario) =>
       cloneScenarioForImport(scenario),
     ),
   };
+}
+
+function normalizeWorkflowBundle(bundle: WorkflowBundle): WorkflowBundle {
+  return {
+    ...bundle,
+    schemaVersion: WORKFLOW_BUNDLE_SCHEMA_VERSION,
+    workflow: {
+      ...bundle.workflow,
+      edges: normalizeEdges(
+        cloneValue(bundle.workflow.edges as FlowEdge[]),
+        bundle.schemaVersion === 1,
+      ),
+    },
+  };
+}
+
+function sanitizeEdgesForBundle(edges: FlowEdge[]): FlowEdge[] {
+  return normalizeEdges(cloneValue(edges)).map((edge) => ({
+    ...edge,
+    data: edge.data
+      ? {
+          relation: edge.data.relation,
+          readiness: edge.data.readiness,
+          label: edge.data.label,
+          description: edge.data.description,
+          protocol: edge.data.protocol,
+          needsReview: edge.data.needsReview,
+        }
+      : edge.data,
+  }));
 }
 
 export function createClonedWorkflowBundle(

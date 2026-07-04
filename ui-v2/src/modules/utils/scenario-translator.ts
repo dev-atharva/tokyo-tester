@@ -1,3 +1,4 @@
+import { normalizeEdge } from "../workflow/lib/edge-model";
 import type {
   DependencyGraph,
   FlowEdge,
@@ -36,16 +37,6 @@ type HttpExpectedBody =
       value: string | Record<string, JsonValue>;
     }
   | undefined;
-
-const infrastructureTypes = new Set([
-  "postgres",
-  "mysql",
-  "mariadb",
-  "redis",
-  "kafka",
-  "rabbitmq",
-  "mongodb",
-]);
 
 export function validateWorkflowGraph(
   nodes: FlowNode[],
@@ -93,12 +84,24 @@ export function validateWorkflowGraph(
     });
   }
 
+  errors.push(...validateRuntimeReferenceReadiness(nodes, graph));
+
   for (const node of nodes) {
     const hasOutgoing = edges.some((edge) => edge.source === node.id);
     const hasIncoming = edges.some((edge) => edge.target === node.id);
     if (!hasIncoming && !hasOutgoing && nodes.length > 1) {
       warnings.push(`Node "${node.data.label}" has no connections`);
     }
+  }
+
+  const migratedEdges = edges.filter(
+    (edge) =>
+      !edge.data?.relation || !edge.data?.readiness || edge.data.needsReview,
+  );
+  if (migratedEdges.length > 0) {
+    warnings.push(
+      `${migratedEdges.length} migrated edge${migratedEdges.length === 1 ? " needs" : "s need"} review.`,
+    );
   }
 
   return {
@@ -230,15 +233,14 @@ export function buildServiceDependencies(
   nodeMap: NodeMap,
 ): DependencyGraph {
   const graph = new Map<string, string[]>();
-  const nodeTypes = new Map<string, string>();
 
   for (const node of nodes) {
     const serviceName = sanitizeName(node.data.label);
     graph.set(serviceName, []);
-    nodeTypes.set(serviceName, node.data.service.type);
   }
 
-  for (const edge of edges) {
+  for (const rawEdge of edges) {
+    const edge = normalizeEdge(rawEdge);
     const source = nodeMap.get(edge.source);
     const target = nodeMap.get(edge.target);
     if (!source || !target) {
@@ -246,51 +248,66 @@ export function buildServiceDependencies(
     }
     const sourceName = sanitizeName(source.data.label);
     const targetName = sanitizeName(target.data.label);
-    const sourceType = source.data.service.type;
-    const targetType = target.data.service.type;
-
-    const sourceIsInfra = infrastructureTypes.has(sourceType);
-    const targetISInfra = infrastructureTypes.has(targetType);
-
-    if (!sourceIsInfra) {
-      graph.set(sourceName, [...(graph.get(sourceName) || []), targetName]);
-    } else if (targetISInfra) {
-      graph.set(sourceName, [...(graph.get(sourceName) || []), targetName]);
+    if (edge.data?.readiness === "source_requires_target") {
+      graph.set(sourceName, uniqueAppend(graph.get(sourceName), targetName));
+    } else if (edge.data?.readiness === "target_requires_source") {
+      graph.set(targetName, uniqueAppend(graph.get(targetName), sourceName));
     }
-
-    graph.set(sourceName, [...(graph.get(sourceName) || []), targetName]);
-  }
-
-  const infrastructureServices = Array.from(nodeTypes.entries())
-    .filter(([, type]) => infrastructureTypes.has(type))
-    .map(([serviceName]) => serviceName);
-
-  for (const [serviceName, type] of nodeTypes.entries()) {
-    if (type !== "generic") {
-      continue;
-    }
-
-    const explicitDependencies = graph.get(serviceName) || [];
-    const mergedDependencies = new Set(explicitDependencies);
-
-    for (const infraService of infrastructureServices) {
-      if (infraService !== serviceName) {
-        const tempGraph = new Map(graph);
-        tempGraph.set(
-          serviceName,
-          Array.from(new Set([...mergedDependencies, infraService])),
-        );
-        const cycles = detectCycles(tempGraph);
-        if (cycles.length === 0) {
-          mergedDependencies.add(infraService);
-        }
-      }
-    }
-
-    graph.set(serviceName, Array.from(mergedDependencies));
   }
 
   return graph;
+}
+
+function uniqueAppend(values: string[] | undefined, value: string): string[] {
+  return values?.includes(value) ? values : [...(values || []), value];
+}
+
+function validateRuntimeReferenceReadiness(
+  nodes: FlowNode[],
+  graph: DependencyGraph,
+): TranslationError[] {
+  const errors: TranslationError[] = [];
+  const aliases = buildServiceAliasMap(nodes);
+
+  for (const node of nodes) {
+    const serviceName = sanitizeName(node.data.label);
+    const values = [
+      ...(node.data.service.command || []),
+      ...(node.data.service.env || []).map((entry) => entry.value),
+      ...(node.data.service.initScripts || []).map((entry) => entry.script),
+    ];
+    const reachable = new Set<string>();
+    const visit = (name: string) => {
+      for (const dependency of graph.get(name) || []) {
+        if (!reachable.has(dependency)) {
+          reachable.add(dependency);
+          visit(dependency);
+        }
+      }
+    };
+    visit(serviceName);
+
+    for (const value of values) {
+      for (const match of value.matchAll(/\$\{([^}.]+)\.[^}]+\}/g)) {
+        const token = match[1];
+        const referenced =
+          aliases.get(token) ?? aliases.get(token.toLowerCase()) ?? "";
+        if (
+          referenced &&
+          referenced !== serviceName &&
+          !reachable.has(referenced)
+        ) {
+          errors.push({
+            nodeId: node.id,
+            field: "service",
+            message: `Service "${serviceName}" references runtime values from "${referenced}" without a readiness prerequisite.`,
+          });
+        }
+      }
+    }
+  }
+
+  return errors;
 }
 
 function translateServices(

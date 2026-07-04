@@ -1,4 +1,4 @@
-import type { Edge, Node } from "reactflow";
+import type { Edge, Node } from "@xyflow/react";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =
@@ -12,6 +12,7 @@ export type ServiceType =
   | "generic"
   | "mariadb"
   | "redis"
+  | "memcached"
   | "kafka"
   | "rabbitmq"
   | "mongodb";
@@ -103,6 +104,7 @@ export interface TestResult {
 }
 
 export interface ServiceNodeData {
+  [key: string]: unknown;
   label: string;
   description?: string;
   service: {
@@ -310,9 +312,28 @@ export interface InitScript {
 
 export type FlowNode = Node<ServiceNodeData>;
 
+export type EdgeRelation =
+  | "calls"
+  | "reads"
+  | "writes"
+  | "publishes"
+  | "consumes";
+
+export type EdgeReadiness =
+  | "none"
+  | "source_requires_target"
+  | "target_requires_source";
+
 export interface EdgeData {
+  [key: string]: unknown;
   label?: string;
-  dataFlowType?: "read" | "write" | "bidirectional";
+  description?: string;
+  protocol?: string;
+  relation: EdgeRelation;
+  readiness: EdgeReadiness;
+  needsReview?: boolean;
+  showLabel?: boolean;
+  layoutPoints?: Array<{ x: number; y: number }>;
 }
 
 export type FlowEdge = Edge<EdgeData>;

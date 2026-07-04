@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "kind": "cots.workflow-bundle",
   "workflow": {
     "name": "Complex Payment Platform",
@@ -180,16 +180,23 @@
       }
     ],
     "edges": [
-      { "id": "payment-worker", "source": "payment-api-node", "target": "settlement-worker-node" },
-      { "id": "payment-pg", "source": "payment-api-node", "target": "ledger-postgres-node" },
-      { "id": "payment-my", "source": "payment-api-node", "target": "merchant-mysql-node" },
-      { "id": "payment-ma", "source": "payment-api-node", "target": "risk-mariadb-node" },
-      { "id": "payment-red", "source": "payment-api-node", "target": "redis-node" },
-      { "id": "payment-mem", "source": "payment-api-node", "target": "memcached-node" },
-      { "id": "worker-mem", "source": "settlement-worker-node", "target": "memcached-node" },
-      { "id": "payment-mongo", "source": "payment-api-node", "target": "mongodb-node" },
-      { "id": "payment-rabbit", "source": "payment-api-node", "target": "rabbit-node" },
-      { "id": "payment-kafka", "source": "payment-api-node", "target": "kafka-node" }
+      { "id": "payment-worker", "source": "payment-api-node", "target": "settlement-worker-node", "data": { "relation": "calls", "readiness": "source_requires_target" } },
+      { "id": "payment-pg", "source": "payment-api-node", "target": "ledger-postgres-node", "data": { "relation": "writes", "readiness": "source_requires_target" } },
+      { "id": "payment-my", "source": "merchant-mysql-node", "target": "payment-api-node", "data": { "relation": "reads", "readiness": "target_requires_source" } },
+      { "id": "payment-ma", "source": "risk-mariadb-node", "target": "payment-api-node", "data": { "relation": "reads", "readiness": "target_requires_source" } },
+      { "id": "payment-red", "source": "payment-api-node", "target": "redis-node", "data": { "relation": "writes", "readiness": "source_requires_target" } },
+      { "id": "payment-mem", "source": "memcached-node", "target": "payment-api-node", "data": { "relation": "reads", "readiness": "target_requires_source" } },
+      { "id": "payment-mongo", "source": "payment-api-node", "target": "mongodb-node", "data": { "relation": "writes", "readiness": "source_requires_target" } },
+      { "id": "payment-rabbit", "source": "payment-api-node", "target": "rabbit-node", "data": { "relation": "publishes", "readiness": "source_requires_target" } },
+      { "id": "payment-kafka", "source": "payment-api-node", "target": "kafka-node", "data": { "relation": "publishes", "readiness": "source_requires_target" } },
+      { "id": "worker-pg", "source": "settlement-worker-node", "target": "ledger-postgres-node", "data": { "relation": "writes", "readiness": "source_requires_target" } },
+      { "id": "worker-my", "source": "merchant-mysql-node", "target": "settlement-worker-node", "data": { "relation": "reads", "readiness": "target_requires_source" } },
+      { "id": "worker-ma", "source": "risk-mariadb-node", "target": "settlement-worker-node", "data": { "relation": "reads", "readiness": "target_requires_source" } },
+      { "id": "worker-red", "source": "settlement-worker-node", "target": "redis-node", "data": { "relation": "writes", "readiness": "source_requires_target" } },
+      { "id": "worker-mem", "source": "memcached-node", "target": "settlement-worker-node", "data": { "relation": "reads", "readiness": "target_requires_source" } },
+      { "id": "worker-mongo", "source": "settlement-worker-node", "target": "mongodb-node", "data": { "relation": "writes", "readiness": "source_requires_target" } },
+      { "id": "rabbit-worker", "source": "rabbit-node", "target": "settlement-worker-node", "data": { "relation": "consumes", "readiness": "target_requires_source" } },
+      { "id": "worker-kafka", "source": "settlement-worker-node", "target": "kafka-node", "data": { "relation": "publishes", "readiness": "source_requires_target" } }
     ]
   },
   "scenarios": [

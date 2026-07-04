@@ -5,6 +5,82 @@ import (
 	"testing"
 )
 
+func workflowNode(id, serviceType string, env ...EnvironmentVariable) FlowNode {
+	service := ServiceNodeData{Type: serviceType, Env: env}
+	if serviceType == "generic" {
+		service.Image = "example:latest"
+	}
+	return FlowNode{ID: id, Data: FlowNodeData{Label: id, Service: service}}
+}
+
+func workflowEdge(id, source, target, readiness string) FlowEdge {
+	return FlowEdge{
+		ID: id, Source: source, Target: target,
+		Data: &FlowEdgeData{Relation: "calls", Readiness: readiness},
+	}
+}
+
+func TestReadinessGraphAllowsDataCyclesAndRejectsStartupCycles(t *testing.T) {
+	nodes := []FlowNode{workflowNode("app", "generic"), workflowNode("db", "postgres")}
+	dataCycle := []FlowEdge{
+		workflowEdge("write", "app", "db", "source_requires_target"),
+		workflowEdge("read", "db", "app", "target_requires_source"),
+	}
+	if err := validateWorkflowGraph(nodes, dataCycle); err != nil {
+		t.Fatalf("data cycle with acyclic readiness should be valid: %v", err)
+	}
+	if got := buildServiceDependencies(nodes, dataCycle)["app"]; len(got) != 1 || got[0] != "db" {
+		t.Fatalf("unexpected app readiness dependencies: %v", got)
+	}
+
+	startupCycle := []FlowEdge{
+		workflowEdge("one", "app", "db", "source_requires_target"),
+		workflowEdge("two", "db", "app", "source_requires_target"),
+	}
+	if err := validateWorkflowGraph(nodes, startupCycle); err == nil || !strings.Contains(err.Error(), "circular dependencies") {
+		t.Fatalf("expected readiness cycle error, got %v", err)
+	}
+}
+
+func TestRuntimeReferenceRequiresReadiness(t *testing.T) {
+	nodes := []FlowNode{
+		workflowNode("app", "generic", EnvironmentVariable{Key: "DB_HOST", Value: "${db.host}"}),
+		workflowNode("db", "postgres"),
+	}
+	edges := []FlowEdge{workflowEdge("data", "app", "db", "none")}
+	if err := validateWorkflowGraph(nodes, edges); err == nil || !strings.Contains(err.Error(), "without a readiness prerequisite") {
+		t.Fatalf("expected missing readiness error, got %v", err)
+	}
+}
+
+func TestDecodeMigratesLegacyEdge(t *testing.T) {
+	raw := `{
+		"schemaVersion": 1,
+		"kind": "cots.workflow-bundle",
+		"workflow": {
+			"name": "legacy",
+			"nodes": [
+				{"id":"app","data":{"label":"app","service":{"type":"generic","image":"example:latest"}}},
+				{"id":"db","data":{"label":"db","service":{"type":"postgres"}}}
+			],
+			"edges": [{"id":"old","source":"app","target":"db"}]
+		},
+		"scenarios": [{
+			"name":"smoke",
+			"tests":[{"id":"test","name":"health","type":"http","targetServices":["app"],"httpConfig":{"method":"GET","path":"/","port":"8080","expectedStatus":200}}],
+			"testOrder":["test"]
+		}]
+	}`
+	bundle, err := Decode(strings.NewReader(raw))
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	edge := bundle.Workflow.Edges[0]
+	if bundle.SchemaVersion != 2 || edge.Data.Relation != "calls" || edge.Data.Readiness != "source_requires_target" || !edge.Data.NeedsReview {
+		t.Fatalf("legacy edge was not migrated: %#v", edge)
+	}
+}
+
 func TestDecodeAndTranslateScenario(t *testing.T) {
 	raw := `{
 		"schemaVersion": 1,
@@ -81,7 +157,7 @@ func TestDecodeAndTranslateScenario(t *testing.T) {
 
 func TestDecodeRejectsInvalidSchemaVersion(t *testing.T) {
 	raw := `{
-		"schemaVersion": 2,
+		"schemaVersion": 3,
 		"kind": "cots.workflow-bundle",
 		"workflow": {
 			"name": "Smoke Tests",

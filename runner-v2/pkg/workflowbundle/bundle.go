@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	SchemaVersion = 1
-	BundleKind    = "cots.workflow-bundle"
+	SchemaVersion       = 2
+	legacySchemaVersion = 1
+	BundleKind          = "cots.workflow-bundle"
 )
 
 type Bundle struct {
@@ -78,9 +79,19 @@ type InitScript struct {
 }
 
 type FlowEdge struct {
-	ID     string `json:"id,omitempty"`
-	Source string `json:"source"`
-	Target string `json:"target"`
+	ID     string        `json:"id,omitempty"`
+	Source string        `json:"source"`
+	Target string        `json:"target"`
+	Data   *FlowEdgeData `json:"data,omitempty"`
+}
+
+type FlowEdgeData struct {
+	Relation    string `json:"relation"`
+	Readiness   string `json:"readiness"`
+	Label       string `json:"label,omitempty"`
+	Description string `json:"description,omitempty"`
+	Protocol    string `json:"protocol,omitempty"`
+	NeedsReview bool   `json:"needsReview,omitempty"`
 }
 
 type BundleScenario struct {
@@ -197,13 +208,60 @@ func Decode(reader io.Reader) (*Bundle, error) {
 	if err := json.NewDecoder(reader).Decode(&bundle); err != nil {
 		return nil, fmt.Errorf("invalid workflow bundle JSON: %w", err)
 	}
+	if err := bundle.normalize(); err != nil {
+		return nil, err
+	}
 	if err := bundle.Validate(); err != nil {
 		return nil, err
 	}
 	return &bundle, nil
 }
 
+func (b *Bundle) normalize() error {
+	if b.SchemaVersion != legacySchemaVersion && b.SchemaVersion != SchemaVersion {
+		return fmt.Errorf("unsupported workflow bundle schema version: %d", b.SchemaVersion)
+	}
+	legacyBundle := b.SchemaVersion == legacySchemaVersion
+	for index := range b.Workflow.Edges {
+		edge := &b.Workflow.Edges[index]
+		legacyEdge := edge.Data == nil
+		if edge.Data == nil {
+			edge.Data = &FlowEdgeData{}
+		}
+		if edge.Data.Relation != "" && !validRelation(edge.Data.Relation) {
+			return fmt.Errorf("edge %q has invalid relation %q", edge.ID, edge.Data.Relation)
+		}
+		if edge.Data.Relation == "" {
+			edge.Data.Relation = "calls"
+			legacyEdge = true
+		}
+		if edge.Data.Readiness != "" && !validReadiness(edge.Data.Readiness) {
+			return fmt.Errorf("edge %q has invalid readiness %q", edge.ID, edge.Data.Readiness)
+		}
+		if edge.Data.Readiness == "" {
+			edge.Data.Readiness = "source_requires_target"
+			legacyEdge = true
+		}
+		if legacyBundle || legacyEdge {
+			edge.Data.NeedsReview = true
+		}
+	}
+	b.SchemaVersion = SchemaVersion
+	return nil
+}
+
+func validRelation(value string) bool {
+	return slices.Contains([]string{"calls", "reads", "writes", "publishes", "consumes"}, value)
+}
+
+func validReadiness(value string) bool {
+	return slices.Contains([]string{"none", "source_requires_target", "target_requires_source"}, value)
+}
+
 func (b *Bundle) Validate() error {
+	if err := b.normalize(); err != nil {
+		return err
+	}
 	if b.SchemaVersion != SchemaVersion {
 		return fmt.Errorf("unsupported workflow bundle schema version: %d", b.SchemaVersion)
 	}
@@ -274,6 +332,9 @@ func validateWorkflowGraph(nodes []FlowNode, edges []FlowEdge) error {
 	graph := buildServiceDependencies(nodes, edges)
 	if cycles := detectCycles(graph); len(cycles) > 0 {
 		return fmt.Errorf("circular dependencies detected: %s", strings.Join(cycles, ", "))
+	}
+	if err := validateRuntimeReferenceReadiness(nodes, graph); err != nil {
+		return err
 	}
 
 	return nil
@@ -349,13 +410,11 @@ func translateWorkflowGraphToServiceGraph(nodes []FlowNode, edges []FlowEdge) (w
 func buildServiceDependencies(nodes []FlowNode, edges []FlowEdge) map[string][]string {
 	graph := make(map[string][]string, len(nodes))
 	nodeMap := make(map[string]FlowNode, len(nodes))
-	nodeTypes := make(map[string]string, len(nodes))
 
 	for _, node := range nodes {
 		serviceName := SanitizeName(node.Data.Label)
 		graph[serviceName] = []string{}
 		nodeMap[node.ID] = node
-		nodeTypes[serviceName] = node.Data.Service.Type
 	}
 
 	for _, edge := range edges {
@@ -366,36 +425,61 @@ func buildServiceDependencies(nodes []FlowNode, edges []FlowEdge) map[string][]s
 		}
 		sourceName := SanitizeName(source.Data.Label)
 		targetName := SanitizeName(target.Data.Label)
-		graph[sourceName] = appendUnique(graph[sourceName], targetName)
-	}
-
-	infraServices := make([]string, 0)
-	for serviceName, serviceType := range nodeTypes {
-		if isInfrastructureType(serviceType) {
-			infraServices = append(infraServices, serviceName)
-		}
-	}
-
-	for serviceName, serviceType := range nodeTypes {
-		if serviceType != "generic" {
+		if edge.Data == nil {
 			continue
 		}
-		merged := slices.Clone(graph[serviceName])
-		for _, infra := range infraServices {
-			if infra == serviceName {
-				continue
-			}
-			candidate := appendUnique(merged, infra)
-			temp := cloneDependencyGraph(graph)
-			temp[serviceName] = candidate
-			if len(detectCycles(temp)) == 0 {
-				merged = candidate
-			}
+		switch edge.Data.Readiness {
+		case "source_requires_target":
+			graph[sourceName] = appendUnique(graph[sourceName], targetName)
+		case "target_requires_source":
+			graph[targetName] = appendUnique(graph[targetName], sourceName)
 		}
-		graph[serviceName] = merged
 	}
 
 	return graph
+}
+
+func validateRuntimeReferenceReadiness(nodes []FlowNode, graph map[string][]string) error {
+	aliases := buildServiceAliasMap(nodes)
+	for _, node := range nodes {
+		serviceName := SanitizeName(node.Data.Label)
+		reachable := make(map[string]bool)
+		var visit func(string)
+		visit = func(name string) {
+			for _, dependency := range graph[name] {
+				if !reachable[dependency] {
+					reachable[dependency] = true
+					visit(dependency)
+				}
+			}
+		}
+		visit(serviceName)
+
+		values := slices.Clone(node.Data.Service.Command)
+		for _, env := range node.Data.Service.Env {
+			values = append(values, env.Value)
+		}
+		for _, script := range node.Data.Service.InitScripts {
+			values = append(values, script.Script)
+		}
+		for _, value := range values {
+			for _, match := range serviceRefPattern.FindAllStringSubmatch(value, -1) {
+				parts := strings.Split(match[1], ".")
+				if len(parts) < 2 {
+					continue
+				}
+				token := strings.TrimSpace(parts[0])
+				referenced := aliases[token]
+				if referenced == "" {
+					referenced = aliases[strings.ToLower(token)]
+				}
+				if referenced != "" && referenced != serviceName && !reachable[referenced] {
+					return fmt.Errorf("service %q references runtime values from %q without a readiness prerequisite", serviceName, referenced)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func translateServices(nodes []FlowNode, serviceDeps map[string][]string) ([]config.ServiceConfig, error) {
@@ -851,4 +935,4 @@ func boolOrDefault(value *bool, fallback bool) bool {
 	return *value
 }
 
-var serviceRefPattern = regexp.MustCompile(`\$\{[^}]+\}`)
+var serviceRefPattern = regexp.MustCompile(`\$\{([^}]+)\}`)

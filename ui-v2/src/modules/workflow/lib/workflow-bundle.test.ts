@@ -137,7 +137,7 @@ describe("workflow bundle", () => {
     expect(() =>
       parseWorkflowBundle(
         JSON.stringify({
-          schemaVersion: 2,
+          schemaVersion: 3,
           kind: "cots.workflow-bundle",
           workflow: { name: "bad", nodes, edges },
           scenarios: [
@@ -146,6 +146,41 @@ describe("workflow bundle", () => {
         }),
       ),
     ).toThrow("Unsupported workflow bundle schema version");
+  });
+
+  test("migrates version 1 edges and marks them for review", () => {
+    const parsed = parseWorkflowBundle(
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: "cots.workflow-bundle",
+        workflow: {
+          name: "legacy",
+          nodes: [
+            ...nodes,
+            {
+              id: "node-2",
+              position: { x: 200, y: 0 },
+              type: "serviceNode",
+              data: {
+                label: "cache",
+                service: { type: "redis", env: [], ports: [], initScripts: [] },
+              },
+            },
+          ],
+          edges: [{ id: "old", source: "node-1", target: "node-2" }],
+        },
+        scenarios: [
+          { name: "scenario", tests, testOrder: ["test-1", "test-2"] },
+        ],
+      }),
+    );
+
+    expect(parsed.schemaVersion).toBe(2);
+    expect(parsed.workflow.edges[0]?.data).toEqual({
+      relation: "calls",
+      readiness: "source_requires_target",
+      needsReview: true,
+    });
   });
 
   test("ignores non-serializable node callbacks during export", () => {
@@ -175,5 +210,39 @@ describe("workflow bundle", () => {
     );
 
     expect(bundle.workflow.nodes[0]?.data.onDelete).toBeUndefined();
+  });
+
+  test("does not export transient layout presentation data", () => {
+    const bundle = createWorkflowBundle(
+      {
+        name: "Layout",
+        description: "",
+        nodes,
+        edges: [
+          {
+            id: "edge",
+            source: "node-1",
+            target: "node-1",
+            data: {
+              relation: "calls",
+              readiness: "none",
+              showLabel: true,
+              layoutPoints: [{ x: 1, y: 2 }],
+            },
+          },
+        ],
+      },
+      [
+        {
+          name: "Happy path",
+          description: "",
+          tests,
+          testOrder: ["test-1", "test-2"],
+        },
+      ],
+    );
+
+    expect(bundle.workflow.edges[0]?.data?.showLabel).toBeUndefined();
+    expect(bundle.workflow.edges[0]?.data?.layoutPoints).toBeUndefined();
   });
 });

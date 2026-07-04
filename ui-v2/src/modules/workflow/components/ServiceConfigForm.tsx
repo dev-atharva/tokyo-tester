@@ -2,7 +2,6 @@
 import { IconPlus, IconTrash } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
-import { generateId } from "@/lib/generate-id";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -21,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { generateId } from "@/lib/generate-id";
 import type {
   EnvironmentVariable,
   InitScript,
@@ -40,6 +40,7 @@ interface ServiceConfigFormProps {
 
 interface ServiceFormData {
   label: string;
+  description?: string;
   serviceType: string;
   image?: string;
   command: { id: string; value: string }[];
@@ -193,6 +194,7 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
   const form = useForm<ServiceFormData>({
     defaultValues: {
       label: serviceData.label,
+      description: serviceData.description,
       serviceType: serviceData.service.type,
       image: serviceData.service.image,
       command: (serviceData.service.command || []).map((cmd) => ({
@@ -243,6 +245,7 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
       onChange({
         ...serviceData,
         label: value.label ?? serviceData.label,
+        description: value.description,
         service: {
           ...serviceData.service,
           type: (value.serviceType ??
@@ -325,6 +328,20 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
               />
             </FormItem>
             <FormItem>
+              <FormLabel className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Plain-language purpose
+              </FormLabel>
+              <Input
+                {...register("description")}
+                placeholder="Accepts payments and coordinates settlement"
+                className="shadow-sm"
+              />
+              <FormDescription>
+                Shown in Overview mode for people who do not know the
+                implementation.
+              </FormDescription>
+            </FormItem>
+            <FormItem>
               <FormLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                 Service Type
               </FormLabel>
@@ -341,6 +358,7 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
                       <SelectItem value="mysql">MySQL</SelectItem>
                       <SelectItem value="mariadb">MariaDB</SelectItem>
                       <SelectItem value="redis">Redis</SelectItem>
+                      <SelectItem value="memcached">Memcached</SelectItem>
                       <SelectItem value="kafka">Kafka</SelectItem>
                       <SelectItem value="rabbitmq">RabbitMQ</SelectItem>
                       <SelectItem value="mongodb">MongoDB</SelectItem>
@@ -375,9 +393,7 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
               type="button"
               size="sm"
               variant="outline"
-              onClick={() =>
-                appendCommand({ id: generateId(), value: "" })
-              }
+              onClick={() => appendCommand({ id: generateId(), value: "" })}
               className="shadow-sm"
             >
               <IconPlus className="h-4 w-4 mr-1.5" />
