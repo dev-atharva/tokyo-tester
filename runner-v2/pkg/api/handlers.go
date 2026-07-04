@@ -102,6 +102,20 @@ type Handler struct {
 	provisionSlots   chan struct{}
 	testRunSlots     chan struct{}
 	cleanupSlots     chan struct{}
+	workflowService  *WorkflowService
+	resourceCleaner  sessionResourceCleaner
+}
+
+type sessionResourceCleaner interface {
+	CleanupSessionResources(ctx context.Context, sessionID string) error
+}
+
+func (h *Handler) SetWorkflowService(service *WorkflowService) {
+	h.workflowService = service
+}
+
+func (h *Handler) SetSessionResourceCleaner(cleaner sessionResourceCleaner) {
+	h.resourceCleaner = cleaner
 }
 
 func NewHandler(database db.Database, appCfg config.AppConfig) *Handler {

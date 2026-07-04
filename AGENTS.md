@@ -15,8 +15,8 @@ This repository contains an application which is used to do end to end testing f
 ### Core function 
 
 1. The user defined the graph of services and tests in the UI 
-2. The inngest function picks up the services and tests configuration translates it and send requests to backend.
-3. The Backend is responsible for creating a docker network , provisioning services,running tests and cleaning up the services and network after the workflow has finished.
+2. The UI synchronizes the workflow and submits it to the runner's durable SQLite worker.
+3. The runner creates a Docker network, provisions services, runs tests, persists results, and cleans up after the workflow finishes.
 
 ### Peripheral function 
 
@@ -27,5 +27,5 @@ This repository contains an application which is used to do end to end testing f
 5. The UI pulls the data using the backend endpoint during first render.
 
 ### Tech stack
-UI :- Typescript, Next js , tailwind, shadcn, inngest, zustand, bun
+UI :- Typescript, Next js , tailwind, shadcn, zustand, bun
 Backend :- Go, test containers, Chi router, Opentelemetry

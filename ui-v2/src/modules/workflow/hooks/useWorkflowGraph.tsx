@@ -1,26 +1,30 @@
-import { useCallback, useEffect, useRef } from "react";
 import {
   addEdge,
+  applyNodeChanges,
   type Connection,
-  type Node,
+  type NodeChange,
   useEdgesState,
   useNodesState,
-} from "reactflow";
+} from "@xyflow/react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { layoutArchitecture } from "../lib/architecture-view";
+import {
+  inferEdgeData,
+  invalidateRoutesForMovedNodes,
+  normalizeEdges,
+} from "../lib/edge-model";
 import { useWorkflowStore } from "../stores/workflow.store.sync";
-import type {
-  EdgeData,
-  FlowNode,
-  ServiceNodeData,
-} from "../types/react-flow-cots";
+import type { EdgeData, FlowEdge, FlowNode } from "../types/react-flow-cots";
 
 export function useWorkflowGraph(workflowId: string) {
   const workflow = useWorkflowStore((s) => s.getWorkflow(workflowId));
   const updateWorkflowGraph = useWorkflowStore((s) => s.updateWorkflowGraph);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<ServiceNodeData>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<EdgeData>([]);
+  const [nodes, setNodes] = useNodesState<FlowNode>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>([]);
   const nodesRef = useRef<FlowNode[]>([]);
   const edgesRef = useRef(workflow?.edges ?? []);
+  const [editingEdgeId, setEditingEdgeId] = useState<string | null>(null);
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -34,7 +38,7 @@ export function useWorkflowGraph(workflowId: string) {
   useEffect(() => {
     if (workflow) {
       setNodes(workflow.nodes);
-      setEdges(workflow.edges);
+      setEdges(normalizeEdges(workflow.edges));
     }
   }, [workflow?.id, setEdges, setNodes, workflow]);
 
@@ -60,7 +64,7 @@ export function useWorkflowGraph(workflowId: string) {
   const updateNode = useCallback(
     (updatedNode: FlowNode) => {
       const newNodes = nodesRef.current.map((n) =>
-        n.id === updatedNode.id ? (updatedNode as Node) : n,
+        n.id === updatedNode.id ? updatedNode : n,
       );
 
       setNodes(newNodes);
@@ -89,17 +93,87 @@ export function useWorkflowGraph(workflowId: string) {
   // Connect nodes
   const connectNodes = useCallback(
     (connection: Connection) => {
-      const newEdge = { ...connection, data: { dependencyType: "service" } };
-      const newEdges = addEdge(newEdge, edgesRef.current);
+      const source = nodesRef.current.find(
+        (node) => node.id === connection.source,
+      );
+      const target = nodesRef.current.find(
+        (node) => node.id === connection.target,
+      );
+      if (!source || !target) return;
+      const newEdge: FlowEdge = {
+        ...connection,
+        id: `edge-${Date.now()}`,
+        type: "dataFlow",
+        data: inferEdgeData(source, target),
+      };
+      const newEdges = addEdge<FlowEdge>(newEdge, edgesRef.current);
 
       setEdges(newEdges);
 
       if (workflow) {
         updateWorkflowGraph(workflow.id, nodesRef.current, newEdges);
       }
+      setEditingEdgeId(newEdge.id);
     },
     [workflow, updateWorkflowGraph, setEdges],
   );
+
+  const updateEdge = useCallback(
+    (edgeId: string, data: EdgeData) => {
+      const newEdges = edgesRef.current.map((edge) =>
+        edge.id === edgeId
+          ? {
+              ...edge,
+              type: "dataFlow",
+              data: { ...data, needsReview: undefined },
+            }
+          : edge,
+      );
+      setEdges(newEdges);
+      if (workflow) {
+        updateWorkflowGraph(workflow.id, nodesRef.current, newEdges);
+      }
+    },
+    [setEdges, updateWorkflowGraph, workflow],
+  );
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange<FlowNode>[]) => {
+      const nextNodes = applyNodeChanges(changes, nodesRef.current);
+      const movedNodeIds = new Set(
+        changes
+          .filter((change) => change.type === "position")
+          .map((change) => change.id),
+      );
+      const nextEdges = invalidateRoutesForMovedNodes(
+        edgesRef.current,
+        movedNodeIds,
+      );
+
+      setNodes(nextNodes);
+      if (nextEdges !== edgesRef.current) {
+        setEdges(nextEdges);
+      }
+
+      const dragFinished = changes.some(
+        (change) => change.type === "position" && change.dragging === false,
+      );
+      if (dragFinished && workflow) {
+        updateWorkflowGraph(workflow.id, nextNodes, nextEdges);
+      }
+    },
+    [setEdges, setNodes, updateWorkflowGraph, workflow],
+  );
+
+  const tidyLayout = useCallback(async () => {
+    const layout = await layoutArchitecture(nodesRef.current, edgesRef.current);
+    setNodes(layout.nodes);
+    setEdges(layout.edges);
+    if (workflow) {
+      updateWorkflowGraph(workflow.id, layout.nodes, layout.edges);
+    }
+    return layout;
+  }, [setEdges, setNodes, updateWorkflowGraph, workflow]);
 
   return {
     workflow,
@@ -113,5 +187,9 @@ export function useWorkflowGraph(workflowId: string) {
     updateNode,
     addNode,
     connectNodes,
+    editingEdgeId,
+    setEditingEdgeId,
+    updateEdge,
+    tidyLayout,
   };
 }

@@ -37,7 +37,10 @@ func (e *QueueExecutor) Execute(ctx context.Context, testCfg config.TestConfig, 
 	if !ok {
 		return fmt.Errorf("service not found : %s", serviceName)
 	}
-	brokerType := e.inferBrokerType(serviceName, testCfg.Config)
+	brokerType, err := e.inferBrokerType(serviceName, testCfg.Config)
+	if err != nil {
+		return err
+	}
 
 	switch brokerType {
 	case "kafka":
@@ -49,21 +52,23 @@ func (e *QueueExecutor) Execute(ctx context.Context, testCfg config.TestConfig, 
 	}
 }
 
-func (e *QueueExecutor) inferBrokerType(serviceName string, cfg map[string]any) string {
-	if brokerType, ok := cfg["broker_type"].(string); ok {
-		return brokerType
+func (e *QueueExecutor) inferBrokerType(serviceName string, cfg map[string]any) (string, error) {
+	if _, found, err := lookupConfigValue(cfg, "broker_type"); err != nil {
+		return "", err
+	} else if found {
+		return getStringOrDefault(cfg, "broker_type", "")
 	}
 	lowerName := strings.ToLower(serviceName)
 	if strings.Contains(lowerName, "kafka") {
-		return "kafka"
+		return "kafka", nil
 	}
 	if strings.Contains(lowerName, "rabbitmq") || strings.Contains(lowerName, "rabbit") {
-		return "rabbitmq"
+		return "rabbitmq", nil
 	}
 	if strings.Contains(lowerName, "nats") {
-		return "nats"
+		return "nats", nil
 	}
-	return "kafka"
+	return "kafka", nil
 }
 
 func (e *QueueExecutor) executeKafka(ctx context.Context, testCfg config.TestConfig, runtime *types.ServiceRuntime, operation string) error {
@@ -75,6 +80,13 @@ func (e *QueueExecutor) executeKafka(ctx context.Context, testCfg config.TestCon
 	brokers := strings.Split(brokerStr, ",")
 	if len(brokers) == 0 {
 		return fmt.Errorf("no kafka brokers configured")
+	}
+	for index, broker := range brokers {
+		normalized, err := types.NormalizeHostPort(strings.TrimSpace(broker))
+		if err != nil {
+			return fmt.Errorf("invalid kafka broker %q: %w", broker, err)
+		}
+		brokers[index] = normalized
 	}
 
 	switch operation {
@@ -97,6 +109,10 @@ func (e *QueueExecutor) executeRabbitMQ(ctx context.Context, testCfg config.Test
 	amqpURL := runtime.EnvVars["RABBITMQ_AMQP_URL"]
 	if amqpURL == "" {
 		return fmt.Errorf("RABBITMQ_AMQP_URL not found in the service runtime")
+	}
+	amqpURL, err := types.NormalizeURLHost(amqpURL)
+	if err != nil {
+		return fmt.Errorf("invalid RABBITMQ_AMQP_URL: %w", err)
 	}
 
 	conn, err := amqp.Dial(amqpURL)
@@ -138,8 +154,14 @@ func (e *QueueExecutor) kafkaProduce(ctx context.Context, brokers []string, test
 		return fmt.Errorf("produce operation requires 'message' in config")
 	}
 
-	key := getStringOrDefault(testCfg.Config, "key", "")
-	partition := getIntOrDefault(testCfg.Config, "partition", -1)
+	key, err := getStringOrDefault(testCfg.Config, "key", "")
+	if err != nil {
+		return err
+	}
+	partition, err := getIntOrDefault(testCfg.Config, "partition", -1)
+	if err != nil {
+		return err
+	}
 
 	writer := &kafka.Writer{
 		Addr:     kafka.TCP(brokers...),
@@ -170,10 +192,26 @@ func (e *QueueExecutor) kafkaConsume(ctx context.Context, brokers []string, test
 		return fmt.Errorf("consume operation requires 'topic' in the config")
 	}
 
-	timeout := getIntOrDefault(testCfg.Config, "timeout", 10)
-	partition := getIntOrDefault(testCfg.Config, "partition", 0)
-	fromBeginning := getBoolOrDefault(testCfg.Config, "from_beginning", false)
-	expectedCount := getIntOrDefault(testCfg.Config, "expected_count", 1)
+	timeout, err := getIntOrDefault(testCfg.Config, "timeout", 10)
+	if err != nil {
+		return err
+	}
+	partition, err := getIntOrDefault(testCfg.Config, "partition", 0)
+	if err != nil {
+		return err
+	}
+	fromBeginning, err := getBoolOrDefault(testCfg.Config, "from_beginning", false)
+	if err != nil {
+		return err
+	}
+	expectedCount, err := getIntOrDefault(testCfg.Config, "expected_count", 1)
+	if err != nil {
+		return err
+	}
+	expectedMessage, hasExpectedMessage, err := lookupConfigValue(testCfg.Config, "expected_message")
+	if err != nil {
+		return err
+	}
 
 	startOffset := kafka.LastOffset
 	if fromBeginning {
@@ -204,7 +242,7 @@ func (e *QueueExecutor) kafkaConsume(ctx context.Context, brokers []string, test
 		}
 		messagesRead++
 
-		if expectedMessage, ok := testCfg.Config["expected_message"]; ok {
+		if hasExpectedMessage {
 			expectedStr := fmt.Sprintf("%v", expectedMessage)
 			actualStr := string(msg.Value)
 			if expectedStr != actualStr {
@@ -234,9 +272,18 @@ func (e *QueueExecutor) kafkaProduceAndConsume(ctx context.Context, brokers []st
 		return fmt.Errorf("produce_and_consume operation reqiures 'message' in the topic")
 	}
 
-	key := getStringOrDefault(testCfg.Config, "key", "")
-	timeout := getIntOrDefault(testCfg.Config, "timeout", 10)
-	partition := getIntOrDefault(testCfg.Config, "partition", 0)
+	key, err := getStringOrDefault(testCfg.Config, "key", "")
+	if err != nil {
+		return err
+	}
+	timeout, err := getIntOrDefault(testCfg.Config, "timeout", 10)
+	if err != nil {
+		return err
+	}
+	partition, err := getIntOrDefault(testCfg.Config, "partition", 0)
+	if err != nil {
+		return err
+	}
 
 	writer := &kafka.Writer{
 		Addr:     kafka.TCP(brokers...),
@@ -289,7 +336,10 @@ func (e *QueueExecutor) kafkaCheckTopic(ctx context.Context, brokers []string, t
 	if !ok {
 		return fmt.Errorf("check_topic operation requires 'topic' in the config")
 	}
-	expectedExists := getBoolOrDefault(testCfg.Config, "expected_exists", true)
+	expectedExists, err := getBoolOrDefault(testCfg.Config, "expected_exists", true)
+	if err != nil {
+		return err
+	}
 
 	conn, err := kafka.DialContext(ctx, "tcp", brokers[0])
 	if err != nil {
@@ -355,10 +405,14 @@ func (e *QueueExecutor) rabbitMQProduce(ctx context.Context, channel *amqp.Chann
 		return err
 	}
 
+	key, err := getStringOrDefault(testCfg.Config, "key", "")
+	if err != nil {
+		return err
+	}
 	return channel.PublishWithContext(ctx, "", queueName, false, false, amqp.Publishing{
 		ContentType: "text/plain",
 		Body:        fmt.Appendf(nil, "%v", message),
-		MessageId:   getStringOrDefault(testCfg.Config, "key", ""),
+		MessageId:   key,
 	})
 }
 
@@ -372,9 +426,19 @@ func (e *QueueExecutor) rabbitMQConsume(ctx context.Context, channel *amqp.Chann
 		return err
 	}
 
-	timeout := time.Duration(getIntOrDefault(testCfg.Config, "timeout", 10)) * time.Second
-	expectedCount := getIntOrDefault(testCfg.Config, "expected_count", 1)
-	expectedMessage, hasExpectedMessage := testCfg.Config["expected_message"]
+	timeoutSeconds, err := getIntOrDefault(testCfg.Config, "timeout", 10)
+	if err != nil {
+		return err
+	}
+	timeout := time.Duration(timeoutSeconds) * time.Second
+	expectedCount, err := getIntOrDefault(testCfg.Config, "expected_count", 1)
+	if err != nil {
+		return err
+	}
+	expectedMessage, hasExpectedMessage, err := lookupConfigValue(testCfg.Config, "expected_message")
+	if err != nil {
+		return err
+	}
 
 	deadline := time.Now().Add(timeout)
 	messagesRead := 0
@@ -435,10 +499,18 @@ func (e *QueueExecutor) rabbitMQProduceAndConsume(ctx context.Context, channel *
 		return err
 	}
 
+	key, err := getStringOrDefault(testCfg.Config, "key", "")
+	if err != nil {
+		return err
+	}
+	timeout, err := getIntOrDefault(testCfg.Config, "timeout", 10)
+	if err != nil {
+		return err
+	}
 	if err := channel.PublishWithContext(ctx, "", queueName, false, false, amqp.Publishing{
 		ContentType: "text/plain",
 		Body:        fmt.Appendf(nil, "%v", message),
-		MessageId:   getStringOrDefault(testCfg.Config, "key", ""),
+		MessageId:   key,
 	}); err != nil {
 		return fmt.Errorf("failed to produce message: %w", err)
 	}
@@ -449,7 +521,7 @@ func (e *QueueExecutor) rabbitMQProduceAndConsume(ctx context.Context, channel *
 		DependsOn: testCfg.DependsOn,
 		Config: map[string]any{
 			"topic":            queueName,
-			"timeout":          getIntOrDefault(testCfg.Config, "timeout", 10),
+			"timeout":          timeout,
 			"expected_count":   1,
 			"expected_message": message,
 		},
@@ -468,7 +540,10 @@ func (e *QueueExecutor) rabbitMQCheckTopic(ctx context.Context, runtime *types.S
 		return err
 	}
 
-	expectedExists := getBoolOrDefault(testCfg.Config, "expected_exists", true)
+	expectedExists, err := getBoolOrDefault(testCfg.Config, "expected_exists", true)
+	if err != nil {
+		return err
+	}
 	actualExists := false
 	for _, queue := range queues {
 		if queue.Name == queueName {
@@ -515,6 +590,10 @@ func (e *QueueExecutor) rabbitMQManagementQueues(ctx context.Context, runtime *t
 	if httpURL == "" {
 		return nil, fmt.Errorf("RABBITMQ_HTTP_URL not found in the service runtime")
 	}
+	httpURL, err := types.NormalizeURLHost(httpURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid RABBITMQ_HTTP_URL: %w", err)
+	}
 
 	parsed, err := url.Parse(httpURL)
 	if err != nil {
@@ -552,11 +631,4 @@ func (e *QueueExecutor) rabbitMQManagementQueues(ctx context.Context, runtime *t
 		return nil, fmt.Errorf("failed to decode rabbitmq management response: %w", err)
 	}
 	return queues, nil
-}
-
-func getBoolOrDefault(cfg map[string]any, key string, defaultValue bool) bool {
-	if val, ok := cfg[key].(bool); ok {
-		return val
-	}
-	return defaultValue
 }

@@ -45,6 +45,7 @@ func (p *PostgresProvider) Provision(ctx context.Context, cfg config.ServiceConf
 		_ = container.Terminate(ctx)
 		return nil, nil, fmt.Errorf("failed to get container host: %w", err)
 	}
+	host = types.AddressableHost(host)
 
 	mappedPort, err := container.MappedPort(ctx, "5432")
 	if err != nil {

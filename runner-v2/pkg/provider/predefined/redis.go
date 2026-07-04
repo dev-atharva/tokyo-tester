@@ -56,6 +56,7 @@ func (p *RedisProvider) Provision(ctx context.Context, cfg config.ServiceConfig,
 		_ = container.Terminate(ctx)
 		return nil, nil, err
 	}
+	host = types.AddressableHost(host)
 
 	port, err := container.MappedPort(ctx, "6379")
 	if err != nil {

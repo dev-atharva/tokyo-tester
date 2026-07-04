@@ -44,6 +44,7 @@ func (p *MemcachedProvider) Provision(ctx context.Context, cfg config.ServiceCon
 		_ = container.Terminate(ctx)
 		return nil, nil, fmt.Errorf("failed to get host : %w", err)
 	}
+	host = types.AddressableHost(host)
 	mappedPort, err := container.MappedPort(ctx, "11211")
 	if err != nil {
 		_ = container.Terminate(ctx)

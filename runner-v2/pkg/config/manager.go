@@ -7,10 +7,11 @@ import (
 )
 
 type ConfigManager struct {
-	App       AppConfig
-	Database  DatabaseConfig
-	Telemetry TelemetryConfig
-	Janitor   JanitorConfig
+	App            AppConfig
+	Database       DatabaseConfig
+	Telemetry      TelemetryConfig
+	Janitor        JanitorConfig
+	WorkflowWorker WorkflowWorkerConfig
 }
 
 func NewConfigManager() (*ConfigManager, error) {
@@ -51,6 +52,17 @@ func NewConfigManager() (*ConfigManager, error) {
 		DryRun:       getEnvBoolOrDefault("JANITOR_DRY_RUN", false),
 	}
 
+	cm.WorkflowWorker = WorkflowWorkerConfig{
+		Enabled:             getEnvBoolOrDefault("WORKFLOW_WORKER_ENABLED", cm.Database.Type == "sqlite"),
+		Concurrency:         getEnvIntOrDefault("WORKFLOW_WORKER_CONCURRENCY", 2),
+		ScenarioConcurrency: getEnvIntOrDefault("WORKFLOW_SCENARIO_CONCURRENCY", 2),
+		LeaseSeconds:        getEnvIntOrDefault("WORKFLOW_JOB_LEASE_SECONDS", 60),
+		HeartbeatSeconds:    getEnvIntOrDefault("WORKFLOW_JOB_HEARTBEAT_SECONDS", 15),
+		MaxRecoveries:       getEnvIntOrDefault("WORKFLOW_JOB_MAX_RECOVERIES", 3),
+		EventRetentionDays:  getEnvIntOrDefault("WORKFLOW_EVENT_RETENTION_DAYS", 30),
+		EncryptionKey:       getEnvOrDefault("WORKFLOW_JOB_ENCRYPTION_KEY", ""),
+	}
+
 	if err := cm.Validate(); err != nil {
 		return nil, fmt.Errorf("configuration validation failed : %w", err)
 	}
@@ -88,6 +100,20 @@ func (cm *ConfigManager) Validate() error {
 		}
 		if cm.Janitor.Mode != "ownership_plus_dangling_prune" {
 			return fmt.Errorf("invalid JANITOR_MODE: %s", cm.Janitor.Mode)
+		}
+	}
+	if cm.WorkflowWorker.Enabled {
+		if cm.Database.Type != "sqlite" {
+			return fmt.Errorf("embedded workflow worker currently requires DB_TYPE=sqlite")
+		}
+		if cm.WorkflowWorker.EncryptionKey == "" {
+			return fmt.Errorf("WORKFLOW_JOB_ENCRYPTION_KEY is required when the workflow worker is enabled")
+		}
+		if cm.WorkflowWorker.Concurrency <= 0 || cm.WorkflowWorker.ScenarioConcurrency <= 0 || cm.WorkflowWorker.LeaseSeconds <= 0 || cm.WorkflowWorker.HeartbeatSeconds <= 0 || cm.WorkflowWorker.MaxRecoveries <= 0 || cm.WorkflowWorker.EventRetentionDays <= 0 {
+			return fmt.Errorf("workflow worker numeric settings must be positive")
+		}
+		if cm.WorkflowWorker.HeartbeatSeconds >= cm.WorkflowWorker.LeaseSeconds {
+			return fmt.Errorf("WORKFLOW_JOB_HEARTBEAT_SECONDS must be less than WORKFLOW_JOB_LEASE_SECONDS")
 		}
 	}
 	return nil

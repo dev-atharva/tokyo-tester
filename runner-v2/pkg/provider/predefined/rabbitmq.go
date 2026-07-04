@@ -54,6 +54,7 @@ func (p *RabbitMQProvider) Provision(ctx context.Context, cfg config.ServiceConf
 		_ = container.Terminate(ctx)
 		return nil, nil, fmt.Errorf("failed to get container host: %w", err)
 	}
+	host = types.AddressableHost(host)
 
 	amqpPort, err := container.MappedPort(ctx, "5672/tcp")
 	if err != nil {
@@ -76,8 +77,8 @@ func (p *RabbitMQProvider) Provision(ctx context.Context, cfg config.ServiceConf
 			"15672": httpPort.Port(),
 		},
 		EnvVars: map[string]string{
-			"RABBITMQ_AMQP_URL":     fmt.Sprintf("amqp://%s:%s@%s:%s/", username, password, host, amqpPort.Port()),
-			"RABBITMQ_HTTP_URL":     fmt.Sprintf("http://%s:%s@%s:%s", username, password, host, httpPort.Port()),
+			"RABBITMQ_AMQP_URL":     fmt.Sprintf("amqp://%s:%s@%s/", username, password, types.JoinHostPort(host, amqpPort.Port())),
+			"RABBITMQ_HTTP_URL":     fmt.Sprintf("http://%s:%s@%s", username, password, types.JoinHostPort(host, httpPort.Port())),
 			"RABBITMQ_DEFAULT_USER": username,
 			"RABBITMQ_DEFAULT_PASS": password,
 			"RABBITMQ_AMQP_HOST":    host,

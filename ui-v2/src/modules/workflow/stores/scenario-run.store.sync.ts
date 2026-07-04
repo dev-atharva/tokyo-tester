@@ -97,6 +97,8 @@ export const useScenarioRunStore = create<ScenarioRunStore>()(
             startedAt: Date.now(),
           });
 
+          trackSync(store, id, "insert");
+
           set((state) => ({
             scenarioRuns: {
               ...state.scenarioRuns,

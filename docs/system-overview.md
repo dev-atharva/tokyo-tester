@@ -32,18 +32,15 @@ That translation happens in the UI before the run starts, and again in the runne
 
 ## What happens when you click run
 
-When the user starts execution, the UI creates a workflow run id, prepares scenario run ids, updates local state, and sends an Inngest event:
+When the user starts execution, the UI creates a workflow run id, prepares scenario run ids, updates local state, flushes pending workflow changes, and submits the run to `POST /api/v1/workflow-runs`.
 
-- event name: `cots/workflow.run.start`
-- payload: workflow ids, graph nodes, edges, scenarios, and registry secrets
-
-The `cotsWorkFlow` Inngest function then takes over:
+The runner's embedded SQLite worker then takes over:
 
 - it validates the workflow again
 - it translates the graph into a service graph
 - it runs scenarios with controlled concurrency
-- it persists workflow run status and logs through the sync API
-- it streams logs and test results through realtime channels
+- it persists workflow, scenario, and test checkpoints directly
+- it streams logs and test results through replayable SSE events
 - it returns a summary for the overall workflow run
 
 That split matters in production. Realtime events are the fast path for a responsive UI, but the database is the durable source of truth for workflow progress, logs, scenario runs, and final results.
@@ -52,13 +49,13 @@ That split matters in production. Realtime events are the fast path for a respon
 
 Each scenario is handled on its own, so the UI can show progress and failures clearly.
 
-For every scenario, the runtime:
+For every scenario, the worker:
 
 - validates the scenario against the translated service graph
 - converts it into an execution bundle with only the services and tests it needs
-- calls the runner to provision services
-- emits pending and running test result events
-- calls the runner again to execute the tests
+- provisions the required services
+- emits running and terminal workflow events
+- executes tests in order and persists checkpoints
 - publishes the final pass/fail results
 - cleans up the backend session when the scenario ends
 
@@ -145,7 +142,7 @@ In a production build, a few things make that less reliable:
 - websocket or SSE delivery can reconnect after gaps
 - a standalone Next.js build can render and hydrate on a different cadence than the dev server
 
-Because of that, Tokyo Tester now treats realtime as an accelerator, not the only delivery path. Workflow logs and execution progress are persisted, the sync queue survives tab closes, and the workflow screen polls for active runs so the UI can recover even after missed events.
+Because of that, Tokyo Tester treats realtime as an accelerator, not the only delivery path. Workflow logs and execution progress are persisted, SSE reconnects replay missed events with `Last-Event-ID`, and snapshots reconcile the UI after longer gaps.
 
 ## Runtime notes
 
@@ -175,7 +172,7 @@ If you want the 10-second explanation:
 
 - the UI is where you draw the workflow
 - the translator turns the graph into executable services and tests
-- Inngest coordinates the run
+- the runner's durable worker coordinates the run
 - the runner provisions containers and executes the tests
 - sync keeps workflow definitions aligned with what changed locally
 - persisted execution state lets the UI recover when realtime updates are missed

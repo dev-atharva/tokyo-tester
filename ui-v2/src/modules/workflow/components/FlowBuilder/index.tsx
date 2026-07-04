@@ -2,7 +2,7 @@
 
 import { ReactFlowProvider } from "@xyflow/react";
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "@xyflow/react/dist/style.css";
 import { toast } from "sonner";
 import {
@@ -23,9 +23,12 @@ import { useRealtimeTestResults } from "../../hooks/useRealTimeTestReults";
 import { useRealtimeLogs } from "../../hooks/useRealtimeLogs";
 import { useWorkflowExecution } from "../../hooks/useWorkflowExecution";
 import { useWorkflowGraph } from "../../hooks/useWorkflowGraph";
+import { shouldPollExecutionFallback } from "../../lib/realtime-events";
 import { useExecutionStore } from "../../stores/execution.store.sync";
+import { useScenarioStore } from "../../stores/scenario.store.sync";
 import { useUIStore } from "../../stores/ui.store";
 import { useWorkflowStore } from "../../stores/workflow.store.sync";
+import { EdgeConfigDialog } from "../EdgeConfigDialog";
 import { ExecutionHistory } from "../ExecutionHistory";
 import { ShortcutsDialog } from "../KeyboardShortCutsDialog";
 import { NodeConfigDialog } from "../NodeConfigDialog";
@@ -35,7 +38,7 @@ import { ServiceNode } from "../ServiceNode";
 import { WorkflowLogsDrawer } from "../WorkflowLogsDrawer";
 import { FlowCanvas } from "./FlowCanvas";
 
-const EXECUTION_POLL_INTERVAL_MS = 3000;
+const EXECUTION_FALLBACK_POLL_INTERVAL_MS = 15000;
 
 interface FlowBuilderProps {
   workflowId: string;
@@ -56,13 +59,13 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   const updateWorkflowName = useWorkflowStore((s) => s.updateWorkflowName);
   const activeWorkflowRunId = useExecutionStore((s) => s.activeWorkflowRunId);
   const executions = useExecutionStore((s) => s.executions);
+  const scenariosMap = useScenarioStore((s) => s.scenarios);
   const hydrated = useWorkflowStore((s) => s.hydrated);
   const activeExecution = useMemo(
     () =>
       activeWorkflowRunId ? (executions[activeWorkflowRunId] ?? null) : null,
     [activeWorkflowRunId, executions],
   );
-
   // UI State
   const {
     isDrawerOpen,
@@ -84,6 +87,14 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   } = useUIStore();
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"overview" | "detail">("overview");
+  const [selectedArchitectureNodeId, setSelectedArchitectureNodeId] = useState<
+    string | null
+  >(null);
+  const [focusedScenarioServices, setFocusedScenarioServices] = useState<
+    string[] | null
+  >(null);
+  const autoLayoutWorkflowRef = useRef<string | null>(null);
 
   // Graph operations
   const {
@@ -97,7 +108,39 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
     updateNode,
     addNode,
     connectNodes,
+    editingEdgeId,
+    setEditingEdgeId,
+    updateEdge,
+    tidyLayout,
   } = useWorkflowGraph(workflowId);
+  const editingEdge = edges.find((edge) => edge.id === editingEdgeId) ?? null;
+  const reviewEdgeCount = edges.filter((edge) => edge.data?.needsReview).length;
+  const workflowStats = useMemo(() => {
+    const scenarios = Object.values(scenariosMap).filter(
+      (scenario) => scenario.workflowId === workflowId && !scenario.is_deleted,
+    );
+    return {
+      services: nodes.length,
+      scenarios: scenarios.length,
+      steps: scenarios.reduce(
+        (total, scenario) => total + scenario.tests.length,
+        0,
+      ),
+    };
+  }, [nodes.length, scenariosMap, workflowId]);
+
+  useEffect(() => {
+    if (
+      !workflow ||
+      nodes.length === 0 ||
+      autoLayoutWorkflowRef.current === workflow.id ||
+      edges.some((edge) => edge.data?.layoutPoints?.length)
+    ) {
+      return;
+    }
+    autoLayoutWorkflowRef.current = workflow.id;
+    void tidyLayout();
+  }, [edges, nodes.length, tidyLayout, workflow]);
 
   // Execution
   const { execute, isExecuting, canExecute } = useWorkflowExecution({
@@ -111,7 +154,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   });
 
   // Realtime logs
-  useRealtimeLogs({
+  const { isConnected: isRunnerRealtimeConnected } = useRealtimeLogs({
     onComplete: onWorkComplete,
     onError,
   });
@@ -180,39 +223,58 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
     }
   }, [summary, hasTests]);
 
-  useEffect(() => {
-    if (!activeExecution) {
-      return;
-    }
+  const activeExecutionStatus = activeExecution?.status;
+  const activeExecutionProjectId = activeExecution?.projectId;
 
-    const terminalStatuses = new Set(["completed", "failed", "partial_failed"]);
-    if (terminalStatuses.has(activeExecution.status)) {
+  useEffect(() => {
+    if (
+      !shouldPollExecutionFallback({
+        workflowRunId: activeWorkflowRunId,
+        projectId: activeExecutionProjectId,
+        status: activeExecutionStatus,
+        realtimeConnected: isRunnerRealtimeConnected,
+      })
+    ) {
       return;
     }
 
     let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     const hydrateExecutionState = async () => {
       try {
-        const { hydrateFromServer } = await import("@/modules/sync/sync-hydration");
-        if (!cancelled) {
-          await hydrateFromServer();
-        }
+        const { hydrateFromServer } = await import(
+          "@/modules/sync/sync-hydration"
+        );
+        if (cancelled) return;
+        await hydrateFromServer();
       } catch (error) {
         console.error("[FlowBuilder] Execution hydration failed:", error);
+      } finally {
+        if (!cancelled) {
+          timeoutId = setTimeout(
+            hydrateExecutionState,
+            EXECUTION_FALLBACK_POLL_INTERVAL_MS,
+          );
+        }
       }
     };
 
-    void hydrateExecutionState();
-    const interval = setInterval(() => {
-      void hydrateExecutionState();
-    }, EXECUTION_POLL_INTERVAL_MS);
+    timeoutId = setTimeout(
+      hydrateExecutionState,
+      EXECUTION_FALLBACK_POLL_INTERVAL_MS,
+    );
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [activeExecution]);
+  }, [
+    activeExecutionProjectId,
+    activeExecutionStatus,
+    activeWorkflowRunId,
+    isRunnerRealtimeConnected,
+  ]);
 
   // Inject delete handler into nodes
   useEffect(() => {
@@ -397,6 +459,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           onEdgesChange={onEdgesChange}
           onConnect={connectNodes}
           onNodeDoubleClick={(_, node) => openNodeConfig(node)}
+          onEdgeClick={(_, edge) => setEditingEdgeId(edge.id)}
           onExecute={execute}
           onOpenDrawer={openDrawer}
           onOpenScenarios={openScenarios}
@@ -406,6 +469,22 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           isExecuting={isExecuting}
           canExecute={canExecute}
           hasActiveExecution={!!activeExecution}
+          reviewEdgeCount={reviewEdgeCount}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          selectedNodeId={selectedArchitectureNodeId}
+          onSelectedNodeChange={setSelectedArchitectureNodeId}
+          onTidyLayout={tidyLayout}
+          focusedServiceNames={focusedScenarioServices}
+          onClearScenarioFocus={() => setFocusedScenarioServices(null)}
+          workflowStats={workflowStats}
+        />
+
+        <EdgeConfigDialog
+          edge={editingEdge}
+          nodes={nodes}
+          onClose={() => setEditingEdgeId(null)}
+          onSave={updateEdge}
         />
 
         <NodeDrawer
@@ -435,6 +514,10 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           }}
           workflowId={workflowId}
           nodes={nodes}
+          onFocusServices={(serviceNames) => {
+            setFocusedScenarioServices(serviceNames);
+            setSelectedArchitectureNodeId(null);
+          }}
         />
 
         <WorkflowLogsDrawer

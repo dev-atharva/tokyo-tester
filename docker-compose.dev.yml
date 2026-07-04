@@ -9,6 +9,10 @@ services:
       DB_TYPE: ${RUNNER_DB_TYPE:-sqlite}
       DB_PATH: /app/data/cots.db
       DATABASE_URL: ${RUNNER_DATABASE_URL:-}
+      WORKFLOW_WORKER_ENABLED: ${WORKFLOW_WORKER_ENABLED:-true}
+      WORKFLOW_WORKER_CONCURRENCY: ${WORKFLOW_WORKER_CONCURRENCY:-2}
+      WORKFLOW_SCENARIO_CONCURRENCY: ${WORKFLOW_SCENARIO_CONCURRENCY:-2}
+      WORKFLOW_JOB_ENCRYPTION_KEY: ${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
     entrypoint: ["air", "-c", ".air.toml"]
     command: []
     volumes:
@@ -22,16 +26,12 @@ services:
       dockerfile: Dockerfile.dev
     environment:
       NODE_ENV: development
-      INNGEST_DEV: ${INNGEST_DEV:-1}
-      INNGEST_BASE_URL: ${INNGEST_BASE_URL:-http://inngest:8288}
       COTS_API_BASE_URL: ${COTS_API_BASE_URL:-http://runner:8080}
       DB_TYPE: ${UI_DB_TYPE:-sqlite}
       DB_PATH: /app/data/tokyo-tester-auth.db
       DATABASE_URL: ${UI_DATABASE_URL:-}
       AUTH_SECRET: ${AUTH_SECRET:-local-dev-auth-secret}
       AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
-      NEXT_PUBLIC_INNGEST_URL: ${NEXT_PUBLIC_INNGEST_URL:-http://localhost:8288}
     extra_hosts:
       - "host.docker.internal=host-gateway"
     volumes:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 
 	"github.com/dev-atharva/cots/pkg/config"
@@ -48,6 +49,7 @@ func (p *KafkaProvider) Provision(ctx context.Context, cfg config.ServiceConfig,
 		_ = container.Terminate(ctx)
 		return nil, nil, fmt.Errorf("failed to get container host : %w", err)
 	}
+	host = types.AddressableHost(host)
 	brokers, err := container.Brokers(ctx)
 	if err != nil {
 		_ = container.Terminate(ctx)
@@ -56,11 +58,17 @@ func (p *KafkaProvider) Provision(ctx context.Context, cfg config.ServiceConfig,
 
 	var brokerPort string
 	if len(brokers) > 0 {
-		parts := strings.Split(brokers[0], ":")
-		if len(parts) == 2 {
-			brokerPort = parts[1]
+		_, brokerPort, err = net.SplitHostPort(brokers[0])
+		if err != nil {
+			_ = container.Terminate(ctx)
+			return nil, nil, fmt.Errorf("failed to parse kafka broker address %q: %w", brokers[0], err)
 		}
 	}
+	if brokerPort == "" {
+		_ = container.Terminate(ctx)
+		return nil, nil, fmt.Errorf("kafka returned no broker addresses")
+	}
+	brokers = []string{types.JoinHostPort(host, brokerPort)}
 
 	runtime := &types.ServiceRuntime{
 		Name:        cfg.Name,

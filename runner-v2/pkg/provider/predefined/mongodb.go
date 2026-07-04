@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 
 	"github.com/dev-atharva/cots/pkg/config"
 	"github.com/dev-atharva/cots/pkg/provider"
@@ -56,6 +57,7 @@ func (p *MongoDBProvider) Provision(ctx context.Context, cfg config.ServiceConfi
 		_ = container.Terminate(ctx)
 		return nil, nil, fmt.Errorf("failed to get container host: %w", err)
 	}
+	host = types.AddressableHost(host)
 
 	port, err := container.MappedPort(ctx, "27017/tcp")
 	if err != nil {
@@ -68,6 +70,13 @@ func (p *MongoDBProvider) Provision(ctx context.Context, cfg config.ServiceConfi
 		_ = container.Terminate(ctx)
 		return nil, nil, fmt.Errorf("failed to get mongodb connection string: %w", err)
 	}
+	parsedConnectionString, err := url.Parse(connectionString)
+	if err != nil {
+		_ = container.Terminate(ctx)
+		return nil, nil, fmt.Errorf("failed to parse mongodb connection string: %w", err)
+	}
+	parsedConnectionString.Host = types.JoinHostPort(host, port.Port())
+	connectionString = parsedConnectionString.String()
 
 	runtime := &types.ServiceRuntime{
 		Name:        cfg.Name,

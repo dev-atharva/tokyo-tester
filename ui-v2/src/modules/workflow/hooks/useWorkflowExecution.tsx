@@ -1,23 +1,23 @@
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { generateId } from "@/lib/generate-id";
-import { inngest } from "@/modules/inngest/client";
+import { syncService } from "@/modules/sync/sync-service";
 import {
   translateWorkflowGraphToServiceGraph,
   validateScenario,
   validateWorkflowGraph,
 } from "@/modules/utils/scenario-translator";
+import { submitWorkflowRun } from "../lib/runner-client";
 import { useExecutionStore } from "../stores/execution.store.sync";
 import { useRegistrySecretStore } from "../stores/registry-secret-store";
-import { useScenarioRunStore } from "../stores/scenario-run.store.sync";
 import { useScenarioStore } from "../stores/scenario.store.sync";
+import { useScenarioRunStore } from "../stores/scenario-run.store.sync";
 import { useUIStore } from "../stores/ui.store";
 import type {
   FlowEdge,
   FlowNode,
   ValidationResult,
 } from "../types/react-flow-cots";
-import { err } from "inngest/types";
 
 interface UseWorkflowExecutionProps {
   workflowId: string;
@@ -135,8 +135,8 @@ export function useWorkflowExecution({
 
     setIsExecuting(true);
 
+    const workflowRunId = generateId();
     try {
-      const workflowRunId = generateId();
       const scenarioRunIds = scenarios.map((scenario) =>
         startScenarioRun(
           scenario.projectId,
@@ -155,39 +155,44 @@ export function useWorkflowExecution({
       );
       onStart?.(workflowRunId);
 
-      await inngest.send({
-        name: "cots/workflow.run.start",
-        data: {
-          workflowRunId,
-          projectId: scenarios[0]?.projectId ?? "",
-          workflowId,
-          workflowName,
-          nodes,
-          edges,
-          scenarios: scenarios.map((scenario, index) => ({
-            id: scenario.id,
-            scenarioRunId: scenarioRunIds[index],
-            projectId: scenario.projectId,
-            name: scenario.name,
-            description: scenario.description,
-            tests: scenario.tests,
-            testOrder: scenario.testOrder,
-            user_id: scenario.user_id,
-            client_id: scenario.client_id,
-          })),
-          userId: scenarios[0]?.user_id ?? "demo-user",
-          clientId: scenarios[0]?.client_id,
-          registrySecrets: normalizedSecrets,
-          executionOptions: {
-            continueOnFailure: true,
-          },
+      const data = {
+        workflowRunId,
+        projectId: scenarios[0]?.projectId ?? "",
+        workflowId,
+        workflowName,
+        nodes,
+        edges,
+        scenarios: scenarios.map((scenario, index) => ({
+          id: scenario.id,
+          scenarioRunId: scenarioRunIds[index],
+          projectId: scenario.projectId,
+          name: scenario.name,
+          description: scenario.description,
+          tests: scenario.tests,
+          testOrder: scenario.testOrder,
+          user_id: scenario.user_id,
+          client_id: scenario.client_id,
+        })),
+        userId: scenarios[0]?.user_id ?? "demo-user",
+        clientId: scenarios[0]?.client_id,
+        registrySecrets: normalizedSecrets,
+        executionOptions: {
+          continueOnFailure: true,
         },
-      });
+      };
+
+      await syncService.flushPending();
+      if (syncService.getQueueSize() > 0) {
+        throw new Error(
+          "Workflow changes could not be synchronized before execution",
+        );
+      }
+      await submitWorkflowRun(data);
 
       openLogsDrawer();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      failExecution("unknown", message);
+      failExecution(workflowRunId, message);
       onError?.(message);
       toast.error(`Failed to start workflow: ${message}`);
     } finally {

@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"strings"
 	"time"
@@ -100,6 +101,7 @@ func (g *GenericProvider) buildRuntime(ctx context.Context, cfg config.ServiceCo
 	if err != nil {
 		return nil, fmt.Errorf("failed to get the container host: %w", err)
 	}
+	host = types.AddressableHost(host)
 
 	continerID := container.GetContainerID()
 
@@ -152,7 +154,8 @@ func (g *GenericProvider) createContainerWithFallback(ctx context.Context, cfg c
 			return container, nil
 		}
 
-		log.Printf("Failed to pull from custom regsitry %s : %v", customImage, err)
+		enrichedErr := describeAndCleanupFailedContainer(container, err)
+		log.Printf("Failed to create or start custom image %s: %v", customImage, enrichedErr)
 	}
 
 	req.Image = originalImage
@@ -162,7 +165,30 @@ func (g *GenericProvider) createContainerWithFallback(ctx context.Context, cfg c
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to pull image from both custom registry and docker hub : %w", err)
+		return nil, fmt.Errorf("failed to create or start image %s: %w", originalImage, describeAndCleanupFailedContainer(container, err))
 	}
 	return container, nil
+}
+
+func describeAndCleanupFailedContainer(container testcontainers.Container, startErr error) error {
+	if container == nil {
+		return startErr
+	}
+
+	diagnosticsCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	details := ""
+	logs, err := container.Logs(diagnosticsCtx)
+	if err == nil {
+		defer logs.Close()
+		if raw, readErr := io.ReadAll(io.LimitReader(logs, 64<<10)); readErr == nil && len(raw) > 0 {
+			details = strings.TrimSpace(string(raw))
+		}
+	}
+	_ = container.Terminate(diagnosticsCtx)
+	if details == "" {
+		return startErr
+	}
+	return fmt.Errorf("%w; container logs: %s", startErr, details)
 }

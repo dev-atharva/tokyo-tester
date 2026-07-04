@@ -33,6 +33,17 @@ type JanitorConfig struct {
 	DryRun       bool   `envconfig:"JANITOR_DRY_RUN" default:"false"`
 }
 
+type WorkflowWorkerConfig struct {
+	Enabled             bool   `envconfig:"WORKFLOW_WORKER_ENABLED" default:"true"`
+	Concurrency         int    `envconfig:"WORKFLOW_WORKER_CONCURRENCY" default:"2"`
+	ScenarioConcurrency int    `envconfig:"WORKFLOW_SCENARIO_CONCURRENCY" default:"2"`
+	LeaseSeconds        int    `envconfig:"WORKFLOW_JOB_LEASE_SECONDS" default:"60"`
+	HeartbeatSeconds    int    `envconfig:"WORKFLOW_JOB_HEARTBEAT_SECONDS" default:"15"`
+	MaxRecoveries       int    `envconfig:"WORKFLOW_JOB_MAX_RECOVERIES" default:"3"`
+	EventRetentionDays  int    `envconfig:"WORKFLOW_EVENT_RETENTION_DAYS" default:"30"`
+	EncryptionKey       string `envconfig:"WORKFLOW_JOB_ENCRYPTION_KEY"`
+}
+
 func (a *AppConfig) IsProduction() bool {
 	return a.Environment == "production"
 }

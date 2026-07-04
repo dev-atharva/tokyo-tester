@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "kind": "cots.workflow-bundle",
+  "workflow": {
+    "name": "Payment Platform Resilience Lab",
+    "description": "Intentional failures for validating partial workflow status, continued test execution, provisioning diagnostics, and cleanup.",
+    "nodes": [
+      {
+        "id": "fault-lab-node",
+        "type": "serviceNode",
+        "position": { "x": 80, "y": 160 },
+        "data": {
+          "label": "fault_lab",
+          "service": {
+            "type": "generic",
+            "image": "tokyo-test-api:latest",
+            "ports": [{ "id": "fault-http", "hostPort": "", "containerPort": "8080" }],
+            "env": [
+              { "id": "fault-role", "key": "APP_ROLE", "value": "fault-lab" },
+              { "id": "fault-port", "key": "PORT", "value": "8080" }
+            ],
+            "waitStratergy": { "enabled": true, "type": "log", "target": "fault lab ready", "timeout": 30 },
+            "initScripts": []
+          }
+        }
+      },
+      {
+        "id": "broken-service-node",
+        "type": "serviceNode",
+        "position": { "x": 360, "y": 160 },
+        "data": {
+          "label": "broken_payment_service",
+          "service": {
+            "type": "generic",
+            "image": "tokyo-test-api:latest",
+            "ports": [],
+            "env": [{ "id": "broken-role", "key": "APP_ROLE", "value": "crash-on-start" }],
+            "waitStratergy": { "enabled": true, "type": "log", "target": "this service never becomes ready", "timeout": 10 },
+            "initScripts": []
+          }
+        }
+      }
+    ],
+    "edges": []
+  },
+  "scenarios": [
+    {
+      "name": "Healthy baseline",
+      "description": "A passing scenario ensures the final workflow is partial_failed rather than fully failed.",
+      "tests": [
+        { "id": "baseline-ready", "name": "fault-lab-ready", "type": "http", "targetServices": ["fault_lab"], "httpConfig": { "method": "GET", "path": "/ready", "port": "8080", "expectedStatus": 200, "expectedBody": { "mode": "json", "value": { "status": "ready", "role": "fault-lab" } } } },
+        { "id": "baseline-delay", "name": "fault-lab-short-delay", "type": "http", "targetServices": ["fault_lab"], "dependsOnTestIds": ["baseline-ready"], "httpConfig": { "method": "GET", "path": "/faults/delay/100", "port": "8080", "expectedStatus": 200, "expectedBody": { "mode": "json", "value": { "delayedMs": 100 } } } }
+      ],
+      "testOrder": ["baseline-ready", "baseline-delay"]
+    },
+    {
+      "name": "Assertion failure continues",
+      "description": "The first assertion fails intentionally; the second must still run and pass.",
+      "tests": [
+        { "id": "intentional-failure", "name": "intentional-status-mismatch", "type": "http", "targetServices": ["fault_lab"], "httpConfig": { "method": "GET", "path": "/faults/status/418", "port": "8080", "expectedStatus": 200, "expectedBody": { "mode": "json", "value": { "requestedStatus": 200 } } } },
+        { "id": "after-failure", "name": "test-after-intentional-failure", "type": "http", "targetServices": ["fault_lab"], "dependsOnTestIds": ["intentional-failure"], "httpConfig": { "method": "GET", "path": "/health", "port": "8080", "expectedStatus": 200, "expectedBody": { "mode": "contains", "value": "healthy" } } }
+      ],
+      "testOrder": ["intentional-failure", "after-failure"]
+    },
+    {
+      "name": "Provisioning failure diagnostics",
+      "description": "The selected container exits with code 42 before satisfying its log wait strategy.",
+      "tests": [
+        { "id": "never-runs", "name": "test-blocked-by-provisioning", "type": "delay", "targetServices": ["broken_payment_service"], "delayConfig": { "durationMs": 100 } }
+      ],
+      "testOrder": ["never-runs"]
+    }
+  ]
+}

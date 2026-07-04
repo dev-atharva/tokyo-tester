@@ -13,6 +13,13 @@ SOCKET_LOCATIONS=()
 if [ -n "${DOCKER_SOCKET_PATH:-}" ]; then
     SOCKET_LOCATIONS+=("$DOCKER_SOCKET_PATH")
 fi
+if [[ "${DOCKER_HOST:-}" == unix://* ]]; then
+    SOCKET_LOCATIONS+=("${DOCKER_HOST#unix://}")
+fi
+CONTEXT_DOCKER_HOST=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)
+if [[ "$CONTEXT_DOCKER_HOST" == unix://* ]]; then
+    SOCKET_LOCATIONS+=("${CONTEXT_DOCKER_HOST#unix://}")
+fi
 SOCKET_LOCATIONS+=(
     "/var/run/docker.sock"
     "$HOME/.rd/docker.sock"
@@ -22,8 +29,13 @@ SOCKET_LOCATIONS+=(
 
 FOUND_SOCKET=""
 CONTAINER_DOCKER_SOCKET_PATH="/var/run/docker.sock"
+CHECKED_SOCKETS=""
 
 for socket in "${SOCKET_LOCATIONS[@]}"; do
+    case " $CHECKED_SOCKETS " in
+        *" $socket "*) continue ;;
+    esac
+    CHECKED_SOCKETS="$CHECKED_SOCKETS $socket"
     if [ -S "$socket" ]; then
         if docker -H "unix://$socket" info >/dev/null 2>&1; then
             echo -e "${GREEN} Found accessible socket: $socket${NC}"
@@ -72,6 +84,7 @@ detect_testcontainers_host_override() {
     esac
 }
 TESTCONTAINERS_HOST_OVERRIDE=$(detect_testcontainers_host_override)
+HOST_RUNNER_API_URL="http://host.docker.internal:8080"
 echo -e "${GREEN} Docker socket is accessible ${NC}"
 echo ""
 
@@ -87,6 +100,7 @@ CONTAINER_DOCKER_SOCKET_PATH=$CONTAINER_DOCKER_SOCKET_PATH
 RUNNER_DOCKER_HOST=$RUNNER_DOCKER_HOST
 TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=$TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE
 TESTCONTAINERS_HOST_OVERRIDE=$TESTCONTAINERS_HOST_OVERRIDE
+HOST_RUNNER_API_URL=$HOST_RUNNER_API_URL
 EOF
 
 echo -e "${GREEN} Saved to .env.docker-socket${NC}"

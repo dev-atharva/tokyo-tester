@@ -1,0 +1,51 @@
+{
+  "workflowRunId": "run-contract-1",
+  "projectId": "project-contract-1",
+  "workflowId": "workflow-contract-1",
+  "workflowName": "Contract workflow",
+  "nodes": [
+    {
+      "id": "node-api",
+      "data": {
+        "label": "API Service",
+        "service": {
+          "type": "generic",
+          "image": "example.invalid/private/api:latest",
+          "ports": []
+        }
+      }
+    }
+  ],
+  "edges": [],
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "scenarioRunId": "scenario-run-1",
+      "projectId": "project-contract-1",
+      "name": "Smoke test",
+      "tests": [
+        {
+          "id": "test-delay",
+          "name": "Brief delay",
+          "type": "delay",
+          "targetServices": ["api_service"],
+          "delayConfig": { "durationMs": 1 }
+        }
+      ],
+      "testOrder": ["test-delay"],
+      "user_id": "user-contract-1",
+      "client_id": "client-contract-1"
+    }
+  ],
+  "userId": "user-contract-1",
+  "clientId": "client-contract-1",
+  "registrySecrets": {
+    "api_service": {
+      "url": "registry.example.invalid",
+      "auth_type": "basic",
+      "username": "contract-user",
+      "password": "contract-password"
+    }
+  },
+  "executionOptions": { "continueOnFailure": true }
+}

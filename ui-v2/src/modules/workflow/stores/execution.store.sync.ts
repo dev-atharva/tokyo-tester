@@ -7,6 +7,7 @@ import {
   syncMiddleware,
   trackSync,
 } from "@/modules/sync/sync-middleware";
+import { isNewerEventId } from "../lib/realtime-events";
 import type { WorkflowRunStatus } from "../types/react-flow-cots";
 
 const indexedDBStorage = {
@@ -33,6 +34,7 @@ export interface WorkflowExecution {
   startedAt: number;
   finishedAt?: number;
   scenarioRunIds: string[];
+  lastEventId?: string;
 
   version: number;
   created_at: string;
@@ -61,6 +63,7 @@ interface ExecutionStore {
     result?: unknown,
     error?: string,
   ) => void;
+  updateReplayCursor: (workflowRunId: string, eventId: string) => void;
   getExecution: (workflowRunId: string) => WorkflowExecution | null;
   getActiveExecution: () => WorkflowExecution | null;
   getWorkflowExecutions: (workflowId: string) => WorkflowExecution[];
@@ -86,11 +89,13 @@ export const useExecutionStore = create<ExecutionStore>()(
             workflowRunId,
             projectId,
             workflowId,
-            status: "running" as WorkflowRunStatus,
+            status: "pending" as WorkflowRunStatus,
             logs: [],
             startedAt: Date.now(),
             scenarioRunIds,
           });
+
+          trackSync(store, workflowRunId, "insert");
 
           set((state) => ({
             executions: {
@@ -175,6 +180,21 @@ export const useExecutionStore = create<ExecutionStore>()(
           });
         },
 
+        updateReplayCursor: (workflowRunId, eventId) => {
+          set((state) => {
+            const execution = state.executions[workflowRunId];
+            if (!execution || !isNewerEventId(execution.lastEventId, eventId)) {
+              return state;
+            }
+            return {
+              executions: {
+                ...state.executions,
+                [workflowRunId]: { ...execution, lastEventId: eventId },
+              },
+            };
+          });
+        },
+
         getExecution: (workflowRunId) =>
           get().executions[workflowRunId] || null,
 
@@ -216,7 +236,11 @@ export const useExecutionStore = create<ExecutionStore>()(
           set((state) => ({
             executions: {
               ...state.executions,
-              [execution.workflowRunId]: execution,
+              [execution.workflowRunId]: {
+                ...execution,
+                lastEventId:
+                  state.executions[execution.workflowRunId]?.lastEventId,
+              },
             },
           }));
         },
