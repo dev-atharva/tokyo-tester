@@ -1,6 +1,8 @@
-import {
-  removeProjectMemberAction,
-} from "@/modules/admin/actions";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { removeProjectMemberAction } from "@/modules/admin/actions";
 import { AddProjectMembersForm } from "@/modules/admin/components/add-project-members-form";
 import { AdminShell } from "@/modules/admin/components/admin-shell";
 import { CreateProjectForm } from "@/modules/admin/components/create-project-form";
@@ -10,14 +12,12 @@ import {
   listProjectsForUser,
   listUnassignedUsersForProject,
 } from "@/modules/projects/server/service";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 
 export default async function AdminProjectsPage() {
   const users = await getAllUsers();
-  const projects = await listProjectsForUser("admin", "admin");
+  const projects = (await listProjectsForUser("admin", "admin")).filter(
+    (project) => project.kind === "team",
+  );
   const projectDetails = await Promise.all(
     projects.map(async (project) => ({
       project,
@@ -138,7 +138,7 @@ export default async function AdminProjectsPage() {
                             variant="outline"
                             className="text-[10px] uppercase tracking-[0.22em] border-amber-700/20 dark:border-amber-300/20 bg-amber-500/8 dark:bg-amber-300/7 text-amber-700 dark:text-amber-300/80"
                           >
-                            {member.role}
+                            {member.projectRole}
                           </Badge>
                           <form action={removeProjectMemberAction}>
                             <input

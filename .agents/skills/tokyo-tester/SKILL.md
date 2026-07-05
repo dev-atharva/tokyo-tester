@@ -13,12 +13,13 @@ Build the workflow from repository evidence, then use Tokyo Tester as the author
    - Find Compose files, Dockerfiles, exposed container ports, commands, health checks, and environment variables.
    - Find database migrations, queue/topic setup, cache usage, API routes or OpenAPI documents, and existing tests.
    - Never send repository files or secrets to Tokyo Tester tools.
-2. Call `tokyo_get_capabilities`. Do not rely on remembered service types, test types, or schema versions.
-3. Read [references/authoring.md](references/authoring.md), then create a complete `cots.workflow-bundle` object.
-4. Call `tokyo_validate_workflow` and repair every returned issue. Treat its normalized bundle as canonical.
-5. Present the workflow and test intent to the user. Obtain explicit approval before calling `tokyo_import_workflow` or `tokyo_run_workflow`.
-6. Use a stable idempotency key for retries of the same import or run. Use a new key only when intentionally creating a new workflow or execution.
-7. Poll `tokyo_get_run` until the run is terminal. On failure, call `tokyo_get_run_diagnostics`, revise the smallest relevant part, validate, and request approval before rerunning.
+2. Call `tokyo_list_projects` and inspect `allowedActions` before choosing a path.
+   - With `edit`, call `tokyo_get_capabilities`, read [references/authoring.md](references/authoring.md), author a bundle, and validate it with `tokyo_validate_workflow`.
+   - Without `edit`, never attempt to import or modify workflows. Call `tokyo_list_workflows`, then `tokyo_get_workflow` to present the existing scenarios the user can run.
+3. Present the workflow and scenario selection to the user. Obtain explicit approval before any import or execution.
+4. Editors may call `tokyo_import_workflow` or `tokyo_run_workflow`. Runners call `tokyo_run_existing_workflow`, passing selected scenario IDs; omit `scenarioIds` only when the user approves running all scenarios.
+5. Use a stable idempotency key for retries of the same import or run. Use a new key only when intentionally creating a new workflow or execution.
+6. Poll `tokyo_get_run` until the run is terminal. On failure, call `tokyo_get_run_diagnostics`. Editors may revise the smallest relevant part, validate, and request approval before rerunning; runners should report diagnostics without attempting modifications.
 
 ## Guardrails
 

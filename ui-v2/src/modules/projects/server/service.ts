@@ -1,11 +1,24 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { getDb } from "@/db";
 import type {
-  ProjectMemberUser,
+  ProjectAction,
+  ProjectKind,
   ProjectMembership,
+  ProjectMemberUser,
+  ProjectRole,
   ProjectSummary,
 } from "../types";
+
+const ROLE_ACTIONS: Record<ProjectRole, ProjectAction[]> = {
+  owner: ["view", "edit", "run", "manage"],
+  editor: ["view", "edit", "run"],
+  runner: ["view", "run"],
+};
+
+export function allowedActionsForRole(role: ProjectRole): ProjectAction[] {
+  return [...ROLE_ACTIONS[role]];
+}
 
 function toIsoString(value: Date | number | string | null | undefined) {
   if (value instanceof Date) {
@@ -24,6 +37,7 @@ function mapProject(record: Record<string, unknown>): ProjectSummary {
   return {
     id: String(record.id),
     name: String(record.name),
+    kind: (record.kind as ProjectKind | undefined) ?? "team",
     createdBy: String(record.createdBy),
     createdAt: toIsoString(
       (record.createdAt as Date | number | string | undefined) ?? null,
@@ -32,6 +46,28 @@ function mapProject(record: Record<string, unknown>): ProjectSummary {
       (record.updatedAt as Date | number | string | undefined) ?? null,
     ),
   };
+}
+
+function mapMembership(
+  record: Record<string, unknown>,
+  platformRole?: string | null,
+): ProjectMembership {
+  const projectRole =
+    platformRole === "admin"
+      ? "owner"
+      : ((record.projectRole as ProjectRole | undefined) ?? "editor");
+  return {
+    ...mapProject(record),
+    projectRole,
+    allowedActions: allowedActionsForRole(projectRole),
+  };
+}
+
+function sortMemberships(projects: ProjectMembership[]) {
+  return projects.sort((left, right) => {
+    if (left.kind !== right.kind) return left.kind === "personal" ? -1 : 1;
+    return left.name.localeCompare(right.name);
+  });
 }
 
 export async function listProjectsForUser(
@@ -43,14 +79,24 @@ export async function listProjectsForUser(
   if (connection.type === "postgres") {
     const rows =
       role === "admin"
-        ? await connection.db.select().from(connection.tables.projects)
+        ? await connection.db
+            .select()
+            .from(connection.tables.projects)
+            .where(
+              or(
+                eq(connection.tables.projects.kind, "team"),
+                eq(connection.tables.projects.createdBy, userId),
+              ),
+            )
         : await connection.db
             .select({
               id: connection.tables.projects.id,
               name: connection.tables.projects.name,
+              kind: connection.tables.projects.kind,
               createdBy: connection.tables.projects.createdBy,
               createdAt: connection.tables.projects.createdAt,
               updatedAt: connection.tables.projects.updatedAt,
+              projectRole: connection.tables.projectMembers.role,
             })
             .from(connection.tables.projects)
             .innerJoin(
@@ -62,21 +108,32 @@ export async function listProjectsForUser(
             )
             .where(eq(connection.tables.projectMembers.userId, userId));
 
-    return rows
-      .map((row) => mapProject(row as Record<string, unknown>))
-      .sort((left, right) => left.name.localeCompare(right.name));
+    return sortMemberships(
+      rows.map((row) => mapMembership(row as Record<string, unknown>, role)),
+    );
   }
 
   const projectRows =
     role === "admin"
-      ? connection.db.select().from(connection.tables.projects).all()
+      ? connection.db
+          .select()
+          .from(connection.tables.projects)
+          .where(
+            or(
+              eq(connection.tables.projects.kind, "team"),
+              eq(connection.tables.projects.createdBy, userId),
+            ),
+          )
+          .all()
       : connection.db
           .select({
             id: connection.tables.projects.id,
             name: connection.tables.projects.name,
+            kind: connection.tables.projects.kind,
             createdBy: connection.tables.projects.createdBy,
             createdAt: connection.tables.projects.createdAt,
             updatedAt: connection.tables.projects.updatedAt,
+            projectRole: connection.tables.projectMembers.role,
           })
           .from(connection.tables.projects)
           .innerJoin(
@@ -89,9 +146,11 @@ export async function listProjectsForUser(
           .where(eq(connection.tables.projectMembers.userId, userId))
           .all();
 
-  return projectRows
-    .map((row) => mapProject(row as Record<string, unknown>))
-    .sort((left, right) => left.name.localeCompare(right.name));
+  return sortMemberships(
+    projectRows.map((row) =>
+      mapMembership(row as Record<string, unknown>, role),
+    ),
+  );
 }
 
 export async function createProject(
@@ -109,6 +168,7 @@ export async function createProject(
         .values({
           id: projectId,
           name: name.trim(),
+          kind: "team",
           createdBy: adminUserId,
           createdAt: now,
           updatedAt: now,
@@ -118,6 +178,7 @@ export async function createProject(
       await tx.insert(connection.tables.projectMembers).values({
         projectId,
         userId: adminUserId,
+        role: "owner",
         createdAt: now,
       });
 
@@ -133,6 +194,7 @@ export async function createProject(
       .values({
         id: projectId,
         name: name.trim(),
+        kind: "team",
         createdBy: adminUserId,
         createdAt: now,
         updatedAt: now,
@@ -144,6 +206,7 @@ export async function createProject(
       .values({
         projectId,
         userId: adminUserId,
+        role: "owner",
         createdAt: now,
       })
       .run();
@@ -152,10 +215,127 @@ export async function createProject(
   return {
     id: projectId,
     name: name.trim(),
+    kind: "team",
     createdBy: adminUserId,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
+}
+
+export async function ensurePersonalProject(
+  userId: string,
+): Promise<ProjectMembership> {
+  const connection = getDb();
+  const now = new Date();
+
+  const findExisting = async () => {
+    if (connection.type === "postgres") {
+      const rows = await connection.db
+        .select()
+        .from(connection.tables.projects)
+        .where(
+          and(
+            eq(connection.tables.projects.createdBy, userId),
+            eq(connection.tables.projects.kind, "personal"),
+          ),
+        )
+        .limit(1);
+      return rows[0];
+    }
+    return connection.db
+      .select()
+      .from(connection.tables.projects)
+      .where(
+        and(
+          eq(connection.tables.projects.createdBy, userId),
+          eq(connection.tables.projects.kind, "personal"),
+        ),
+      )
+      .get();
+  };
+
+  let project = await findExisting();
+  if (!project) {
+    const projectId = randomUUID();
+    const values = {
+      id: projectId,
+      name: "Personal",
+      kind: "personal" as const,
+      createdBy: userId,
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (connection.type === "postgres") {
+      await connection.db
+        .insert(connection.tables.projects)
+        .values(values)
+        .onConflictDoNothing();
+    } else {
+      connection.db
+        .insert(connection.tables.projects)
+        .values(values)
+        .onConflictDoNothing()
+        .run();
+    }
+    project = await findExisting();
+  }
+
+  if (!project) throw new Error("Unable to create personal workspace");
+  const membership = {
+    projectId: project.id,
+    userId,
+    role: "owner" as const,
+    createdAt: now,
+  };
+  if (connection.type === "postgres") {
+    await connection.db
+      .insert(connection.tables.projectMembers)
+      .values(membership)
+      .onConflictDoUpdate({
+        target: [
+          connection.tables.projectMembers.projectId,
+          connection.tables.projectMembers.userId,
+        ],
+        set: { role: "owner" },
+      });
+  } else {
+    connection.db
+      .insert(connection.tables.projectMembers)
+      .values(membership)
+      .onConflictDoUpdate({
+        target: [
+          connection.tables.projectMembers.projectId,
+          connection.tables.projectMembers.userId,
+        ],
+        set: { role: "owner" },
+      })
+      .run();
+  }
+  return mapMembership(
+    { ...(project as Record<string, unknown>), projectRole: "owner" },
+    null,
+  );
+}
+
+export async function getProject(
+  projectId: string,
+): Promise<ProjectSummary | null> {
+  const connection = getDb();
+  const row =
+    connection.type === "postgres"
+      ? (
+          await connection.db
+            .select()
+            .from(connection.tables.projects)
+            .where(eq(connection.tables.projects.id, projectId))
+            .limit(1)
+        )[0]
+      : connection.db
+          .select()
+          .from(connection.tables.projects)
+          .where(eq(connection.tables.projects.id, projectId))
+          .get();
+  return row ? mapProject(row as Record<string, unknown>) : null;
 }
 
 export async function listProjectMembers(
@@ -170,6 +350,7 @@ export async function listProjectMembers(
         email: connection.tables.users.email,
         name: connection.tables.users.name,
         role: connection.tables.users.role,
+        projectRole: connection.tables.projectMembers.role,
         isActive: connection.tables.users.isActive,
       })
       .from(connection.tables.projectMembers)
@@ -188,6 +369,7 @@ export async function listProjectMembers(
       email: connection.tables.users.email,
       name: connection.tables.users.name,
       role: connection.tables.users.role,
+      projectRole: connection.tables.projectMembers.role,
       isActive: connection.tables.users.isActive,
     })
     .from(connection.tables.projectMembers)
@@ -206,18 +388,25 @@ export async function listProjectMembers(
 export async function addUsersToProject(
   projectId: string,
   userIds: string[],
+  projectRole: ProjectRole = "runner",
 ): Promise<void> {
   if (userIds.length === 0) {
     return;
   }
 
   const connection = getDb();
+  const project = await getProject(projectId);
+  if (!project) throw new Error("Project not found");
+  if (project.kind === "personal") {
+    throw new Error("Personal workspaces cannot have additional members");
+  }
   const now = new Date();
 
   if (connection.type === "postgres") {
     const members = userIds.map((userId) => ({
       projectId,
       userId,
+      role: projectRole,
       createdAt: now,
     }));
 
@@ -234,6 +423,7 @@ export async function addUsersToProject(
       .values({
         projectId,
         userId,
+        role: projectRole,
         createdAt: now,
       })
       .onConflictDoNothing()
@@ -246,6 +436,19 @@ export async function removeUserFromProject(
   userId: string,
 ): Promise<void> {
   const connection = getDb();
+  const project = await getProject(projectId);
+  if (!project) throw new Error("Project not found");
+  if (project.kind === "personal") {
+    throw new Error("Personal workspace ownership cannot be changed");
+  }
+  const members = await listProjectMembers(projectId);
+  const target = members.find((member) => member.id === userId);
+  if (
+    target?.projectRole === "owner" &&
+    members.filter((member) => member.projectRole === "owner").length <= 1
+  ) {
+    throw new Error("The final team owner cannot be removed");
+  }
 
   if (connection.type === "postgres") {
     await connection.db
@@ -270,17 +473,84 @@ export async function removeUserFromProject(
     .run();
 }
 
+export async function updateProjectMemberRole(
+  projectId: string,
+  userId: string,
+  projectRole: ProjectRole,
+): Promise<void> {
+  const connection = getDb();
+  const project = await getProject(projectId);
+  if (!project) throw new Error("Project not found");
+  if (project.kind === "personal") {
+    throw new Error("Personal workspace ownership cannot be changed");
+  }
+  const members = await listProjectMembers(projectId);
+  const target = members.find((member) => member.id === userId);
+  if (!target) throw new Error("Project member not found");
+  if (
+    target.projectRole === "owner" &&
+    projectRole !== "owner" &&
+    members.filter((member) => member.projectRole === "owner").length <= 1
+  ) {
+    throw new Error("The final team owner cannot be demoted");
+  }
+  const where = and(
+    eq(connection.tables.projectMembers.projectId, projectId),
+    eq(connection.tables.projectMembers.userId, userId),
+  );
+  if (connection.type === "postgres") {
+    await connection.db
+      .update(connection.tables.projectMembers)
+      .set({ role: projectRole })
+      .where(where);
+  } else {
+    connection.db
+      .update(connection.tables.projectMembers)
+      .set({ role: projectRole })
+      .where(where)
+      .run();
+  }
+}
+
+export async function getProjectMembership(
+  userId: string,
+  projectId: string,
+  platformRole?: string | null,
+): Promise<ProjectMembership | null> {
+  if (platformRole === "admin") {
+    const project = await getProject(projectId);
+    return project
+      ? {
+          ...project,
+          projectRole: "owner",
+          allowedActions: allowedActionsForRole("owner"),
+        }
+      : null;
+  }
+  const projects = await listProjectsForUser(userId, platformRole);
+  return projects.find((project) => project.id === projectId) ?? null;
+}
+
+export async function userHasProjectPermission(
+  userId: string,
+  projectId: string,
+  action: ProjectAction,
+  platformRole?: string | null,
+): Promise<boolean> {
+  const membership = await getProjectMembership(
+    userId,
+    projectId,
+    platformRole,
+  );
+  return membership?.allowedActions.includes(action) ?? false;
+}
+
 export async function userHasProjectAccess(
   userId: string,
   projectId: string,
   role?: string | null,
 ): Promise<boolean> {
-  if (role === "admin") {
-    return true;
-  }
-
-  const projects = await listProjectsForUser(userId, role);
-  return projects.some((project) => project.id === projectId);
+  return userHasProjectPermission(userId, projectId, "view", role);
 }
 
 export async function listUnassignedUsersForProject(

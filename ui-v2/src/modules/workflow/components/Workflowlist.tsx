@@ -92,9 +92,10 @@ export const WorkflowList = () => {
   );
 
   const hasProject = Boolean(activeProjectId);
+  const canEdit = activeProject?.allowedActions.includes("edit") ?? false;
 
   const handleCreate = async () => {
-    if (!activeProjectId) {
+    if (!activeProjectId || !canEdit) {
       return;
     }
 
@@ -164,7 +165,7 @@ export const WorkflowList = () => {
     const file = event.target.files?.[0];
     event.target.value = "";
 
-    if (!file || !activeProjectId) {
+    if (!file || !activeProjectId || !canEdit) {
       return;
     }
 
@@ -363,30 +364,36 @@ export const WorkflowList = () => {
             <h1 className="text-2xl font-semibold">Workflows</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {activeProject
-                ? `Create and manage workflows in ${activeProject.name}`
+                ? canEdit
+                  ? `Create and manage workflows in ${activeProject.name}`
+                  : `Inspect and run workflows in ${activeProject.name}`
                 : "Select a project to start creating workflows"}
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              className="cursor-pointer font-semibold shadow-md"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isImporting || !hasProject}
-            >
-              <IconFileImport data-icon="inline-start" />
-              {isImporting ? "Importing..." : "Import Workflow"}
-            </Button>
-            <Button
-              className="cursor-pointer font-semibold shadow-md"
-              onClick={handleCreate}
-              disabled={isCreating || !hasProject}
-            >
-              <IconPlus data-icon="inline-start" />
-              {isCreating ? "Creating..." : "New Workflow"}
-            </Button>
-          </div>
+          {canEdit ? (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                className="cursor-pointer font-semibold shadow-md"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isImporting || !hasProject}
+              >
+                <IconFileImport data-icon="inline-start" />
+                {isImporting ? "Importing..." : "Import Workflow"}
+              </Button>
+              <Button
+                className="cursor-pointer font-semibold shadow-md"
+                onClick={handleCreate}
+                disabled={isCreating || !hasProject}
+              >
+                <IconPlus data-icon="inline-start" />
+                {isCreating ? "Creating..." : "New Workflow"}
+              </Button>
+            </div>
+          ) : activeProject ? (
+            <Badge variant="outline">Runner · read only</Badge>
+          ) : null}
         </div>
 
         {!hasProject ? (
@@ -408,17 +415,20 @@ export const WorkflowList = () => {
             </div>
             <h3 className="mb-1 text-lg font-semibold">No workflows yet</h3>
             <p className="mb-6 max-w-md text-center text-sm text-muted-foreground">
-              Get started by creating your first workflow to automate your
-              testing scenarios
+              {canEdit
+                ? "Get started by creating your first workflow to automate your testing scenarios"
+                : "No workflows are available to run in this team workspace yet."}
             </p>
-            <Button
-              className="cursor-pointer font-semibold shadow-md"
-              onClick={handleCreate}
-              disabled={isCreating || !hasProject}
-            >
-              <IconPlus data-icon="inline-start" />
-              Create Workflow
-            </Button>
+            {canEdit ? (
+              <Button
+                className="cursor-pointer font-semibold shadow-md"
+                onClick={handleCreate}
+                disabled={isCreating || !hasProject}
+              >
+                <IconPlus data-icon="inline-start" />
+                Create Workflow
+              </Button>
+            ) : null}
           </div>
         ) : (
           <div className="grid gap-4">
@@ -476,30 +486,34 @@ export const WorkflowList = () => {
                               <IconFolderOpen />
                               Open workflow
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => handleClone(workflow.id)}
-                            >
-                              <IconCopy />
-                              Clone workflow
-                            </DropdownMenuItem>
+                            {canEdit ? (
+                              <DropdownMenuItem
+                                onClick={() => handleClone(workflow.id)}
+                              >
+                                <IconCopy />
+                                Clone workflow
+                              </DropdownMenuItem>
+                            ) : null}
                             <DropdownMenuItem
                               onClick={() => handleExport(workflow.id)}
                             >
                               <IconDownload />
                               Export bundle
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              variant="destructive"
-                              onClick={() =>
-                                setWorkflowPendingDelete({
-                                  id: workflow.id,
-                                  name: workflow.name,
-                                })
-                              }
-                            >
-                              <IconTrash />
-                              Delete workflow
-                            </DropdownMenuItem>
+                            {canEdit ? (
+                              <DropdownMenuItem
+                                variant="destructive"
+                                onClick={() =>
+                                  setWorkflowPendingDelete({
+                                    id: workflow.id,
+                                    name: workflow.name,
+                                  })
+                                }
+                              >
+                                <IconTrash />
+                                Delete workflow
+                              </DropdownMenuItem>
+                            ) : null}
                           </DropdownMenuGroup>
                         </DropdownMenuContent>
                       </DropdownMenu>

@@ -3,7 +3,10 @@ import "./globals.css";
 import { ThemeProvider } from "next-themes";
 import { auth } from "@/auth";
 import { AppShell } from "@/modules/auth/components/app-shell";
-import { listProjectsForUser } from "@/modules/projects/server/service";
+import {
+  ensurePersonalProject,
+  listProjectsForUser,
+} from "@/modules/projects/server/service";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +27,9 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
+  if (session?.user?.id) {
+    await ensurePersonalProject(session.user.id);
+  }
   const projects = session?.user?.id
     ? await listProjectsForUser(session.user.id, session.user.role)
     : [];

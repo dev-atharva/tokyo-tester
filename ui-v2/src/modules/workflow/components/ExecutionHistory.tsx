@@ -20,18 +20,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
+import {
+  useExecutionStore,
+  type WorkflowExecution,
+} from "../stores/execution.store.sync";
 import { useScenarioRunStore } from "../stores/scenario-run.store.sync";
 import { useTestResultStore } from "../stores/test-result.store";
-import {
-  type WorkflowExecution,
-  useExecutionStore,
-} from "../stores/execution.store.sync";
-import { cn } from "@/lib/utils";
 
 interface ExecutionHistoryProps {
   workflowId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  canEdit: boolean;
 }
 
 function statusBadge(status: string) {
@@ -124,6 +125,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   workflowId,
   open,
   onOpenChange,
+  canEdit,
 }) => {
   const [selectedExecution, setSelectedExecution] =
     useState<WorkflowExecution | null>(null);
@@ -305,18 +307,20 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                           {selectedExecution.workflowRunId}
                         </code>
                       </div>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => {
-                          clearExecution(selectedExecution.workflowRunId);
-                          setSelectedExecution(null);
-                        }}
-                        className="shadow-sm"
-                      >
-                        <IconTrash className=" mr-2 size-4" />
-                        Delete
-                      </Button>
+                      {canEdit ? (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => {
+                            clearExecution(selectedExecution.workflowRunId);
+                            setSelectedExecution(null);
+                          }}
+                          className="shadow-sm"
+                        >
+                          <IconTrash className=" mr-2 size-4" />
+                          Delete
+                        </Button>
+                      ) : null}
                     </div>
 
                     <div className="flex items-center gap-3 text-sm">
@@ -435,16 +439,16 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                                       <div className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">
                                         Failed Tests
                                       </div>
-                                      {failedResults.map(
-                                        (failedResult, idx) => (
-                                          <div key={idx}>
-                                            {renderErrorPanel(
-                                              failedResult.testName,
-                                              failedResult.error || "",
-                                            )}
-                                          </div>
-                                        ),
-                                      )}
+                                      {failedResults.map((failedResult) => (
+                                        <div
+                                          key={`${failedResult.testName}:${failedResult.error}`}
+                                        >
+                                          {renderErrorPanel(
+                                            failedResult.testName,
+                                            failedResult.error || "",
+                                          )}
+                                        </div>
+                                      ))}
                                     </div>
                                   )}
                                 </div>

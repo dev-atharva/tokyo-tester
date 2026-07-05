@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { ADMIN_USER_ROLE, DEFAULT_USER_ROLE, isKnownUserRole } from "../constants";
+import { ensurePersonalProject } from "@/modules/projects/server/service";
+import {
+  ADMIN_USER_ROLE,
+  DEFAULT_USER_ROLE,
+  isKnownUserRole,
+} from "../constants";
 import type {
   AuthUser,
   CreateInitialAdminInput,
@@ -80,7 +85,7 @@ export async function createInitialAdmin(
       return inserted[0];
     });
 
-    return {
+    const result = {
       id: user.id,
       email: user.email,
       name: user.name,
@@ -88,6 +93,8 @@ export async function createInitialAdmin(
       isActive: user.isActive,
       passwordHash: user.passwordHash,
     };
+    await ensurePersonalProject(result.id);
+    return result;
   }
 
   const user = connection.client.transaction(() => {
@@ -121,7 +128,7 @@ export async function createInitialAdmin(
       .get();
   })();
 
-  return {
+  const result = {
     id: String(user.id),
     email: String(user.email),
     name: user.name ? String(user.name) : null,
@@ -129,6 +136,8 @@ export async function createInitialAdmin(
     isActive: Boolean(user.isActive),
     passwordHash: user.passwordHash ? String(user.passwordHash) : null,
   };
+  await ensurePersonalProject(result.id);
+  return result;
 }
 
 export async function createUser(input: CreateUserInput): Promise<AuthUser> {
@@ -164,7 +173,7 @@ export async function createUser(input: CreateUserInput): Promise<AuthUser> {
       .returning();
 
     const user = inserted[0];
-    return {
+    const result = {
       id: user.id,
       email: user.email,
       name: user.name,
@@ -172,6 +181,8 @@ export async function createUser(input: CreateUserInput): Promise<AuthUser> {
       isActive: user.isActive,
       passwordHash: user.passwordHash,
     };
+    await ensurePersonalProject(result.id);
+    return result;
   }
 
   connection.db
@@ -192,7 +203,7 @@ export async function createUser(input: CreateUserInput): Promise<AuthUser> {
   if (!user) {
     throw new Error("Failed to create user.");
   }
-
+  await ensurePersonalProject(user.id);
   return user;
 }
 

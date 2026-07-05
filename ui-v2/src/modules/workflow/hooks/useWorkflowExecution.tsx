@@ -16,8 +16,38 @@ import { useUIStore } from "../stores/ui.store";
 import type {
   FlowEdge,
   FlowNode,
+  Scenario,
   ValidationResult,
 } from "../types/react-flow-cots";
+
+export function selectScenariosForRun(
+  scenarios: Scenario[],
+  workflowId: string,
+  scenarioIds?: string[],
+): Scenario[] {
+  if (scenarioIds === undefined) return scenarios;
+  if (scenarioIds.length === 0) {
+    throw new Error("Select at least one scenario to run.");
+  }
+  const uniqueIds = new Set(scenarioIds);
+  if (uniqueIds.size !== scenarioIds.length) {
+    throw new Error("Scenario selection contains duplicate IDs.");
+  }
+  const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
+  return scenarioIds.map((scenarioId) => {
+    const scenario = byId.get(scenarioId);
+    if (
+      !scenario ||
+      scenario.is_deleted ||
+      scenario.workflowId !== workflowId
+    ) {
+      throw new Error(
+        `Scenario ${scenarioId} is stale or does not belong to this workflow.`,
+      );
+    }
+    return scenario;
+  });
+}
 
 interface UseWorkflowExecutionProps {
   workflowId: string;
@@ -84,135 +114,164 @@ export function useWorkflowExecution({
   );
   const openLogsDrawer = useUIStore((state) => state.openLogs);
 
-  const scenarioValidation = useMemo(() => {
-    const workflowValidation = validateWorkflowGraph(nodes, edges);
-    if (!workflowValidation.valid) {
-      return workflowValidation;
-    }
-
-    const serviceGraph = translateWorkflowGraphToServiceGraph(
-      nodes,
-      edges,
-      normalizedSecrets,
-    );
-
-    if (scenarios.length === 0) {
-      return {
-        valid: false,
-        errors: [{ message: "Create at least one scenario before executing." }],
-        warnings: [],
-      } satisfies ValidationResult;
-    }
-
-    for (const scenario of scenarios) {
-      const result = validateScenario(serviceGraph, scenario);
-      if (!result.valid) {
-        return result;
+  const validateSelection = useCallback(
+    (selectedScenarios: Scenario[]) => {
+      const workflowValidation = validateWorkflowGraph(nodes, edges);
+      if (!workflowValidation.valid) {
+        return workflowValidation;
       }
-    }
 
-    return workflowValidation;
-  }, [nodes, edges, normalizedSecrets, scenarios]);
-
-  const execute = useCallback(async () => {
-    setValidationResult(scenarioValidation);
-    if (!scenarioValidation.valid) {
-      const errorMessages = scenarioValidation.errors
-        .map((err) => err.message)
-        .join("; ");
-      onError?.(`Workflow validation failed: ${errorMessages}`);
-      toast.error("Workflow validation failed", {
-        description: errorMessages,
-        duration: 7000,
-      });
-      console.error("[Workflow validation]", scenarioValidation.errors);
-      return;
-    }
-
-    if (scenarioValidation.warnings && scenarioValidation.warnings.length > 0) {
-      console.warn("[Workflow validation]", scenarioValidation.warnings);
-    }
-
-    setIsExecuting(true);
-
-    const workflowRunId = generateId();
-    try {
-      const scenarioRunIds = scenarios.map((scenario) =>
-        startScenarioRun(
-          scenario.projectId,
-          workflowRunId,
-          workflowId,
-          scenario.id,
-          scenario.name,
-        ),
-      );
-
-      startExecution(
-        scenarios[0]?.projectId ?? "",
-        workflowId,
-        workflowRunId,
-        scenarioRunIds,
-      );
-      onStart?.(workflowRunId);
-
-      const data = {
-        workflowRunId,
-        projectId: scenarios[0]?.projectId ?? "",
-        workflowId,
-        workflowName,
+      const serviceGraph = translateWorkflowGraphToServiceGraph(
         nodes,
         edges,
-        scenarios: scenarios.map((scenario, index) => ({
-          id: scenario.id,
-          scenarioRunId: scenarioRunIds[index],
-          projectId: scenario.projectId,
-          name: scenario.name,
-          description: scenario.description,
-          tests: scenario.tests,
-          testOrder: scenario.testOrder,
-          user_id: scenario.user_id,
-          client_id: scenario.client_id,
-        })),
-        userId: scenarios[0]?.user_id ?? "demo-user",
-        clientId: scenarios[0]?.client_id,
-        registrySecrets: normalizedSecrets,
-        executionOptions: {
-          continueOnFailure: true,
-        },
-      };
+        normalizedSecrets,
+      );
 
-      await syncService.flushPending();
-      if (syncService.getQueueSize() > 0) {
-        throw new Error(
-          "Workflow changes could not be synchronized before execution",
-        );
+      if (selectedScenarios.length === 0) {
+        return {
+          valid: false,
+          errors: [
+            { message: "Create at least one scenario before executing." },
+          ],
+          warnings: [],
+        } satisfies ValidationResult;
       }
-      await submitWorkflowRun(data);
 
-      openLogsDrawer();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      failExecution(workflowRunId, message);
-      onError?.(message);
-      toast.error(`Failed to start workflow: ${message}`);
-    } finally {
-      setIsExecuting(false);
-    }
-  }, [
-    scenarioValidation,
-    onError,
-    scenarios,
-    startScenarioRun,
-    startExecution,
-    workflowId,
-    workflowName,
-    nodes,
-    edges,
-    onStart,
-    normalizedSecrets,
-    openLogsDrawer,
-    failExecution,
-  ]);
+      for (const scenario of selectedScenarios) {
+        const result = validateScenario(serviceGraph, scenario);
+        if (!result.valid) {
+          return result;
+        }
+      }
+
+      return workflowValidation;
+    },
+    [nodes, edges, normalizedSecrets],
+  );
+
+  const execute = useCallback(
+    async (scenarioIds?: string[]) => {
+      let selectedScenarios: Scenario[];
+      try {
+        selectedScenarios = selectScenariosForRun(
+          scenarios,
+          workflowId,
+          scenarioIds,
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Invalid scenario selection.";
+        onError?.(message);
+        toast.error("Cannot start workflow", { description: message });
+        return;
+      }
+      const scenarioValidation = validateSelection(selectedScenarios);
+      setValidationResult(scenarioValidation);
+      if (!scenarioValidation.valid) {
+        const errorMessages = scenarioValidation.errors
+          .map((err) => err.message)
+          .join("; ");
+        onError?.(`Workflow validation failed: ${errorMessages}`);
+        toast.error("Workflow validation failed", {
+          description: errorMessages,
+          duration: 7000,
+        });
+        console.error("[Workflow validation]", scenarioValidation.errors);
+        return;
+      }
+
+      if (
+        scenarioValidation.warnings &&
+        scenarioValidation.warnings.length > 0
+      ) {
+        console.warn("[Workflow validation]", scenarioValidation.warnings);
+      }
+
+      setIsExecuting(true);
+
+      const workflowRunId = generateId();
+      try {
+        const scenarioRunIds = selectedScenarios.map((scenario) =>
+          startScenarioRun(
+            scenario.projectId,
+            workflowRunId,
+            workflowId,
+            scenario.id,
+            scenario.name,
+          ),
+        );
+
+        startExecution(
+          selectedScenarios[0]?.projectId ?? "",
+          workflowId,
+          workflowRunId,
+          scenarioRunIds,
+        );
+        onStart?.(workflowRunId);
+
+        const data = {
+          workflowRunId,
+          projectId: selectedScenarios[0]?.projectId ?? "",
+          workflowId,
+          workflowName,
+          nodes,
+          edges,
+          scenarios: selectedScenarios.map((scenario, index) => ({
+            id: scenario.id,
+            scenarioRunId: scenarioRunIds[index],
+            projectId: scenario.projectId,
+            name: scenario.name,
+            description: scenario.description,
+            tests: scenario.tests,
+            testOrder: scenario.testOrder,
+            user_id: scenario.user_id,
+            client_id: scenario.client_id,
+          })),
+          userId: selectedScenarios[0]?.user_id ?? "demo-user",
+          clientId: selectedScenarios[0]?.client_id,
+          registrySecrets: normalizedSecrets,
+          executionOptions: {
+            continueOnFailure: true,
+          },
+        };
+
+        await syncService.flushPending();
+        if (syncService.getQueueSize() > 0) {
+          throw new Error(
+            "Workflow changes could not be synchronized before execution",
+          );
+        }
+        await submitWorkflowRun(data);
+
+        openLogsDrawer();
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        failExecution(workflowRunId, message);
+        onError?.(message);
+        toast.error(`Failed to start workflow: ${message}`);
+      } finally {
+        setIsExecuting(false);
+      }
+    },
+    [
+      validateSelection,
+      onError,
+      scenarios,
+      startScenarioRun,
+      startExecution,
+      workflowId,
+      workflowName,
+      nodes,
+      edges,
+      onStart,
+      normalizedSecrets,
+      openLogsDrawer,
+      failExecution,
+    ],
+  );
 
   return {
     execute,

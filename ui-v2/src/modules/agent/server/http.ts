@@ -7,7 +7,7 @@ import {
 
 export async function withAgent(
   request: NextRequest,
-  scope: AgentScope,
+  scope: AgentScope | AgentScope[],
   handler: (
     identity: NonNullable<Awaited<ReturnType<typeof authenticateAgentRequest>>>,
   ) => Promise<Response>,

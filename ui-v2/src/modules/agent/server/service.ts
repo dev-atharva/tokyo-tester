@@ -1,4 +1,9 @@
 import { createHash } from "node:crypto";
+import type {
+  ScenarioData,
+  SyncPullResponse,
+  WorkflowData,
+} from "@/modules/sync/sync-types";
 import type { WorkflowBundle } from "@/modules/workflow/types/react-flow-cots";
 import type { AgentIdentity } from "./auth";
 
@@ -110,6 +115,7 @@ export async function runBundle(
   identity: AgentIdentity,
   bundle: WorkflowBundle,
   idempotencyKey: string,
+  scenarioNames?: string[],
 ) {
   const imported = await importBundle(identity, bundle, idempotencyKey);
   if (!imported.response.ok)
@@ -119,6 +125,27 @@ export async function runBundle(
       workflowRunId: "",
     };
   const workflowRunId = stableId("run", identity.projectId, idempotencyKey);
+  let scenarioIndexes = bundle.scenarios.map((_, index) => index);
+  if (scenarioNames !== undefined) {
+    if (
+      scenarioNames.length === 0 ||
+      new Set(scenarioNames).size !== scenarioNames.length
+    ) {
+      throw new Error(
+        "scenarioNames must contain at least one unique scenario name.",
+      );
+    }
+    scenarioIndexes = scenarioNames.map((name) => {
+      const matches = bundle.scenarios
+        .map((scenario, index) => ({ scenario, index }))
+        .filter(({ scenario }) => scenario.name === name);
+      if (matches.length === 0)
+        throw new Error(`Unknown scenario name: ${name}`);
+      if (matches.length > 1)
+        throw new Error(`Scenario name is ambiguous: ${name}`);
+      return matches[0].index;
+    });
+  }
   const body = {
     workflowRunId,
     projectId: identity.projectId,
@@ -126,17 +153,20 @@ export async function runBundle(
     workflowName: bundle.workflow.name,
     nodes: bundle.workflow.nodes,
     edges: bundle.workflow.edges,
-    scenarios: imported.scenarios.map((scenario, index) => ({
-      id: scenario.id,
-      scenarioRunId: stableId("scenario-run", workflowRunId, String(index)),
-      projectId: identity.projectId,
-      name: scenario.name,
-      description: scenario.description ?? "",
-      tests: scenario.tests,
-      testOrder: scenario.testOrder,
-      user_id: identity.userId,
-      client_id: imported.clientId,
-    })),
+    scenarios: scenarioIndexes.map((index) => {
+      const scenario = imported.scenarios[index];
+      return {
+        id: scenario.id,
+        scenarioRunId: stableId("scenario-run", workflowRunId, scenario.id),
+        projectId: identity.projectId,
+        name: scenario.name,
+        description: scenario.description ?? "",
+        tests: scenario.tests,
+        testOrder: scenario.testOrder,
+        user_id: identity.userId,
+        client_id: imported.clientId,
+      };
+    }),
     userId: identity.userId,
     clientId: imported.clientId,
     executionOptions: { continueOnFailure: true },
@@ -148,6 +178,135 @@ export async function runBundle(
     }),
     workflowId: imported.workflowId,
     workflowRunId,
+  };
+}
+
+async function pullWorkspace(
+  identity: AgentIdentity,
+): Promise<SyncPullResponse> {
+  const clientId = encodeURIComponent(`agent-read:${identity.tokenId}`);
+  const query = new URLSearchParams({
+    userId: identity.userId,
+    projectId: identity.projectId,
+  });
+  const response = await runnerRequest(
+    `/api/v1/sync/pull/${clientId}?${query}`,
+  );
+  if (!response.ok) {
+    throw new Error(`Unable to read workflows (${response.status}).`);
+  }
+  return (await response.json()) as SyncPullResponse;
+}
+
+export async function listWorkflows(identity: AgentIdentity) {
+  const data = await pullWorkspace(identity);
+  const scenarios = (data.scenarios ?? []).filter(
+    (scenario) => !scenario.is_deleted,
+  );
+  return (data.workflows ?? [])
+    .filter(
+      (workflow) =>
+        !workflow.is_deleted && workflow.project_id === identity.projectId,
+    )
+    .map((workflow) => ({
+      id: workflow.id,
+      name: workflow.name,
+      description: workflow.description ?? "",
+      scenarioCount: scenarios.filter(
+        (scenario) => scenario.workflow_id === workflow.id,
+      ).length,
+      updatedAt: workflow.updated_at,
+    }));
+}
+
+export async function getExistingWorkflow(
+  identity: AgentIdentity,
+  workflowId: string,
+): Promise<{ workflow: WorkflowData; scenarios: ScenarioData[] } | null> {
+  const data = await pullWorkspace(identity);
+  const workflow = (data.workflows ?? []).find(
+    (item) =>
+      item.id === workflowId &&
+      item.project_id === identity.projectId &&
+      !item.is_deleted,
+  );
+  if (!workflow) return null;
+  const scenarios = (data.scenarios ?? []).filter(
+    (scenario) =>
+      scenario.workflow_id === workflowId &&
+      scenario.project_id === identity.projectId &&
+      !scenario.is_deleted,
+  );
+  return { workflow, scenarios };
+}
+
+export async function runExistingWorkflow(
+  identity: AgentIdentity,
+  workflowId: string,
+  idempotencyKey: string,
+  scenarioIds?: string[],
+) {
+  const existing = await getExistingWorkflow(identity, workflowId);
+  if (!existing) throw new Error("Workflow not found in this project.");
+  let scenarios = existing.scenarios;
+  if (scenarioIds !== undefined) {
+    if (
+      scenarioIds.length === 0 ||
+      new Set(scenarioIds).size !== scenarioIds.length
+    ) {
+      throw new Error(
+        "scenarioIds must contain at least one unique scenario ID.",
+      );
+    }
+    const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
+    scenarios = scenarioIds.map((id) => {
+      const scenario = byId.get(id);
+      if (!scenario)
+        throw new Error(
+          `Scenario ${id} is stale or belongs to another workflow.`,
+        );
+      return scenario;
+    });
+  }
+  if (scenarios.length === 0)
+    throw new Error("Workflow has no scenarios to run.");
+
+  const workflowRunId = stableId(
+    "run",
+    identity.projectId,
+    workflowId,
+    idempotencyKey,
+  );
+  const clientId = `agent:${identity.tokenId}`;
+  const response = await runnerRequest("/api/v1/workflow-runs", {
+    method: "POST",
+    body: JSON.stringify({
+      workflowRunId,
+      projectId: identity.projectId,
+      workflowId,
+      workflowName: existing.workflow.name,
+      nodes: existing.workflow.nodes_config,
+      edges: existing.workflow.edges_config,
+      scenarios: scenarios.map((scenario) => ({
+        id: scenario.id,
+        scenarioRunId: stableId("scenario-run", workflowRunId, scenario.id),
+        projectId: identity.projectId,
+        name: scenario.name,
+        description: scenario.description ?? "",
+        tests: scenario.tests_config,
+        testOrder: scenario.test_order,
+        user_id: identity.userId,
+        client_id: clientId,
+      })),
+      userId: identity.userId,
+      clientId,
+      executionOptions: { continueOnFailure: true },
+    }),
+  });
+  return {
+    response,
+    workflowRunId,
+    scenarioIds: scenarios.map((scenario) => scenario.id),
   };
 }
 

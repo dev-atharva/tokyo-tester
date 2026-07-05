@@ -3,9 +3,9 @@ import { auth } from "@/auth";
 import {
   AGENT_SCOPES,
   type AgentScope,
+  availableAgentScopes,
   createAgentToken,
 } from "@/modules/agent/server/auth";
-import { userHasProjectAccess } from "@/modules/projects/server/service";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,15 +21,27 @@ export async function POST(request: NextRequest) {
     expiresInDays?: number;
   };
   const projectId = body.projectId?.trim() ?? "";
-  if (
-    !projectId ||
-    !(await userHasProjectAccess(session.user.id, projectId, session.user.role))
-  ) {
+  const availableScopes = projectId
+    ? await availableAgentScopes(session.user.id, projectId, session.user.role)
+    : [];
+  if (availableScopes.length === 0) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
-  const scopes = (body.scopes ?? ["read", "workflow:write", "run"]).filter(
+  const requestedScopes = (body.scopes ?? availableScopes).filter(
     (scope): scope is AgentScope => AGENT_SCOPES.includes(scope as AgentScope),
   );
+  const unavailable = requestedScopes.filter(
+    (scope) => !availableScopes.includes(scope),
+  );
+  if (unavailable.length > 0) {
+    return Response.json(
+      {
+        error: `Current project role does not allow: ${unavailable.join(", ")}`,
+      },
+      { status: 403 },
+    );
+  }
+  const scopes = requestedScopes;
   if (scopes.length === 0)
     return Response.json(
       { error: "At least one valid scope is required." },

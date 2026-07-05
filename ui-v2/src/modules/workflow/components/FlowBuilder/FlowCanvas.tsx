@@ -55,6 +55,7 @@ interface FlowCanvasProps {
   onOpenHistory: () => void;
   isExecuting: boolean;
   canExecute: boolean;
+  canEdit: boolean;
   hasActiveExecution: boolean;
   reviewEdgeCount: number;
   viewMode: "overview" | "detail";
@@ -84,6 +85,7 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
   onOpenHistory,
   isExecuting,
   canExecute,
+  canEdit,
   hasActiveExecution,
   reviewEdgeCount,
   viewMode,
@@ -189,6 +191,10 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
       onNodeClick={(_, node) => onSelectedNodeChange(node.id)}
       onEdgeClick={onEdgeClick}
       onPaneClick={() => onSelectedNodeChange(null)}
+      nodesDraggable={canEdit}
+      nodesConnectable={canEdit}
+      edgesReconnectable={canEdit}
+      deleteKeyCode={canEdit ? ["Backspace", "Delete"] : null}
       defaultEdgeOptions={defaultEdgeOptions}
       fitView
       snapToGrid
@@ -266,35 +272,39 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
             <IconListDetails className="mr-1.5 size-4" />
             Detail
           </Button>
-          <div className="mx-1 h-5 w-px bg-border" />
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8"
-            onClick={async () => {
-              await onTidyLayout();
-              requestAnimationFrame(() =>
-                fitView({ padding: 0.16, duration: 500 }),
-              );
-            }}
-          >
-            <IconSparkles className="mr-1.5 size-4" />
-            Tidy layout
-          </Button>
+          {canEdit ? <div className="mx-1 h-5 w-px bg-border" /> : null}
+          {canEdit ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8"
+              onClick={async () => {
+                await onTidyLayout();
+                requestAnimationFrame(() =>
+                  fitView({ padding: 0.16, duration: 500 }),
+                );
+              }}
+            >
+              <IconSparkles className="mr-1.5 size-4" />
+              Tidy layout
+            </Button>
+          ) : null}
         </div>
       </Panel>
 
       {/* Top Right Toolbar */}
       <Panel className="flex gap-2" position="top-right">
-        <Button
-          className="cursor-pointer shadow-md"
-          variant="ghost"
-          size="icon"
-          onClick={onOpenShortcuts}
-          title="Keyboard shortcuts (?)"
-        >
-          <IconKeyboard className="size-4" />
-        </Button>
+        {canEdit ? (
+          <Button
+            className="cursor-pointer shadow-md"
+            variant="ghost"
+            size="icon"
+            onClick={onOpenShortcuts}
+            title="Keyboard shortcuts (?)"
+          >
+            <IconKeyboard className="size-4" />
+          </Button>
+        ) : null}
 
         <Button
           className="cursor-pointer shadow-md"
@@ -327,14 +337,16 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
           Logs
         </Button>
 
-        <Button
-          className="cursor-pointer shadow-md"
-          onClick={onOpenDrawer}
-          title="Add node (Ctrl+N)"
-        >
-          <IconPlus className="mr-2 size-4" />
-          Add Node
-        </Button>
+        {canEdit ? (
+          <Button
+            className="cursor-pointer shadow-md"
+            onClick={onOpenDrawer}
+            title="Add node (Ctrl+N)"
+          >
+            <IconPlus className="mr-2 size-4" />
+            Add Node
+          </Button>
+        ) : null}
       </Panel>
 
       {/* Bottom Center Execute Button */}

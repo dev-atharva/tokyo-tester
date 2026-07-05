@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { userHasProjectAccess } from "@/modules/projects/server/service";
+import { userHasProjectPermission } from "@/modules/projects/server/service";
+import type { ProjectAction } from "@/modules/projects/types";
 import { bindSyncBatchToIdentity } from "@/modules/workflow/server/authorized-request";
 
 const RUNNER_SYNC_BASE_URL =
@@ -61,7 +62,10 @@ async function proxyRequest(
   });
 }
 
-async function authorizeProject(projectId: string) {
+async function authorizeProject(
+  projectId: string,
+  action: ProjectAction = "view",
+) {
   const session = await auth();
   if (!session?.user?.id) {
     return {
@@ -70,7 +74,12 @@ async function authorizeProject(projectId: string) {
   }
   if (
     !projectId ||
-    !(await userHasProjectAccess(session.user.id, projectId, session.user.role))
+    !(await userHasProjectPermission(
+      session.user.id,
+      projectId,
+      action,
+      session.user.role,
+    ))
   ) {
     return {
       response: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
@@ -112,7 +121,20 @@ export async function POST(
     );
   }
   const projectId = typeof body.project_id === "string" ? body.project_id : "";
-  const access = await authorizeProject(projectId);
+  const changes = Array.isArray(body.changes)
+    ? (body.changes as Array<Record<string, unknown>>)
+    : [];
+  const executionEntities = new Set([
+    "workflow_run",
+    "scenario_run",
+    "test_result",
+  ]);
+  const action: ProjectAction = changes.every((change) =>
+    executionEntities.has(String(change.entity_type)),
+  )
+    ? "run"
+    : "edit";
+  const access = await authorizeProject(projectId, action);
   if ("response" in access) return access.response;
   const trustedBody = bindSyncBatchToIdentity(
     body,
@@ -129,6 +151,7 @@ export async function DELETE(
   const { path } = await context.params;
   const access = await authorizeProject(
     request.nextUrl.searchParams.get("projectId") ?? "",
+    "view",
   );
   if ("response" in access) return access.response;
   return proxyRequest(request, path, undefined, access);

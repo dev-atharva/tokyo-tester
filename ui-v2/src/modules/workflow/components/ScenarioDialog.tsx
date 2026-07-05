@@ -20,6 +20,7 @@ interface ScenarioDialogProps {
   workflowId: string;
   nodes: FlowNode[];
   onFocusServices: (serviceNames: string[]) => void;
+  canEdit: boolean;
 }
 
 export function ScenarioDialog({
@@ -28,6 +29,7 @@ export function ScenarioDialog({
   workflowId,
   nodes,
   onFocusServices,
+  canEdit,
 }: ScenarioDialogProps) {
   const [mode, setMode] = useState<"journey" | "configure">("journey");
   useEffect(() => {
@@ -54,26 +56,28 @@ export function ScenarioDialog({
                 </DialogDescription>
               </div>
             </div>
-            <div className="flex rounded-lg border bg-background/80 p-1 shadow-sm">
-              <Button
-                size="sm"
-                variant={mode === "journey" ? "secondary" : "ghost"}
-                className="h-7 px-2.5 text-xs"
-                onClick={() => setMode("journey")}
-              >
-                <IconRoute className="mr-1.5 size-3.5" />
-                Journey
-              </Button>
-              <Button
-                size="sm"
-                variant={mode === "configure" ? "secondary" : "ghost"}
-                className="h-7 px-2.5 text-xs"
-                onClick={() => setMode("configure")}
-              >
-                <IconListDetails className="mr-1.5 size-3.5" />
-                Configure
-              </Button>
-            </div>
+            {canEdit ? (
+              <div className="flex rounded-lg border bg-background/80 p-1 shadow-sm">
+                <Button
+                  size="sm"
+                  variant={mode === "journey" ? "secondary" : "ghost"}
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setMode("journey")}
+                >
+                  <IconRoute className="mr-1.5 size-3.5" />
+                  Journey
+                </Button>
+                <Button
+                  size="sm"
+                  variant={mode === "configure" ? "secondary" : "ghost"}
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setMode("configure")}
+                >
+                  <IconListDetails className="mr-1.5 size-3.5" />
+                  Configure
+                </Button>
+              </div>
+            ) : null}
           </div>
         </DialogHeader>
 
@@ -81,7 +85,7 @@ export function ScenarioDialog({
           {mode === "journey" ? (
             <ScenarioJourney
               workflowId={workflowId}
-              onConfigure={() => setMode("configure")}
+              onConfigure={canEdit ? () => setMode("configure") : undefined}
               onFocusServices={(serviceNames) => {
                 onFocusServices(serviceNames);
                 onOpenChange(false);

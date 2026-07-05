@@ -126,12 +126,16 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 func tools() []map[string]any {
 	bundle := map[string]any{"type": "object", "description": "A complete cots.workflow-bundle JSON object"}
+	stringArray := map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "uniqueItems": true, "minItems": 1}
 	return []map[string]any{
 		tool("tokyo_list_projects", "List the project authorized by the current token.", objectSchema(nil, nil), true, false),
+		tool("tokyo_list_workflows", "List persisted workflows available in the authorized workspace.", objectSchema(nil, nil), true, false),
+		tool("tokyo_get_workflow", "Get one persisted workflow and its selectable scenarios.", objectSchema(map[string]any{"workflowId": map[string]any{"type": "string"}}, []string{"workflowId"}), true, false),
 		tool("tokyo_get_capabilities", "Get current workflow schema version, service types, test types, edge semantics, and limits before authoring.", objectSchema(nil, nil), true, false),
 		tool("tokyo_validate_workflow", "Authoritatively validate and normalize a workflow bundle. Call before import or run.", objectSchema(map[string]any{"bundle": bundle}, []string{"bundle"}), true, false),
 		tool("tokyo_import_workflow", "Import a validated workflow into the authorized project. This changes persisted state and requires user approval.", objectSchema(map[string]any{"bundle": bundle, "idempotencyKey": map[string]any{"type": "string", "minLength": 8}}, []string{"bundle", "idempotencyKey"}), false, true),
-		tool("tokyo_run_workflow", "Import and execute a workflow in the authorized project. This provisions containers and requires user approval.", objectSchema(map[string]any{"bundle": bundle, "idempotencyKey": map[string]any{"type": "string", "minLength": 8}}, []string{"bundle", "idempotencyKey"}), false, true),
+		tool("tokyo_run_workflow", "Import and execute a workflow in the authorized project. Requires workflow write and run permission plus user approval.", objectSchema(map[string]any{"bundle": bundle, "scenarioNames": stringArray, "idempotencyKey": map[string]any{"type": "string", "minLength": 8}}, []string{"bundle", "idempotencyKey"}), false, true),
+		tool("tokyo_run_existing_workflow", "Execute selected scenarios from a persisted workflow without modifying it. Omit scenarioIds to run all scenarios. Requires user approval.", objectSchema(map[string]any{"workflowId": map[string]any{"type": "string"}, "scenarioIds": stringArray, "idempotencyKey": map[string]any{"type": "string", "minLength": 8}}, []string{"workflowId", "idempotencyKey"}), false, true),
 		tool("tokyo_get_run", "Poll durable workflow run status and test results.", objectSchema(map[string]any{"workflowRunId": map[string]any{"type": "string"}}, []string{"workflowRunId"}), true, false),
 		tool("tokyo_get_run_diagnostics", "Get redacted workflow, scenario, and test failure diagnostics for repairing a workflow.", objectSchema(map[string]any{"workflowRunId": map[string]any{"type": "string"}}, []string{"workflowRunId"}), true, false),
 	}
@@ -161,6 +165,15 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request, request rpcReq
 	switch params.Name {
 	case "tokyo_list_projects":
 		path = "/api/v1/agent/projects"
+	case "tokyo_list_workflows":
+		path = "/api/v1/agent/workflows"
+	case "tokyo_get_workflow":
+		workflowID, _ := params.Arguments["workflowId"].(string)
+		if workflowID == "" {
+			s.writeRPC(w, request.ID, nil, &rpcError{Code: -32602, Message: "workflowId is required"})
+			return
+		}
+		path = "/api/v1/agent/workflows/" + url.PathEscape(workflowID)
 	case "tokyo_get_capabilities":
 		path = "/api/v1/agent/capabilities"
 	case "tokyo_validate_workflow":
@@ -169,7 +182,25 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request, request rpcReq
 		method, path, body = "POST", "/api/v1/agent/workflows/import", map[string]any{"bundle": params.Arguments["bundle"]}
 		idempotency, _ = params.Arguments["idempotencyKey"].(string)
 	case "tokyo_run_workflow":
-		method, path, body = "POST", "/api/v1/agent/workflows/run", map[string]any{"bundle": params.Arguments["bundle"]}
+		runBody := map[string]any{"bundle": params.Arguments["bundle"]}
+		if scenarioNames, ok := params.Arguments["scenarioNames"]; ok {
+			runBody["scenarioNames"] = scenarioNames
+		}
+		method, path, body = "POST", "/api/v1/agent/workflows/run", runBody
+		idempotency, _ = params.Arguments["idempotencyKey"].(string)
+	case "tokyo_run_existing_workflow":
+		workflowID, _ := params.Arguments["workflowId"].(string)
+		if workflowID == "" {
+			s.writeRPC(w, request.ID, nil, &rpcError{Code: -32602, Message: "workflowId is required"})
+			return
+		}
+		method = "POST"
+		path = "/api/v1/agent/workflows/" + url.PathEscape(workflowID) + "/runs"
+		runBody := map[string]any{}
+		if scenarioIDs, ok := params.Arguments["scenarioIds"]; ok {
+			runBody["scenarioIds"] = scenarioIDs
+		}
+		body = runBody
 		idempotency, _ = params.Arguments["idempotencyKey"].(string)
 	case "tokyo_get_run", "tokyo_get_run_diagnostics":
 		runID, _ := params.Arguments["workflowRunId"].(string)

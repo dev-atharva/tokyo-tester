@@ -2,16 +2,41 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, eq, gt } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { getDb } from "@/db";
-import { userHasProjectAccess } from "@/modules/projects/server/service";
+import { getUserById } from "@/modules/auth/server/repository";
+import { getProjectMembership } from "@/modules/projects/server/service";
+import type { ProjectMembership } from "@/modules/projects/types";
 
 export const AGENT_SCOPES = ["read", "workflow:write", "run"] as const;
 export type AgentScope = (typeof AGENT_SCOPES)[number];
+
+const SCOPE_ACTION = {
+  read: "view",
+  "workflow:write": "edit",
+  run: "run",
+} as const;
+
+export async function availableAgentScopes(
+  userId: string,
+  projectId: string,
+  platformRole?: string | null,
+): Promise<AgentScope[]> {
+  const membership = await getProjectMembership(
+    userId,
+    projectId,
+    platformRole,
+  );
+  if (!membership) return [];
+  return AGENT_SCOPES.filter((scope) =>
+    membership.allowedActions.includes(SCOPE_ACTION[scope]),
+  );
+}
 
 export interface AgentIdentity {
   tokenId: string;
   userId: string;
   projectId: string;
   scopes: AgentScope[];
+  membership?: ProjectMembership;
 }
 
 function tokenHash(token: string) {
@@ -48,7 +73,7 @@ export async function createAgentToken(input: {
 
 export async function authenticateAgentRequest(
   request: NextRequest,
-  requiredScope: AgentScope,
+  requiredScopes: AgentScope | AgentScope[],
 ): Promise<AgentIdentity | null> {
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.startsWith("Bearer ")
@@ -85,14 +110,29 @@ export async function authenticateAgentRequest(
   } catch {
     return null;
   }
-  if (!scopes.includes(requiredScope)) return null;
-  if (!(await userHasProjectAccess(record.userId, record.projectId)))
-    return null;
+  const required = Array.isArray(requiredScopes)
+    ? requiredScopes
+    : [requiredScopes];
+  if (!required.every((scope) => scopes.includes(scope))) return null;
+  const user = await getUserById(record.userId);
+  if (!user?.isActive) return null;
+  const membership = await getProjectMembership(
+    record.userId,
+    record.projectId,
+    user.role,
+  );
+  if (!membership) return null;
+  for (const scope of required) {
+    if (!membership.allowedActions.includes(SCOPE_ACTION[scope])) {
+      return null;
+    }
+  }
   return {
     tokenId: record.id,
     userId: record.userId,
     projectId: record.projectId,
     scopes,
+    membership,
   };
 }
 
