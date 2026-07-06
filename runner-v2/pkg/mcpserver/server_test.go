@@ -59,6 +59,26 @@ func TestMCPRunsSelectedExistingScenarios(t *testing.T) {
 	}
 }
 
+func TestMCPRestoresWorkflowRevisionWithVersionGuard(t *testing.T) {
+	server, _ := New("http://ui:3000", "")
+	server.client.Transport = roundTripper(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/agent/workflows/workflow-1/revisions/revision-2/restore" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), `"expectedVersion":7`) {
+			t.Fatalf("version guard was not forwarded: %s", body)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"revision_number":8}`))}, nil
+	})
+	request := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"tokyo_restore_workflow_revision","arguments":{"workflowId":"workflow-1","revisionId":"revision-2","expectedVersion":7}}}`))
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if !strings.Contains(recorder.Body.String(), `"isError":false`) {
+		t.Fatalf("unexpected response: %s", recorder.Body.String())
+	}
+}
+
 type roundTripper func(*http.Request) (*http.Response, error)
 
 func (fn roundTripper) RoundTrip(request *http.Request) (*http.Response, error) { return fn(request) }

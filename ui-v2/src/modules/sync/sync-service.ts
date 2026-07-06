@@ -114,10 +114,16 @@ export class SyncService {
   ): void {
     if (!this.enabled) return;
 
+    const serializedVersion = Number(
+      (change.data as { version?: number } | null)?.version ?? 0,
+    );
     const fullChange: SyncChange = {
       ...change,
       client_time: new Date().toISOString(),
-      client_version: 1,
+      client_version:
+        change.change_type === "insert"
+          ? 0
+          : Math.max(0, serializedVersion - 1),
     };
 
     this.syncQueue.enqueue(fullChange);
@@ -146,6 +152,20 @@ export class SyncService {
 
       if (response.conflicts && response.conflicts.length > 0) {
         console.warn("[SyncService] Conflicts:", response.conflicts);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("tokyo:sync-conflict", {
+              detail: response.conflicts.map((conflict) => ({
+                ...conflict,
+                local_data: batch.find(
+                  (change) =>
+                    change.entity_type === conflict.entity_type &&
+                    change.entity_id === conflict.entity_id,
+                )?.data,
+              })),
+            }),
+          );
+        }
       }
       if (response.errors && response.errors.length > 0) {
         console.warn(

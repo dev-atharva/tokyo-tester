@@ -110,8 +110,9 @@ export function trackSync(
   entityId: string,
   changeType: ChangeType,
 ): void {
-  const tracker = (store as { __syncTracker?: OperationTracker } | null | undefined)
-    ?.__syncTracker;
+  const tracker = (
+    store as { __syncTracker?: OperationTracker } | null | undefined
+  )?.__syncTracker;
   if (tracker) {
     tracker.track(entityId, changeType);
   }
@@ -129,9 +130,7 @@ type SyncMetadataShape = {
   is_deleted?: boolean;
 };
 
-export function addSyncMetadata<
-  T extends object & SyncMetadataShape,
->(
+export function addSyncMetadata<T extends object & SyncMetadataShape>(
   entity: T,
 ): T & {
   version: number;
@@ -156,9 +155,7 @@ export function addSyncMetadata<
 /**
  * Mark entity as deleted (soft delete)
  */
-export function markAsDeleted<
-  T extends object & SyncMetadataShape,
->(
+export function markAsDeleted<T extends object & SyncMetadataShape>(
   entity: T,
 ): T & {
   is_deleted: boolean;
@@ -167,6 +164,7 @@ export function markAsDeleted<
   return {
     ...entity,
     is_deleted: true,
+    version: (entity.version || 0) + 1,
     updated_at: new Date().toISOString(),
   };
 }

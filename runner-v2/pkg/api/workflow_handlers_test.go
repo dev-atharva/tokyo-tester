@@ -77,7 +77,7 @@ func newWorkflowAPIHarness(t *testing.T) (*Handler, *WorkflowService, *sqlite.Cl
 }
 
 func TestWorkflowRunSubmissionIsIdempotent(t *testing.T) {
-	handler, _, _, payload := newWorkflowAPIHarness(t)
+	handler, _, client, payload := newWorkflowAPIHarness(t)
 	router := NewRouter(handler, nil, false)
 
 	post := func(body []byte) *httptest.ResponseRecorder {
@@ -87,12 +87,23 @@ func TestWorkflowRunSubmissionIsIdempotent(t *testing.T) {
 	}
 
 	first := post(payload)
-	if first.Code != http.StatusAccepted || !strings.Contains(first.Body.String(), `"created":true`) {
+	if first.Code != http.StatusAccepted || !strings.Contains(first.Body.String(), `"created":true`) || !strings.Contains(first.Body.String(), `"workflowRevisionId"`) {
 		t.Fatalf("unexpected first submission: status=%d body=%s", first.Code, first.Body.String())
 	}
 	second := post(payload)
 	if second.Code != http.StatusAccepted || !strings.Contains(second.Body.String(), `"created":false`) {
 		t.Fatalf("unexpected idempotent submission: status=%d body=%s", second.Code, second.Body.String())
+	}
+	var submitted workflowrun.Request
+	if err := json.Unmarshal(payload, &submitted); err != nil {
+		t.Fatal(err)
+	}
+	revisions, err := client.ListWorkflowRevisions(context.Background(), submitted.ProjectID, submitted.WorkflowID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revisions) != 1 {
+		t.Fatalf("idempotent retry created %d execution revisions", len(revisions))
 	}
 
 	var changed map[string]any

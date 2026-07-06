@@ -31,6 +31,9 @@ func NewRouter(handler *Handler, syncHandler *sync.Handler, tracingEnabled bool)
 	r.Post("/api/v1/workflow-runs", handler.SubmitWorkflowRun)
 	r.Get("/api/v1/workflow-runs/{workflowRunID}", handler.GetWorkflowRun)
 	r.Get("/api/v1/workflow-runs/{workflowRunID}/events", handler.StreamWorkflowRunEvents)
+	r.Get("/api/v1/workflows/{workflowID}/revisions", handler.ListWorkflowRevisions)
+	r.Post("/api/v1/workflows/{workflowID}/revisions", handler.CreateWorkflowRevision)
+	r.Post("/api/v1/workflows/{workflowID}/revisions/{revisionID}/restore", handler.RestoreWorkflowRevision)
 	// r.Get("/sessions",hand)
 
 	if syncHandler != nil {

@@ -40,10 +40,13 @@ type SyncPullResponse struct {
 // --- Conflict and Error Info ---
 
 type ConflictInfo struct {
-	EntityType string `json:"entity_type"`
-	EntityID   string `json:"entity_id"`
-	Resolution string `json:"resolution"`
-	Message    string `json:"message"`
+	EntityType     string          `json:"entity_type"`
+	EntityID       string          `json:"entity_id"`
+	Resolution     string          `json:"resolution"`
+	Message        string          `json:"message"`
+	ClientVersion  int             `json:"client_version"`
+	CurrentVersion int             `json:"current_version"`
+	CurrentData    json.RawMessage `json:"current_data,omitempty"`
 }
 
 type SyncError struct {

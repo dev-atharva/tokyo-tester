@@ -926,6 +926,21 @@ func (t *SQLiteTx) UpsertWorkflow(ctx context.Context, workflow *db.Workflow) er
 	return err
 }
 
+func (t *SQLiteTx) UpdateWorkflowIfVersion(ctx context.Context, workflow *db.Workflow, baseVersion int) (bool, error) {
+	result, err := t.tx.ExecContext(ctx, `
+		UPDATE workflows SET project_id = ?, name = ?, description = ?, nodes_config = ?, edges_config = ?,
+			metadata = ?, version = ?, updated_at = ?, client_id = ?, user_id = ?, is_deleted = ?
+		WHERE id = ? AND version = ? AND is_deleted = 0
+	`, workflow.ProjectID, workflow.Name, workflow.Description, workflow.NodesConfig, workflow.EdgesConfig,
+		workflow.Metadata, workflow.Version, workflow.UpdatedAt, workflow.ClientID, workflow.UserID,
+		workflow.IsDeleted, workflow.ID, baseVersion)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
+}
+
 func (t *SQLiteTx) GetWorkflow(ctx context.Context, id string) (*db.Workflow, error) {
 	query := `
 		SELECT id, project_id, name, description, nodes_config, edges_config, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
@@ -954,6 +969,15 @@ func (t *SQLiteTx) DeleteWorkflow(ctx context.Context, id string) error {
 	return err
 }
 
+func (t *SQLiteTx) DeleteWorkflowIfVersion(ctx context.Context, id string, baseVersion int) (bool, error) {
+	result, err := t.tx.ExecContext(ctx, `UPDATE workflows SET is_deleted = 1, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND version = ? AND is_deleted = 0`, id, baseVersion)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
+}
+
 func (t *SQLiteTx) UpsertScenario(ctx context.Context, scenario *db.Scenario) error {
 	query := `
 		INSERT INTO scenarios (id, project_id, workflow_id, name, description, tests_config, test_order, metadata, version, created_at, updated_at, client_id, user_id, is_deleted)
@@ -980,6 +1004,21 @@ func (t *SQLiteTx) UpsertScenario(ctx context.Context, scenario *db.Scenario) er
 	return err
 }
 
+func (t *SQLiteTx) UpdateScenarioIfVersion(ctx context.Context, scenario *db.Scenario, baseVersion int) (bool, error) {
+	result, err := t.tx.ExecContext(ctx, `
+		UPDATE scenarios SET project_id = ?, workflow_id = ?, name = ?, description = ?, tests_config = ?,
+			test_order = ?, metadata = ?, version = ?, updated_at = ?, client_id = ?, user_id = ?, is_deleted = ?
+		WHERE id = ? AND version = ? AND is_deleted = 0
+	`, scenario.ProjectID, scenario.WorkflowID, scenario.Name, scenario.Description, scenario.TestsConfig,
+		scenario.TestOrder, scenario.Metadata, scenario.Version, scenario.UpdatedAt, scenario.ClientID,
+		scenario.UserID, scenario.IsDeleted, scenario.ID, baseVersion)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
+}
+
 func (t *SQLiteTx) GetScenario(ctx context.Context, id string) (*db.Scenario, error) {
 	var sc db.Scenario
 	err := t.tx.QueryRowContext(ctx, `
@@ -995,9 +1034,40 @@ func (t *SQLiteTx) GetScenario(ctx context.Context, id string) (*db.Scenario, er
 	return &sc, err
 }
 
+func (t *SQLiteTx) ListScenariosByWorkflow(ctx context.Context, workflowID string) ([]*db.Scenario, error) {
+	rows, err := t.tx.QueryContext(ctx, `
+		SELECT id, project_id, workflow_id, name, description, tests_config, test_order, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+		FROM scenarios WHERE workflow_id = ? AND is_deleted = 0 ORDER BY updated_at DESC
+	`, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var scenarios []*db.Scenario
+	for rows.Next() {
+		var scenario db.Scenario
+		if err := rows.Scan(&scenario.ID, &scenario.ProjectID, &scenario.WorkflowID, &scenario.Name, &scenario.Description,
+			&scenario.TestsConfig, &scenario.TestOrder, &scenario.Metadata, &scenario.Version, &scenario.CreatedAt,
+			&scenario.UpdatedAt, &scenario.ClientID, &scenario.UserID, &scenario.IsDeleted); err != nil {
+			return nil, err
+		}
+		scenarios = append(scenarios, &scenario)
+	}
+	return scenarios, rows.Err()
+}
+
 func (t *SQLiteTx) DeleteScenario(ctx context.Context, id string) error {
 	_, err := t.tx.ExecContext(ctx, `UPDATE scenarios SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_deleted = 0`, id)
 	return err
+}
+
+func (t *SQLiteTx) DeleteScenarioIfVersion(ctx context.Context, id string, baseVersion int) (bool, error) {
+	result, err := t.tx.ExecContext(ctx, `UPDATE scenarios SET is_deleted = 1, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND version = ? AND is_deleted = 0`, id, baseVersion)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
 }
 
 func (t *SQLiteTx) UpsertWorkflowRun(ctx context.Context, workflowRun *db.WorkflowRun) error {

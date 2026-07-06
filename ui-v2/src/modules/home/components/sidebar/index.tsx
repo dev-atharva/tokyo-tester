@@ -2,6 +2,7 @@
 
 import {
   IconChevronDown,
+  IconBook2,
   IconFolders,
   IconTopologyRing2,
   IconUserShield,
@@ -143,6 +144,11 @@ export const HomeSidebar = ({ userRole }: { userRole: string | null }) => {
       title: "Workflows",
       url: "/workflow",
       icon: IconTopologyRing2,
+    },
+    {
+      title: "Docs",
+      url: "/docs",
+      icon: IconBook2,
     },
   ];
 

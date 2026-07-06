@@ -212,17 +212,7 @@ func (s *Service) processWorkflowChangeInTx(ctx context.Context, tx db.Tx, chang
 			return fmt.Errorf("failed to unmarshal workflow data: %w", err)
 		}
 
-		existing, err := tx.GetWorkflow(ctx, workflowData.ID)
-		if err == nil && existing.UpdatedAt.After(change.ClientTime) {
-			response.Conflicts = append(response.Conflicts, types.ConflictInfo{
-				EntityType: "workflow",
-				EntityID:   workflowData.ID,
-				Resolution: "server_wins",
-				Message:    fmt.Sprintf("Server version (updated at: %s) is newer than client (update at : %s)", existing.UpdatedAt.Format(time.RFC3339), change.ClientTime.Format(time.RFC3339)),
-			})
-			return nil
-		}
-
+		now := time.Now().UTC()
 		wf := &db.Workflow{
 			ID:          workflowData.ID,
 			ProjectID:   workflowData.ProjectID,
@@ -231,15 +221,49 @@ func (s *Service) processWorkflowChangeInTx(ctx context.Context, tx db.Tx, chang
 			NodesConfig: string(workflowData.NodesConfig),
 			EdgesConfig: string(workflowData.EdgesConfig),
 			Metadata:    string(workflowData.Metadata),
-			Version:     workflowData.Version,
+			Version:     1,
 			CreatedAt:   workflowData.CreatedAt,
-			UpdatedAt:   workflowData.UpdatedAt,
+			UpdatedAt:   now,
+			ClientID:    workflowData.ClientID,
 			UserID:      userID,
 			IsDeleted:   workflowData.IsDeleted,
 		}
-		return tx.UpsertWorkflow(ctx, wf)
+		if change.ChangeType == "insert" {
+			if existing, err := tx.GetWorkflow(ctx, workflowData.ID); err == nil {
+				appendConflict(response, "workflow", workflowData.ID, change.ClientVersion, existing.Version, existing)
+				return nil
+			}
+			if wf.CreatedAt.IsZero() {
+				wf.CreatedAt = now
+			}
+			return tx.UpsertWorkflow(ctx, wf)
+		}
+		wf.Version = change.ClientVersion + 1
+		updated, err := tx.UpdateWorkflowIfVersion(ctx, wf, change.ClientVersion)
+		if err != nil {
+			return err
+		}
+		if !updated {
+			existing, getErr := tx.GetWorkflow(ctx, workflowData.ID)
+			if getErr != nil {
+				return fmt.Errorf("workflow %s no longer exists", workflowData.ID)
+			}
+			appendConflict(response, "workflow", workflowData.ID, change.ClientVersion, existing.Version, existing)
+		}
+		return nil
 	case "delete":
-		return tx.DeleteWorkflow(ctx, change.EntityID)
+		deleted, err := tx.DeleteWorkflowIfVersion(ctx, change.EntityID, change.ClientVersion)
+		if err != nil {
+			return err
+		}
+		if !deleted {
+			existing, getErr := tx.GetWorkflow(ctx, change.EntityID)
+			if getErr != nil {
+				return nil
+			}
+			appendConflict(response, "workflow", change.EntityID, change.ClientVersion, existing.Version, existing)
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown workflow change type: %s", change.ChangeType)
 	}
@@ -299,18 +323,7 @@ func (s *Service) processScenarioChangeInTx(ctx context.Context, tx db.Tx, chang
 			return fmt.Errorf("failed to unmarshal scenario data: %w", err)
 		}
 
-		existing, err := tx.GetScenario(ctx, scenarioData.ID)
-		if err == nil && existing.UpdatedAt.After(change.ClientTime) {
-			response.Conflicts = append(response.Conflicts, types.ConflictInfo{
-				EntityType: "scenario",
-				EntityID:   scenarioData.ID,
-				Resolution: "server_wins",
-				Message: fmt.Sprintf("Server version (updated at: %s) is newer than client (updated at: %s)",
-					existing.UpdatedAt.Format(time.RFC3339), change.ClientTime.Format(time.RFC3339)),
-			})
-			return nil
-		}
-
+		now := time.Now().UTC()
 		scenario := &db.Scenario{
 			ID:          scenarioData.ID,
 			ProjectID:   scenarioData.ProjectID,
@@ -320,20 +333,62 @@ func (s *Service) processScenarioChangeInTx(ctx context.Context, tx db.Tx, chang
 			TestsConfig: string(scenarioData.TestsConfig),
 			TestOrder:   string(scenarioData.TestOrder),
 			Metadata:    string(scenarioData.Metadata),
-			Version:     scenarioData.Version,
+			Version:     1,
 			CreatedAt:   scenarioData.CreatedAt,
-			UpdatedAt:   scenarioData.UpdatedAt,
+			UpdatedAt:   now,
 			ClientID:    scenarioData.ClientID,
 			UserID:      userID,
 			IsDeleted:   scenarioData.IsDeleted,
 		}
 
-		return tx.UpsertScenario(ctx, scenario)
+		if change.ChangeType == "insert" {
+			if existing, err := tx.GetScenario(ctx, scenarioData.ID); err == nil {
+				appendConflict(response, "scenario", scenarioData.ID, change.ClientVersion, existing.Version, existing)
+				return nil
+			}
+			if scenario.CreatedAt.IsZero() {
+				scenario.CreatedAt = now
+			}
+			return tx.UpsertScenario(ctx, scenario)
+		}
+		scenario.Version = change.ClientVersion + 1
+		updated, err := tx.UpdateScenarioIfVersion(ctx, scenario, change.ClientVersion)
+		if err != nil {
+			return err
+		}
+		if !updated {
+			existing, getErr := tx.GetScenario(ctx, scenarioData.ID)
+			if getErr != nil {
+				return fmt.Errorf("scenario %s no longer exists", scenarioData.ID)
+			}
+			appendConflict(response, "scenario", scenarioData.ID, change.ClientVersion, existing.Version, existing)
+		}
+		return nil
 	case "delete":
-		return tx.DeleteScenario(ctx, change.EntityID)
+		deleted, err := tx.DeleteScenarioIfVersion(ctx, change.EntityID, change.ClientVersion)
+		if err != nil {
+			return err
+		}
+		if !deleted {
+			existing, getErr := tx.GetScenario(ctx, change.EntityID)
+			if getErr != nil {
+				return nil
+			}
+			appendConflict(response, "scenario", change.EntityID, change.ClientVersion, existing.Version, existing)
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown scenario change type: %s", change.ChangeType)
 	}
+}
+
+func appendConflict(response *types.SyncBatchResponse, entityType, entityID string, clientVersion, currentVersion int, current any) {
+	data, _ := json.Marshal(current)
+	response.Conflicts = append(response.Conflicts, types.ConflictInfo{
+		EntityType: entityType, EntityID: entityID, Resolution: "manual",
+		Message:       fmt.Sprintf("%s changed since you opened it (your base version: %d, current version: %d)", entityType, clientVersion, currentVersion),
+		ClientVersion: clientVersion, CurrentVersion: currentVersion, CurrentData: data,
+	})
 }
 
 // --- Workflow Run Changes ---

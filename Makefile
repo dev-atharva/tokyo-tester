@@ -11,7 +11,7 @@ ENV_LOADER = set -a; \
 	if [ -f ./.env ]; then . ./.env; fi; \
 	set +a;
 
-.PHONY: help ensure-docker-socket doctor dev dev-docker dev-host-runner dev-support runner-dev prod down reset test test-go test-ui test-test-api test-api-build test-complex-e2e check compose-check
+.PHONY: help ensure-docker-socket doctor dev dev-docker dev-host-runner dev-support runner-dev agent-dev prod down reset test test-go test-ui test-test-api test-api-build test-complex-e2e check compose-check
 
 help: ## Show available commands
 	@printf "Tokyo Tester commands\n\n"
@@ -68,6 +68,11 @@ dev-host-runner: dev-support ## Run the UI in Docker and the runner on the host
 	@printf "Runner logs will stream below. Stop with Ctrl+C, then use 'make down' to stop docker Services.\n\n"
 	@$(MAKE) runner-dev
 
+agent-dev: ensure-docker-socket ## Expose the local MCP server on http://localhost:8090/mcp (run after make dev)
+	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) --profile agent-dev up --build -d --no-deps mcp
+	@printf "Tokyo Tester MCP: http://localhost:8090/mcp\n"
+	@printf "Health check:      http://localhost:8090/health\n"
+
 prod: ensure-docker-socket ## Run the local production-like stack
 	@$(ENV_LOADER) $(COMPOSE) $(COMPOSE_FILES) --profile agent up --build -d
 
@@ -99,7 +104,7 @@ check: test compose-check ## Run tests and validate deployment configuration
 	@cd ui-v2 && bunx biome check $(UI_RUNNER_CHECK_PATHS)
 
 down: ## Stop the stack while preserving database volumes
-	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) down --remove-orphans
+	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) --profile agent --profile agent-dev down --remove-orphans
 
 reset: ## Stop the dev stack and delete all local database volumes
-	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) down --volumes --remove-orphans
+	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) --profile agent --profile agent-dev down --volumes --remove-orphans

@@ -54,7 +54,7 @@ export async function importBundle(
       entity_id: workflowId,
       change_type: "insert",
       client_time: now,
-      client_version: 1,
+      client_version: 0,
       data: {
         id: workflowId,
         project_id: identity.projectId,
@@ -79,7 +79,7 @@ export async function importBundle(
       entity_id: scenario.id,
       change_type: "insert",
       client_time: now,
-      client_version: 1,
+      client_version: 0,
       data: {
         id: scenario.id,
         project_id: identity.projectId,
@@ -314,6 +314,53 @@ export async function getRun(identity: AgentIdentity, workflowRunId: string) {
   const query = new URLSearchParams({ projectId: identity.projectId });
   return runnerRequest(
     `/api/v1/workflow-runs/${encodeURIComponent(workflowRunId)}?${query}`,
+  );
+}
+
+export function listWorkflowRevisions(
+  identity: AgentIdentity,
+  workflowId: string,
+) {
+  const query = new URLSearchParams({ projectId: identity.projectId });
+  return runnerRequest(
+    `/api/v1/workflows/${encodeURIComponent(workflowId)}/revisions?${query}`,
+  );
+}
+
+export function createWorkflowRevision(
+  identity: AgentIdentity,
+  workflowId: string,
+  message?: string,
+) {
+  return runnerRequest(
+    `/api/v1/workflows/${encodeURIComponent(workflowId)}/revisions`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        projectId: identity.projectId,
+        userId: identity.userId,
+        message,
+      }),
+    },
+  );
+}
+
+export function restoreWorkflowRevision(
+  identity: AgentIdentity,
+  workflowId: string,
+  revisionId: string,
+  expectedVersion: number,
+) {
+  return runnerRequest(
+    `/api/v1/workflows/${encodeURIComponent(workflowId)}/revisions/${encodeURIComponent(revisionId)}/restore`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        projectId: identity.projectId,
+        userId: identity.userId,
+        expectedVersion,
+      }),
+    },
   );
 }
 

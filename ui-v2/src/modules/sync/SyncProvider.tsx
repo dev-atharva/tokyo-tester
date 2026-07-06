@@ -9,8 +9,20 @@ import {
   useState,
 } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useProjectContext } from "@/modules/projects/project-context";
+import { useScenarioStore } from "@/modules/workflow/stores/scenario.store.sync";
+import { useWorkflowStore } from "@/modules/workflow/stores/workflow.store.sync";
+import type { ConflictInfo, ScenarioData, WorkflowData } from "./sync-types";
+import { deserializeScenario, deserializeWorkflow } from "./sync-hydration";
 import { initializeSyncWithHydration } from "./sync-hydration";
 import {
   checkSyncHealth,
@@ -52,6 +64,70 @@ export function SyncProvider({
     "healthy" | "degraded" | "down" | "error" | "unknown"
   >("unknown");
   const [queueSize, setQueueSize] = useState(0);
+  const [conflict, setConflict] = useState<ConflictInfo | null>(null);
+
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const conflicts = (event as CustomEvent<ConflictInfo[]>).detail;
+      setConflict((current) => current ?? conflicts?.[0] ?? null);
+    };
+    window.addEventListener("tokyo:sync-conflict", listener);
+    return () => window.removeEventListener("tokyo:sync-conflict", listener);
+  }, []);
+
+  const acceptServerVersion = useCallback(() => {
+    if (!conflict?.current_data) {
+      setConflict(null);
+      return;
+    }
+    if (conflict.entity_type === "workflow") {
+      useWorkflowStore
+        .getState()
+        .replaceWorkflowFromSync(
+          deserializeWorkflow(conflict.current_data as WorkflowData),
+        );
+    } else if (conflict.entity_type === "scenario") {
+      useScenarioStore
+        .getState()
+        .replaceScenarioFromSync(
+          deserializeScenario(conflict.current_data as ScenarioData),
+        );
+    }
+    setConflict(null);
+  }, [conflict]);
+
+  const keepLocalCopy = useCallback(() => {
+    const local = conflict?.local_data as Record<string, unknown> | undefined;
+    if (!local) {
+      acceptServerVersion();
+      return;
+    }
+    if (conflict?.entity_type === "workflow") {
+      const store = useWorkflowStore.getState();
+      const id = store.createWorkflow(
+        String(local.project_id ?? ""),
+        `${String(local.name ?? "Workflow")} (conflict copy)`,
+        String(local.description ?? ""),
+      );
+      store.updateWorkflowGraph(
+        id,
+        (local.nodes_config as never[]) ?? [],
+        (local.edges_config as never[]) ?? [],
+      );
+    } else if (conflict?.entity_type === "scenario") {
+      const store = useScenarioStore.getState();
+      const id = store.createScenario(
+        String(local.workflow_id ?? ""),
+        `${String(local.name ?? "Scenario")} (conflict copy)`,
+      );
+      store.updateScenario(id, {
+        description: String(local.description ?? ""),
+        tests: (local.tests_config as never[]) ?? [],
+        testOrder: (local.test_order as string[]) ?? [],
+      });
+    }
+    acceptServerVersion();
+  }, [acceptServerVersion, conflict]);
 
   const checkHealth = useCallback(async () => {
     try {
@@ -127,10 +203,22 @@ export function SyncProvider({
     }, statusPollingInterval);
 
     return () => clearInterval(interval);
-  }, [isInitialized, statusPollingInterval, checkHealth, userId, activeProjectId]);
+  }, [
+    isInitialized,
+    statusPollingInterval,
+    checkHealth,
+    userId,
+    activeProjectId,
+  ]);
 
   useEffect(() => {
-    if (!isInitialized || !userId || !activeProjectId || typeof document === "undefined" || typeof window === "undefined") {
+    if (
+      !isInitialized ||
+      !userId ||
+      !activeProjectId ||
+      typeof document === "undefined" ||
+      typeof window === "undefined"
+    ) {
       return;
     }
 
@@ -200,6 +288,29 @@ export function SyncProvider({
             </div>
           </div>
         ) : null}
+        <AlertDialog
+          open={Boolean(conflict)}
+          onOpenChange={(open) => {
+            if (!open) acceptServerVersion();
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>This item changed elsewhere</AlertDialogTitle>
+              <AlertDialogDescription>
+                Your edit started from version {conflict?.client_version}, but
+                version {conflict?.current_version} is now on the server. Keep
+                your work as a separate copy or load the current version.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <Button variant="outline" onClick={keepLocalCopy}>
+                Keep as copy
+              </Button>
+              <Button onClick={acceptServerVersion}>Load current</Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </>
     </SyncContext.Provider>
   );

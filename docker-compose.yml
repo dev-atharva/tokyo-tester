@@ -47,8 +47,7 @@ services:
       DATABASE_URL: ${UI_DATABASE_URL:-}
       AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET must be set}
       AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
-    ports:
-      - "3000:3000"
+      AUTH_URL: ${AUTH_URL:-}
     volumes:
       - ui_data:/app/data
     depends_on:
@@ -60,7 +59,7 @@ services:
     restart: unless-stopped
 
   mcp:
-    profiles: ["agent"]
+    profiles: ["agent", "agent-dev"]
     build:
       context: ./runner-v2
       dockerfile: Dockerfile

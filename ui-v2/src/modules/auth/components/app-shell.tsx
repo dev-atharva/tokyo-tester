@@ -18,7 +18,7 @@ interface AppShellProps {
 }
 
 const AUTH_ROUTES = new Set(["/login", "/setup"]);
-const PROTECTED_SHELL_PREFIXES = ["/workflow", "/admin", "/projects"];
+const PROTECTED_SHELL_PREFIXES = ["/workflow", "/admin", "/projects", "/docs"];
 
 export function AppShell({
   children,

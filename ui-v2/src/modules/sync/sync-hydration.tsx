@@ -75,13 +75,15 @@ async function ensureClientStoresHydrated(): Promise<void> {
   );
 }
 
-export async function hydrateFromServer(): Promise<HydrationResult> {
+export async function hydrateFromServer(
+  force = false,
+): Promise<HydrationResult> {
   try {
     await ensureClientStoresHydrated();
     const pullResponse = await syncService.pull();
 
-    const workflowCount = hydrateWorkflows(pullResponse.workflows || []);
-    const scenarioCount = hydrateScenarios(pullResponse.scenarios || []);
+    const workflowCount = hydrateWorkflows(pullResponse.workflows || [], force);
+    const scenarioCount = hydrateScenarios(pullResponse.scenarios || [], force);
     const workflowRunCount = hydrateWorkflowRuns(
       pullResponse.workflow_runs || [],
     );
@@ -109,28 +111,31 @@ export async function hydrateFromServer(): Promise<HydrationResult> {
   }
 }
 
-function hydrateWorkflows(workflows: WorkflowData[]): number {
+function hydrateWorkflows(workflows: WorkflowData[], force = false): number {
   let count = 0;
   for (const workflow of workflows) {
     if (workflow.is_deleted) {
       continue;
     }
     const deserialized = deserializeWorkflow(workflow);
-    useWorkflowStore.getState().upsertWorkflowFromSync(deserialized);
+    const store = useWorkflowStore.getState();
+    if (force) store.replaceWorkflowFromSync(deserialized);
+    else store.upsertWorkflowFromSync(deserialized);
     count += 1;
   }
   return count;
 }
 
-function hydrateScenarios(scenarios: ScenarioData[]): number {
+function hydrateScenarios(scenarios: ScenarioData[], force = false): number {
   let count = 0;
   for (const scenario of scenarios) {
     if (scenario.is_deleted) {
       continue;
     }
-    useScenarioStore
-      .getState()
-      .upsertScenarioFromSync(deserializeScenario(scenario));
+    const store = useScenarioStore.getState();
+    const deserialized = deserializeScenario(scenario);
+    if (force) store.replaceScenarioFromSync(deserialized);
+    else store.upsertScenarioFromSync(deserialized);
     count += 1;
   }
   return count;
@@ -178,7 +183,7 @@ function hydrateTestResults(testResults: TestResultData[]): number {
   return count;
 }
 
-function deserializeWorkflow(data: WorkflowData): Workflow {
+export function deserializeWorkflow(data: WorkflowData): Workflow {
   const nodes = parseJSON<FlowNode[]>(data.nodes_config, []);
   const edges = normalizeEdges(parseJSON<FlowEdge[]>(data.edges_config, []));
   const metadata = parseJSON<{ customTestOrder?: Record<string, string[]> }>(
@@ -203,7 +208,7 @@ function deserializeWorkflow(data: WorkflowData): Workflow {
   };
 }
 
-function deserializeScenario(data: ScenarioData): Scenario {
+export function deserializeScenario(data: ScenarioData): Scenario {
   return {
     id: data.id,
     projectId: data.project_id,
@@ -211,7 +216,7 @@ function deserializeScenario(data: ScenarioData): Scenario {
     name: data.name,
     description: data.description ?? "",
     tests: parseJSON<ScenarioTestDefinition[]>(data.tests_config, []),
-    testOrder: data.test_order || [],
+    testOrder: parseJSON<string[]>(data.test_order, []),
     version: data.version,
     created_at: data.created_at,
     updated_at: data.updated_at,

@@ -46,12 +46,13 @@ func (c *Client) Ping(ctx context.Context) error {
 func (c *Client) UpsertWorkflow(ctx context.Context, wf *db.Workflow) error {
 	query := `
 		INSERT INTO workflows (
-			id, name, description, nodes_config, edges_config,
+			id, project_id, name, description, nodes_config, edges_config,
 			metadata, version, created_at, updated_at,
 			client_id, user_id, is_deleted
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		ON CONFLICT (id) DO UPDATE SET
+			project_id = EXCLUDED.project_id,
 			name = EXCLUDED.name,
 			description = EXCLUDED.description,
 			nodes_config = EXCLUDED.nodes_config,
@@ -65,7 +66,7 @@ func (c *Client) UpsertWorkflow(ctx context.Context, wf *db.Workflow) error {
 	`
 
 	_, err := c.conn.ExecContext(ctx, query,
-		wf.ID, wf.Name, wf.Description, wf.NodesConfig, wf.EdgesConfig,
+		wf.ID, wf.ProjectID, wf.Name, wf.Description, wf.NodesConfig, wf.EdgesConfig,
 		wf.Metadata, wf.Version, wf.CreatedAt, wf.UpdatedAt,
 		wf.ClientID, wf.UserID, wf.IsDeleted,
 	)
@@ -74,7 +75,7 @@ func (c *Client) UpsertWorkflow(ctx context.Context, wf *db.Workflow) error {
 
 func (c *Client) GetWorkflow(ctx context.Context, id string) (*db.Workflow, error) {
 	query := `
-		SELECT id, name, description, nodes_config, edges_config,
+		SELECT id, project_id, name, description, nodes_config, edges_config,
 		       metadata, version, created_at, updated_at,
 		       client_id, user_id, is_deleted
 		FROM workflows
@@ -83,7 +84,7 @@ func (c *Client) GetWorkflow(ctx context.Context, id string) (*db.Workflow, erro
 
 	var wf db.Workflow
 	err := c.conn.QueryRowContext(ctx, query, id).Scan(
-		&wf.ID, &wf.Name, &wf.Description, &wf.NodesConfig,
+		&wf.ID, &wf.ProjectID, &wf.Name, &wf.Description, &wf.NodesConfig,
 		&wf.EdgesConfig, &wf.Metadata, &wf.Version,
 		&wf.CreatedAt, &wf.UpdatedAt,
 		&wf.ClientID, &wf.UserID, &wf.IsDeleted,
@@ -107,7 +108,7 @@ func (c *Client) DeleteWorkflow(ctx context.Context, id string) error {
 
 func (c *Client) ListWorkflows(ctx context.Context, projectID string) ([]*db.Workflow, error) {
 	query := `
-		SELECT id, name, description, nodes_config, edges_config,
+		SELECT id, project_id, name, description, nodes_config, edges_config,
 		       metadata, version, created_at, updated_at,
 		       client_id, user_id, is_deleted
 		FROM workflows
@@ -125,7 +126,7 @@ func (c *Client) ListWorkflows(ctx context.Context, projectID string) ([]*db.Wor
 	for rows.Next() {
 		var wf db.Workflow
 		if err := rows.Scan(
-			&wf.ID, &wf.Name, &wf.Description,
+			&wf.ID, &wf.ProjectID, &wf.Name, &wf.Description,
 			&wf.NodesConfig, &wf.EdgesConfig,
 			&wf.Metadata, &wf.Version,
 			&wf.CreatedAt, &wf.UpdatedAt,
@@ -141,11 +142,12 @@ func (c *Client) ListWorkflows(ctx context.Context, projectID string) ([]*db.Wor
 func (c *Client) UpsertScenario(ctx context.Context, scenario *db.Scenario) error {
 	query := `
 		INSERT INTO scenarios (
-			id, workflow_id, name, description, tests_config, test_order,
+			id, project_id, workflow_id, name, description, tests_config, test_order,
 			metadata, version, created_at, updated_at, client_id, user_id, is_deleted
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		ON CONFLICT (id) DO UPDATE SET
+			project_id = EXCLUDED.project_id,
 			workflow_id = EXCLUDED.workflow_id,
 			name = EXCLUDED.name,
 			description = EXCLUDED.description,
@@ -159,7 +161,7 @@ func (c *Client) UpsertScenario(ctx context.Context, scenario *db.Scenario) erro
 			is_deleted = EXCLUDED.is_deleted
 	`
 	_, err := c.conn.ExecContext(ctx, query,
-		scenario.ID, scenario.WorkflowID, scenario.Name, scenario.Description,
+		scenario.ID, scenario.ProjectID, scenario.WorkflowID, scenario.Name, scenario.Description,
 		scenario.TestsConfig, scenario.TestOrder, scenario.Metadata, scenario.Version,
 		scenario.CreatedAt, scenario.UpdatedAt, scenario.ClientID, scenario.UserID, scenario.IsDeleted,
 	)
@@ -168,14 +170,14 @@ func (c *Client) UpsertScenario(ctx context.Context, scenario *db.Scenario) erro
 
 func (c *Client) GetScenario(ctx context.Context, id string) (*db.Scenario, error) {
 	query := `
-		SELECT id, workflow_id, name, description, tests_config, test_order,
+		SELECT id, project_id, workflow_id, name, description, tests_config, test_order,
 		       metadata, version, created_at, updated_at, client_id, user_id, is_deleted
 		FROM scenarios
 		WHERE id = $1 AND is_deleted = FALSE
 	`
 	var sc db.Scenario
 	err := c.conn.QueryRowContext(ctx, query, id).Scan(
-		&sc.ID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
+		&sc.ID, &sc.ProjectID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
 		&sc.Metadata, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt, &sc.ClientID, &sc.UserID, &sc.IsDeleted,
 	)
 	if err == sql.ErrNoRows {
@@ -195,7 +197,7 @@ func (c *Client) DeleteScenario(ctx context.Context, id string) error {
 
 func (c *Client) ListScenariosByWorkflow(ctx context.Context, workflowID string) ([]*db.Scenario, error) {
 	rows, err := c.conn.QueryContext(ctx, `
-		SELECT id, workflow_id, name, description, tests_config, test_order,
+		SELECT id, project_id, workflow_id, name, description, tests_config, test_order,
 		       metadata, version, created_at, updated_at, client_id, user_id, is_deleted
 		FROM scenarios
 		WHERE workflow_id = $1 AND is_deleted = FALSE
@@ -210,7 +212,7 @@ func (c *Client) ListScenariosByWorkflow(ctx context.Context, workflowID string)
 	for rows.Next() {
 		var sc db.Scenario
 		if err := rows.Scan(
-			&sc.ID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
+			&sc.ID, &sc.ProjectID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
 			&sc.Metadata, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt, &sc.ClientID, &sc.UserID, &sc.IsDeleted,
 		); err != nil {
 			return nil, err
@@ -222,7 +224,7 @@ func (c *Client) ListScenariosByWorkflow(ctx context.Context, workflowID string)
 
 func (c *Client) ListScenariosByProjectID(ctx context.Context, projectID string) ([]*db.Scenario, error) {
 	rows, err := c.conn.QueryContext(ctx, `
-		SELECT id, workflow_id, name, description, tests_config, test_order,
+		SELECT id, project_id, workflow_id, name, description, tests_config, test_order,
 		       metadata, version, created_at, updated_at, client_id, user_id, is_deleted
 		FROM scenarios
 		WHERE project_id = $1 AND is_deleted = FALSE
@@ -237,7 +239,7 @@ func (c *Client) ListScenariosByProjectID(ctx context.Context, projectID string)
 	for rows.Next() {
 		var sc db.Scenario
 		if err := rows.Scan(
-			&sc.ID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
+			&sc.ID, &sc.ProjectID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
 			&sc.Metadata, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt, &sc.ClientID, &sc.UserID, &sc.IsDeleted,
 		); err != nil {
 			return nil, err
@@ -795,7 +797,7 @@ func (c *Client) GetConnection() *sql.DB {
 
 func (c *Client) BeginTx(ctx context.Context) (db.Tx, error) {
 	tx, err := c.conn.BeginTx(ctx, &sql.TxOptions{
-		Isolation: sql.LevelReadCommitted,
+		Isolation: sql.LevelRepeatableRead,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
@@ -818,12 +820,13 @@ func (t *PostgresTx) Rollback() error {
 func (t *PostgresTx) UpsertWorkflow(ctx context.Context, workflow *db.Workflow) error {
 	query := `
 		INSERT INTO workflows (
-			id, name, description, nodes_config, edges_config,
+			id, project_id, name, description, nodes_config, edges_config,
 			metadata, version, created_at, updated_at,
 			client_id, user_id, is_deleted
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		ON CONFLICT (id) DO UPDATE SET
+			project_id = EXCLUDED.project_id,
 			name = EXCLUDED.name,
 			description = EXCLUDED.description,
 			nodes_config = EXCLUDED.nodes_config,
@@ -835,24 +838,39 @@ func (t *PostgresTx) UpsertWorkflow(ctx context.Context, workflow *db.Workflow) 
 			user_id = EXCLUDED.user_id,
 			is_deleted = EXCLUDED.is_deleted
 	`
-	_, err := t.tx.ExecContext(ctx, query, workflow.ID, workflow.Name, workflow.Description, workflow.NodesConfig,
+	_, err := t.tx.ExecContext(ctx, query, workflow.ID, workflow.ProjectID, workflow.Name, workflow.Description, workflow.NodesConfig,
 		workflow.EdgesConfig, workflow.Metadata, workflow.Version, workflow.CreatedAt, workflow.UpdatedAt,
 		workflow.ClientID, workflow.UserID, workflow.IsDeleted,
 	)
 	return err
 }
 
+func (t *PostgresTx) UpdateWorkflowIfVersion(ctx context.Context, workflow *db.Workflow, baseVersion int) (bool, error) {
+	result, err := t.tx.ExecContext(ctx, `
+		UPDATE workflows SET project_id=$1, name=$2, description=$3, nodes_config=$4, edges_config=$5,
+			metadata=$6, version=$7, updated_at=$8, client_id=$9, user_id=$10, is_deleted=$11
+		WHERE id=$12 AND version=$13 AND is_deleted=FALSE
+	`, workflow.ProjectID, workflow.Name, workflow.Description, workflow.NodesConfig, workflow.EdgesConfig,
+		workflow.Metadata, workflow.Version, workflow.UpdatedAt, workflow.ClientID, workflow.UserID,
+		workflow.IsDeleted, workflow.ID, baseVersion)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
+}
+
 func (t *PostgresTx) GetWorkflow(ctx context.Context, id string) (*db.Workflow, error) {
 	query := `
-		SELECT id, name, description, nodes_config, edges_config,
+		SELECT id, project_id, name, description, nodes_config, edges_config,
 		       metadata, version, created_at, updated_at,
 		       client_id, user_id, is_deleted
 		FROM workflows
 		WHERE id = $1 AND is_deleted = FALSE
 	`
 	var wf db.Workflow
-	err := t.tx.QueryRowContext(ctx, query, id).Scan(&wf.ID, &wf.Name, &wf.Description, &wf.NodesConfig,
-		&wf.NodesConfig, &wf.EdgesConfig, &wf.Metadata, &wf.CreatedAt, &wf.UpdatedAt, &wf.ClientID, &wf.UserID, &wf.UserID, &wf.IsDeleted)
+	err := t.tx.QueryRowContext(ctx, query, id).Scan(&wf.ID, &wf.ProjectID, &wf.Name, &wf.Description, &wf.NodesConfig,
+		&wf.EdgesConfig, &wf.Metadata, &wf.Version, &wf.CreatedAt, &wf.UpdatedAt, &wf.ClientID, &wf.UserID, &wf.IsDeleted)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("workflow not found: %s", err)
 	}
@@ -870,14 +888,24 @@ func (t *PostgresTx) DeleteWorkflow(ctx context.Context, id string) error {
 	return err
 }
 
+func (t *PostgresTx) DeleteWorkflowIfVersion(ctx context.Context, id string, baseVersion int) (bool, error) {
+	result, err := t.tx.ExecContext(ctx, `UPDATE workflows SET is_deleted=TRUE, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND version=$2 AND is_deleted=FALSE`, id, baseVersion)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
+}
+
 func (t *PostgresTx) UpsertScenario(ctx context.Context, scenario *db.Scenario) error {
 	query := `
 		INSERT INTO scenarios (
-			id, workflow_id, name, description, tests_config, test_order,
+			id, project_id, workflow_id, name, description, tests_config, test_order,
 			metadata, version, created_at, updated_at, client_id, user_id, is_deleted
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		ON CONFLICT (id) DO UPDATE SET
+			project_id = EXCLUDED.project_id,
 			workflow_id = EXCLUDED.workflow_id,
 			name = EXCLUDED.name,
 			description = EXCLUDED.description,
@@ -891,23 +919,38 @@ func (t *PostgresTx) UpsertScenario(ctx context.Context, scenario *db.Scenario) 
 			is_deleted = EXCLUDED.is_deleted
 	`
 	_, err := t.tx.ExecContext(ctx, query,
-		scenario.ID, scenario.WorkflowID, scenario.Name, scenario.Description,
+		scenario.ID, scenario.ProjectID, scenario.WorkflowID, scenario.Name, scenario.Description,
 		scenario.TestsConfig, scenario.TestOrder, scenario.Metadata, scenario.Version,
 		scenario.CreatedAt, scenario.UpdatedAt, scenario.ClientID, scenario.UserID, scenario.IsDeleted,
 	)
 	return err
 }
 
+func (t *PostgresTx) UpdateScenarioIfVersion(ctx context.Context, scenario *db.Scenario, baseVersion int) (bool, error) {
+	result, err := t.tx.ExecContext(ctx, `
+		UPDATE scenarios SET project_id=$1, workflow_id=$2, name=$3, description=$4, tests_config=$5,
+			test_order=$6, metadata=$7, version=$8, updated_at=$9, client_id=$10, user_id=$11, is_deleted=$12
+		WHERE id=$13 AND version=$14 AND is_deleted=FALSE
+	`, scenario.ProjectID, scenario.WorkflowID, scenario.Name, scenario.Description, scenario.TestsConfig,
+		scenario.TestOrder, scenario.Metadata, scenario.Version, scenario.UpdatedAt, scenario.ClientID,
+		scenario.UserID, scenario.IsDeleted, scenario.ID, baseVersion)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
+}
+
 func (t *PostgresTx) GetScenario(ctx context.Context, id string) (*db.Scenario, error) {
 	query := `
-		SELECT id, workflow_id, name, description, tests_config, test_order,
+		SELECT id, project_id, workflow_id, name, description, tests_config, test_order,
 		       metadata, version, created_at, updated_at, client_id, user_id, is_deleted
 		FROM scenarios
 		WHERE id = $1 AND is_deleted = FALSE
 	`
 	var sc db.Scenario
 	err := t.tx.QueryRowContext(ctx, query, id).Scan(
-		&sc.ID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
+		&sc.ID, &sc.ProjectID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
 		&sc.Metadata, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt, &sc.ClientID, &sc.UserID, &sc.IsDeleted,
 	)
 	if err == sql.ErrNoRows {
@@ -916,12 +959,44 @@ func (t *PostgresTx) GetScenario(ctx context.Context, id string) (*db.Scenario, 
 	return &sc, err
 }
 
+func (t *PostgresTx) ListScenariosByWorkflow(ctx context.Context, workflowID string) ([]*db.Scenario, error) {
+	rows, err := t.tx.QueryContext(ctx, `
+		SELECT id, project_id, workflow_id, name, description, tests_config, test_order,
+		       metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+		FROM scenarios WHERE workflow_id = $1 AND is_deleted = FALSE ORDER BY updated_at DESC
+	`, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var scenarios []*db.Scenario
+	for rows.Next() {
+		var scenario db.Scenario
+		if err := rows.Scan(&scenario.ID, &scenario.ProjectID, &scenario.WorkflowID, &scenario.Name, &scenario.Description,
+			&scenario.TestsConfig, &scenario.TestOrder, &scenario.Metadata, &scenario.Version, &scenario.CreatedAt,
+			&scenario.UpdatedAt, &scenario.ClientID, &scenario.UserID, &scenario.IsDeleted); err != nil {
+			return nil, err
+		}
+		scenarios = append(scenarios, &scenario)
+	}
+	return scenarios, rows.Err()
+}
+
 func (t *PostgresTx) DeleteScenario(ctx context.Context, id string) error {
 	_, err := t.tx.ExecContext(ctx, `
 		UPDATE scenarios SET is_deleted = TRUE, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1 AND is_deleted = FALSE
 	`, id)
 	return err
+}
+
+func (t *PostgresTx) DeleteScenarioIfVersion(ctx context.Context, id string, baseVersion int) (bool, error) {
+	result, err := t.tx.ExecContext(ctx, `UPDATE scenarios SET is_deleted=TRUE, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND version=$2 AND is_deleted=FALSE`, id, baseVersion)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
 }
 
 func (t *PostgresTx) UpsertWorkflowRun(ctx context.Context, workflowRun *db.WorkflowRun) error {

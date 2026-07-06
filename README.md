@@ -56,7 +56,9 @@ The full matrix is intentionally opt-in through `make test-complex-e2e` because 
 
 ## Production Notes
 
-- `make prod` builds the standalone UI image and runs the production-like stack
+Follow the complete [Production deployment runbook](./docs/production-deployment.md) before exposing Tokyo Tester to a network. It covers DNS/TLS, secrets, migrations, verification, agent access, backups, upgrades, rollback, and incident commands.
+
+- `make prod` builds the standalone UI image and runs the single-server production stack
 - the UI still uses Bun for app scripts, but database migration runs through `node ./src/db/migrate.mjs` because `better-sqlite3` is a Node-only runtime dependency
 - workflow definitions are synced from the browser, while execution-owned records like workflow runs, scenario runs, and test results are treated as backend-owned during execution
 - if you have an old UI image cached, rebuild the service before retesting production behavior:
@@ -73,7 +75,7 @@ The easiest way to run everything locally is with Docker:
 make dev
 ```
 
-That starts the dev stack with the UI and runner.
+That checks the machine, starts the UI and runner, and applies pending UI and runner migrations. A database reset is not required for a normal update.
 
 Useful commands:
 
@@ -84,6 +86,8 @@ make down
 make reset # also deletes local database volumes
 ```
 
+For a second-PC development setup with a coding agent and several local repositories, follow [Development setup with a coding agent](./docs/development-agent-setup.md).
+
 If you want to run pieces manually, the main environment values live in [`.env.example`](./.env.example).
 
 Common ports:
@@ -92,6 +96,8 @@ Common ports:
 - Runner API when using the host-runner development fallback: `http://localhost:8080`
 
 ## AI Agent Integration
+
+For local development, run `make dev`, then run `make agent-dev` in another terminal. Connect the coding agent to `http://localhost:8090/mcp` with a project-scoped token. The in-app **Docs** page walks through token creation, skill installation, and a practical multi-repository test.
 
 The production Compose stack exposes a remote MCP endpoint at `https://<TOKYO_TESTER_DOMAIN>/mcp`. The MCP process forwards project-scoped operations to the authenticated UI/API and never receives filesystem or Docker access.
 

@@ -38,6 +38,7 @@ import { RunWorkflowDialog } from "../RunWorkflowDialog";
 import { ScenarioDialog } from "../ScenarioDialog";
 import { ServiceNode } from "../ServiceNode";
 import { WorkflowLogsDrawer } from "../WorkflowLogsDrawer";
+import { WorkflowVersionsDialog } from "../WorkflowVersionsDialog";
 import { FlowCanvas } from "./FlowCanvas";
 
 const EXECUTION_FALLBACK_POLL_INTERVAL_MS = 15000;
@@ -89,6 +90,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   } = useUIStore();
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isVersionsOpen, setIsVersionsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"overview" | "detail">("overview");
   const [selectedArchitectureNodeId, setSelectedArchitectureNodeId] = useState<
     string | null
@@ -485,6 +487,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           onOpenLogs={openLogs}
           onOpenShortcuts={openShortcuts}
           onOpenHistory={() => setIsHistoryOpen(true)}
+          onOpenVersions={() => setIsVersionsOpen(true)}
           isExecuting={isExecuting}
           canExecute={canRun && canExecute}
           canEdit={canEdit}
@@ -577,6 +580,15 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           workflowId={workflowId}
           open={isHistoryOpen}
           onOpenChange={setIsHistoryOpen}
+          canEdit={canEdit}
+        />
+
+        <WorkflowVersionsDialog
+          open={isVersionsOpen}
+          onOpenChange={setIsVersionsOpen}
+          workflowId={workflowId}
+          projectId={workflow.projectId}
+          workflowVersion={workflow.version}
           canEdit={canEdit}
         />
       </ReactFlowProvider>

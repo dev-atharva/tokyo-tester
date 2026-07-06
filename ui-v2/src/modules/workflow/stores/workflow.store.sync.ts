@@ -65,6 +65,7 @@ interface WorkflowStore {
   deleteWorkflow: (id: string) => void;
   setActiveWorkflow: (id: string | null) => void;
   upsertWorkflowFromSync: (workflow: Workflow) => void;
+  replaceWorkflowFromSync: (workflow: Workflow) => void;
 }
 
 export const useWorkflowStore = create<WorkflowStore>()(
@@ -196,6 +197,11 @@ export const useWorkflowStore = create<WorkflowStore>()(
             };
           });
         },
+
+        replaceWorkflowFromSync: (workflow) =>
+          set((state) => ({
+            workflows: { ...state.workflows, [workflow.id]: workflow },
+          })),
       }),
 
       {

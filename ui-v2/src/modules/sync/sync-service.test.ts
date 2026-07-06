@@ -12,6 +12,35 @@ afterEach(() => {
 });
 
 describe("sync service", () => {
+  test("uses the serialized entity version as the optimistic concurrency base", () => {
+    setCurrentSessionUserId("user-1");
+    setCurrentSessionProjectId("project-1");
+    const service = new SyncService();
+    service.queueChange({
+      entity_type: "workflow",
+      entity_id: "workflow-1",
+      change_type: "insert",
+      data: { id: "workflow-1", version: 1 },
+    });
+    service.queueChange({
+      entity_type: "workflow",
+      entity_id: "workflow-1",
+      change_type: "update",
+      data: { id: "workflow-1", version: 4 },
+    });
+    service.queueChange({
+      entity_type: "workflow",
+      entity_id: "workflow-1",
+      change_type: "delete",
+      data: { id: "workflow-1", version: 5 },
+    });
+    expect(
+      service
+        .getDebugInfo()
+        .queueSnapshot.map((change) => change.client_version),
+    ).toEqual([0, 3, 4]);
+  });
+
   test("flushPending includes changes queued by store microtasks", async () => {
     setCurrentSessionUserId("user-1");
     setCurrentSessionProjectId("project-1");

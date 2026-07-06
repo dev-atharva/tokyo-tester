@@ -32,8 +32,12 @@ export interface SyncBatchRequest {
 export interface ConflictInfo {
   entity_type: EntityType;
   entity_id: string;
-  resolution: "server_wins" | "client_wins";
+  resolution: "server_wins" | "client_wins" | "manual";
   message: string;
+  client_version: number;
+  current_version: number;
+  current_data?: WorkflowData | ScenarioData;
+  local_data?: JsonValue;
 }
 
 export interface SyncError {

@@ -131,6 +131,9 @@ func tools() []map[string]any {
 		tool("tokyo_list_projects", "List the project authorized by the current token.", objectSchema(nil, nil), true, false),
 		tool("tokyo_list_workflows", "List persisted workflows available in the authorized workspace.", objectSchema(nil, nil), true, false),
 		tool("tokyo_get_workflow", "Get one persisted workflow and its selectable scenarios.", objectSchema(map[string]any{"workflowId": map[string]any{"type": "string"}}, []string{"workflowId"}), true, false),
+		tool("tokyo_list_workflow_revisions", "List immutable revisions for a persisted workflow.", objectSchema(map[string]any{"workflowId": map[string]any{"type": "string"}}, []string{"workflowId"}), true, false),
+		tool("tokyo_create_workflow_revision", "Save the current workflow and scenarios as an immutable revision. Requires user approval.", objectSchema(map[string]any{"workflowId": map[string]any{"type": "string"}, "message": map[string]any{"type": "string"}}, []string{"workflowId"}), false, false),
+		tool("tokyo_restore_workflow_revision", "Restore an immutable workflow revision as a new current revision. This is destructive and requires explicit user approval.", objectSchema(map[string]any{"workflowId": map[string]any{"type": "string"}, "revisionId": map[string]any{"type": "string"}, "expectedVersion": map[string]any{"type": "integer", "minimum": 1}}, []string{"workflowId", "revisionId", "expectedVersion"}), false, true),
 		tool("tokyo_get_capabilities", "Get current workflow schema version, service types, test types, edge semantics, and limits before authoring.", objectSchema(nil, nil), true, false),
 		tool("tokyo_validate_workflow", "Authoritatively validate and normalize a workflow bundle. Call before import or run.", objectSchema(map[string]any{"bundle": bundle}, []string{"bundle"}), true, false),
 		tool("tokyo_import_workflow", "Import a validated workflow into the authorized project. This changes persisted state and requires user approval.", objectSchema(map[string]any{"bundle": bundle, "idempotencyKey": map[string]any{"type": "string", "minLength": 8}}, []string{"bundle", "idempotencyKey"}), false, true),
@@ -174,6 +177,26 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request, request rpcReq
 			return
 		}
 		path = "/api/v1/agent/workflows/" + url.PathEscape(workflowID)
+	case "tokyo_list_workflow_revisions", "tokyo_create_workflow_revision", "tokyo_restore_workflow_revision":
+		workflowID, _ := params.Arguments["workflowId"].(string)
+		if workflowID == "" {
+			s.writeRPC(w, request.ID, nil, &rpcError{Code: -32602, Message: "workflowId is required"})
+			return
+		}
+		path = "/api/v1/agent/workflows/" + url.PathEscape(workflowID) + "/revisions"
+		if params.Name == "tokyo_create_workflow_revision" {
+			method, body = "POST", map[string]any{"message": params.Arguments["message"]}
+		} else if params.Name == "tokyo_restore_workflow_revision" {
+			revisionID, _ := params.Arguments["revisionId"].(string)
+			expectedVersion, ok := params.Arguments["expectedVersion"].(float64)
+			if revisionID == "" || !ok || expectedVersion < 1 {
+				s.writeRPC(w, request.ID, nil, &rpcError{Code: -32602, Message: "revisionId and expectedVersion are required"})
+				return
+			}
+			method = "POST"
+			path += "/" + url.PathEscape(revisionID) + "/restore"
+			body = map[string]any{"expectedVersion": int(expectedVersion)}
+		}
 	case "tokyo_get_capabilities":
 		path = "/api/v1/agent/capabilities"
 	case "tokyo_validate_workflow":

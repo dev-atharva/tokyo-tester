@@ -3,6 +3,7 @@
 import {
   IconAlertTriangle,
   IconHistory,
+  IconGitBranch,
   IconKeyboard,
   IconLayoutBoardSplit,
   IconListDetails,
@@ -53,6 +54,7 @@ interface FlowCanvasProps {
   onOpenLogs: () => void;
   onOpenShortcuts: () => void;
   onOpenHistory: () => void;
+  onOpenVersions: () => void;
   isExecuting: boolean;
   canExecute: boolean;
   canEdit: boolean;
@@ -83,6 +85,7 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
   onOpenLogs,
   onOpenShortcuts,
   onOpenHistory,
+  onOpenVersions,
   isExecuting,
   canExecute,
   canEdit,
@@ -314,6 +317,16 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
           title="Execution history"
         >
           <IconHistory className="size-4" />
+        </Button>
+
+        <Button
+          className="cursor-pointer shadow-md"
+          variant="ghost"
+          size="icon"
+          onClick={onOpenVersions}
+          title="Workflow versions"
+        >
+          <IconGitBranch className="size-4" />
         </Button>
 
         <Button

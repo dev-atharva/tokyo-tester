@@ -54,10 +54,13 @@ type SyncBatchResponse struct {
 }
 
 type ConflictInfo struct {
-	EntityType string `json:"entity_type"`
-	EntityID   string `json:"entity_id"`
-	Resolution string `json:"resolution"`
-	Message    string `json:"message"`
+	EntityType     string          `json:"entity_type"`
+	EntityID       string          `json:"entity_id"`
+	Resolution     string          `json:"resolution"`
+	Message        string          `json:"message"`
+	ClientVersion  int             `json:"client_version"`
+	CurrentVersion int             `json:"current_version"`
+	CurrentData    json.RawMessage `json:"current_data,omitempty"`
 }
 
 type SyncError struct {
@@ -70,10 +73,13 @@ func FromTypesSyncBatchResponse(resp *types.SyncBatchResponse) *SyncBatchRespons
 	conflicts := make([]ConflictInfo, len(resp.Conflicts))
 	for i, c := range resp.Conflicts {
 		conflicts[i] = ConflictInfo{
-			EntityType: c.EntityType,
-			EntityID:   c.EntityID,
-			Resolution: c.Resolution,
-			Message:    c.Message,
+			EntityType:     c.EntityType,
+			EntityID:       c.EntityID,
+			Resolution:     c.Resolution,
+			Message:        c.Message,
+			ClientVersion:  c.ClientVersion,
+			CurrentVersion: c.CurrentVersion,
+			CurrentData:    c.CurrentData,
 		}
 	}
 
