@@ -81,10 +81,10 @@ test: test-go test-ui test-test-api ## Run backend and frontend tests
 test-go: ## Run all Go tests
 	@cd runner-v2 && GOCACHE="$${GOCACHE:-/tmp/tokyo-tester-go-cache}" go test ./...
 
-test-ui: ## Type-check and test the UI, including Node-based auth tests
+test-ui: ## Type-check and test the UI, including Node-based auth/database tests
 	@cd ui-v2 && bunx next typegen && bunx tsc --noEmit
 	@cd ui-v2 && bun test src/modules/workflow src/modules/sync
-	@cd ui-v2 && node --import tsx --test src/modules/auth/server/service.test.ts
+	@cd ui-v2 && node --import tsx --test src/modules/auth/server/service.test.ts src/modules/projects/server/service.integration.test.ts
 
 test-test-api: ## Type-check and unit-test the reusable test application
 	@cd test-api && bun run typecheck && bun test

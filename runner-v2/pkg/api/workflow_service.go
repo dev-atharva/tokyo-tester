@@ -74,23 +74,9 @@ func (s *WorkflowService) Submit(ctx context.Context, request *workflowrun.Reque
 		request.WorkflowRevisionID = revisionID
 		return existing, false, nil
 	}
-	workflow, err := s.db.GetWorkflow(ctx, request.WorkflowID)
+	workflow, persistedScenarios, err := s.ensureWorkflowGraphForRun(ctx, request)
 	if err != nil {
-		return nil, false, fmt.Errorf("workflow must be synchronized before execution: %w", err)
-	}
-	if workflow.ProjectID != request.ProjectID {
-		return nil, false, fmt.Errorf("workflow does not belong to the requested project")
-	}
-	persistedScenarios := make(map[string]*db.Scenario, len(request.Scenarios))
-	for _, scenario := range request.Scenarios {
-		persisted, err := s.db.GetScenario(ctx, scenario.ID)
-		if err != nil {
-			return nil, false, fmt.Errorf("scenario %q must be synchronized before execution: %w", scenario.Name, err)
-		}
-		if persisted.ProjectID != request.ProjectID || persisted.WorkflowID != request.WorkflowID || (scenario.ProjectID != "" && scenario.ProjectID != request.ProjectID) {
-			return nil, false, fmt.Errorf("scenario %q does not belong to the requested workflow and project", scenario.Name)
-		}
-		persistedScenarios[scenario.ID] = persisted
+		return nil, false, err
 	}
 	if revisions, ok := s.db.(db.WorkflowRevisionStore); ok {
 		executedWorkflow := *workflow
@@ -165,6 +151,49 @@ func (s *WorkflowService) Submit(ctx context.Context, request *workflowrun.Reque
 	}
 	s.signal()
 	return job, true, nil
+}
+
+func (s *WorkflowService) ensureWorkflowGraphForRun(ctx context.Context, request *workflowrun.Request) (*db.Workflow, map[string]*db.Scenario, error) {
+	now := time.Now().UTC()
+	workflow, err := s.db.GetWorkflow(ctx, request.WorkflowID)
+	if err != nil {
+		nodes, _ := json.Marshal(request.Nodes)
+		edges, _ := json.Marshal(request.Edges)
+		workflow = &db.Workflow{
+			ID: request.WorkflowID, ProjectID: request.ProjectID, Name: request.WorkflowName,
+			NodesConfig: string(nodes), EdgesConfig: string(edges), Metadata: `{}`,
+			Version: 1, CreatedAt: now, UpdatedAt: now,
+			ClientID: request.ClientID, UserID: firstNonEmpty(request.UserID, "demo-user"),
+		}
+		if err := s.db.UpsertWorkflow(ctx, workflow); err != nil {
+			return nil, nil, fmt.Errorf("workflow must be synchronized before execution: %w", err)
+		}
+	} else if workflow.ProjectID != request.ProjectID {
+		return nil, nil, fmt.Errorf("workflow does not belong to the requested project")
+	}
+
+	persistedScenarios := make(map[string]*db.Scenario, len(request.Scenarios))
+	for _, scenario := range request.Scenarios {
+		persisted, err := s.db.GetScenario(ctx, scenario.ID)
+		if err != nil {
+			tests, _ := json.Marshal(scenario.Tests)
+			order, _ := json.Marshal(scenario.TestOrder)
+			persisted = &db.Scenario{
+				ID: scenario.ID, ProjectID: firstNonEmpty(scenario.ProjectID, request.ProjectID), WorkflowID: request.WorkflowID,
+				Name: scenario.Name, Description: scenario.Description, TestsConfig: string(tests), TestOrder: string(order), Metadata: `{}`,
+				Version: 1, CreatedAt: now, UpdatedAt: now,
+				ClientID: firstNonEmpty(scenario.ClientID, request.ClientID), UserID: firstNonEmpty(scenario.UserID, request.UserID, "demo-user"),
+			}
+			if err := s.db.UpsertScenario(ctx, persisted); err != nil {
+				return nil, nil, fmt.Errorf("scenario %q must be synchronized before execution: %w", scenario.Name, err)
+			}
+		}
+		if persisted.ProjectID != request.ProjectID || persisted.WorkflowID != request.WorkflowID || (scenario.ProjectID != "" && scenario.ProjectID != request.ProjectID) {
+			return nil, nil, fmt.Errorf("scenario %q does not belong to the requested workflow and project", scenario.Name)
+		}
+		persistedScenarios[scenario.ID] = persisted
+	}
+	return workflow, persistedScenarios, nil
 }
 
 func (s *WorkflowService) worker(ctx context.Context, index int) {

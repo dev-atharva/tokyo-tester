@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useProjectContext } from "@/modules/projects/project-context";
+import { syncService } from "@/modules/sync/sync-service";
 import {
   createClonedWorkflowBundle,
   createWorkflowBundle,
@@ -156,7 +157,7 @@ export const WorkflowList = () => {
       setActiveScenario(workflowId, firstScenarioId);
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await syncService.flushPendingBeforeRun(20);
     router.push(`/workflow/${workflowId}`);
     return workflowId;
   };
@@ -186,7 +187,9 @@ export const WorkflowList = () => {
       );
 
       toast.success("Workflow imported", {
-        description: `${materialized.workflow.name} is ready to edit.`,
+        description: syncService.hasPendingPreRunChanges()
+          ? `${materialized.workflow.name} was created. Sync is still catching up, so wait for the status to clear before running.`
+          : `${materialized.workflow.name} is synced and ready to edit.`,
       });
     } catch (error) {
       const message =

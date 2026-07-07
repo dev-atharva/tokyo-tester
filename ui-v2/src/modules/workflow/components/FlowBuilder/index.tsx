@@ -148,7 +148,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
       return;
     }
     autoLayoutWorkflowRef.current = workflow.id;
-    void tidyLayout();
+    void tidyLayout({ persist: false });
   }, [canEdit, edges, nodes.length, tidyLayout, workflow]);
 
   // Execution

@@ -310,6 +310,7 @@ function deserializeTestResult(data: TestResultData): TestResult {
 
 export async function initializeSyncWithHydration(): Promise<void> {
   await ensureClientStoresHydrated();
+  await hydrateFromServer().catch(() => undefined);
   await syncService.flush().catch(() => undefined);
   await hydrateFromServer().catch(() => undefined);
   syncService.start();

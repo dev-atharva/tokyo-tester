@@ -27,7 +27,8 @@ class OperationTracker {
   private pendingOps = new Map<string, ChangeType>();
 
   track(entityId: string, changeType: ChangeType) {
-    this.pendingOps.set(entityId, changeType);
+    const existing = this.pendingOps.get(entityId);
+    this.pendingOps.set(entityId, coalesceChangeType(existing, changeType));
   }
 
   consume(entityId: string): ChangeType | null {
@@ -39,6 +40,25 @@ class OperationTracker {
   clear() {
     this.pendingOps.clear();
   }
+}
+
+export function coalesceChangeType(
+  existing: ChangeType | undefined,
+  incoming: ChangeType,
+): ChangeType {
+  if (!existing) {
+    return incoming;
+  }
+
+  if (existing === "insert" && incoming === "update") {
+    return "insert";
+  }
+
+  if (existing === "delete") {
+    return "delete";
+  }
+
+  return incoming;
 }
 
 /**

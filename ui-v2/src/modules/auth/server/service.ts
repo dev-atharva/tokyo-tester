@@ -128,6 +128,10 @@ export async function createInitialAdmin(
       .get();
   })();
 
+  if (!user) {
+    throw new Error("Failed to create initial administrator.");
+  }
+
   const result = {
     id: String(user.id),
     email: String(user.email),

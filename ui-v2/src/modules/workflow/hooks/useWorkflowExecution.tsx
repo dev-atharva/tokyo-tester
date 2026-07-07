@@ -193,6 +193,20 @@ export function useWorkflowExecution({
 
       const workflowRunId = generateId();
       try {
+        await syncService.flushPendingBeforeRun();
+        if (syncService.hasBlockingPreRunChanges(workflowId)) {
+          throw new Error(
+            "This workflow has not been synchronized yet. Wait for sync or try Force sync before execution.",
+          );
+        }
+        if (syncService.hasPendingPreRunChanges()) {
+          const pendingCount = syncService.getPendingPreRunChanges().length;
+          toast.warning("Running with unsynced local changes", {
+            description: `${pendingCount} workflow/scenario change${pendingCount === 1 ? "" : "s"} could not be saved yet. The runner will use the graph currently shown on screen.`,
+            duration: 7000,
+          });
+        }
+
         const scenarioRunIds = selectedScenarios.map((scenario) =>
           startScenarioRun(
             scenario.projectId,
@@ -237,12 +251,6 @@ export function useWorkflowExecution({
           },
         };
 
-        await syncService.flushPending();
-        if (syncService.getQueueSize() > 0) {
-          throw new Error(
-            "Workflow changes could not be synchronized before execution",
-          );
-        }
         await submitWorkflowRun(data);
 
         openLogsDrawer();
