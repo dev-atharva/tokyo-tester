@@ -10,6 +10,8 @@ Install Docker Engine with the Compose plugin, Git, GNU Make, and OpenSSL. Use a
 
 Point the domain's `A` record, and `AAAA` record when used, to the server. Allow inbound TCP ports `80` and `443`, UDP `443` for HTTP/3, and a restricted SSH administration port. Do not expose ports `3000`, `8080`, `8090`, or the Docker socket.
 
+Tokyo Tester needs a reachable Docker daemon before startup completes. `make prod` detects the host socket and writes `.env.docker-socket`; the runner then checks Docker again from inside the container before it starts the workflow worker or janitor. If the socket is missing, inaccessible, or mounted to the wrong path, the runner exits during startup and users cannot enqueue workflows into a broken runtime.
+
 Deploy a pinned release or reviewed commit rather than an unknown moving branch:
 
 ```bash
@@ -59,6 +61,14 @@ make prod
 
 `make prod` detects the Docker socket, builds the pinned source, and starts `runner`, `ui`, `mcp`, and `edge`. The runner starts with `-migrate`; the UI runs `db:migrate` before starting. Pending migrations are applied automatically. Do not reset either database during a normal deployment or upgrade.
 
+There is one startup behavior change worth calling out for operators: Docker health is now a startup gate, not a first-workflow failure. If `runner` does not become healthy, check the detected socket in `.env.docker-socket`, the Compose socket mount, and the runner logs before retrying:
+
+```bash
+cat .env.docker-socket
+docker compose --profile agent logs --tail=200 runner
+docker info
+```
+
 Caddy obtains and renews the TLS certificate after DNS resolves and ports 80/443 reach the server.
 
 ## 4. First boot and verification
@@ -73,6 +83,8 @@ curl -fsS https://tokyo.example.com/mcp \
 ```
 
 All four services should be healthy. The first external request can take a short time while Caddy obtains the certificate.
+
+If `runner` is unhealthy and logs mention Docker reachability, fix Docker or the socket mount first. Restarting the UI or MCP adapter will not repair workflow execution because only the runner has Docker access.
 
 Open `https://tokyo.example.com/setup` and create the initial platform administrator. After setup, use `/login`. Create Team workspaces and assign `owner`, `editor`, or `runner` roles according to least privilege.
 

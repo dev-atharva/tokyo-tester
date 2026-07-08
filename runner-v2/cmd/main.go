@@ -16,6 +16,7 @@ import (
 	"github.com/dev-atharva/cots/pkg/db"
 	"github.com/dev-atharva/cots/pkg/db/postgres"
 	"github.com/dev-atharva/cots/pkg/db/sqlite"
+	"github.com/dev-atharva/cots/pkg/dockerhealth"
 	"github.com/dev-atharva/cots/pkg/janitor"
 	"github.com/dev-atharva/cots/pkg/logger"
 	"github.com/dev-atharva/cots/pkg/sync"
@@ -36,6 +37,17 @@ func main() {
 
 	log := logger.InitLogger(cfg.App.Environment, cfg.App.LogLevel)
 	log.Info("starting COTS runner", "environment", cfg.App.Environment, "log_level", cfg.App.LogLevel, "port", cfg.App.Port)
+
+	if cfg.WorkflowWorker.Enabled || cfg.Janitor.Enabled {
+		dockerCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := dockerhealth.Validate(dockerCtx); err != nil {
+			cancel()
+			log.Error("Docker is required but not reachable at startup", "error", err)
+			panic(fmt.Errorf("Docker is required for workflow execution and cleanup: %w", err))
+		}
+		cancel()
+		log.Info("Docker daemon is reachable")
+	}
 
 	var tracerProvider *telemetry.TracerProvider
 	if cfg.Telemetry.Enabled {

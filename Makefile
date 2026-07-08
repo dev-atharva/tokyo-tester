@@ -11,7 +11,7 @@ ENV_LOADER = set -a; \
 	if [ -f ./.env ]; then . ./.env; fi; \
 	set +a;
 
-.PHONY: help ensure-docker-socket doctor dev dev-docker dev-host-runner dev-support runner-dev agent-dev prod down reset test test-go test-ui test-test-api test-api-build test-complex-e2e check compose-check
+.PHONY: help ensure-docker-socket doctor dev dev-docker dev-host-runner dev-local dev-support runner-dev ui-dev agent-dev prod down reset test test-go test-ui test-test-api test-api-build test-complex-e2e check compose-check
 
 help: ## Show available commands
 	@printf "Tokyo Tester commands\n\n"
@@ -67,6 +67,33 @@ dev-host-runner: dev-support ## Run the UI in Docker and the runner on the host
 	@printf "UI: http://localhost:3000\n"
 	@printf "Runner logs will stream below. Stop with Ctrl+C, then use 'make down' to stop docker Services.\n\n"
 	@$(MAKE) runner-dev
+
+ui-dev: ## Run the Next.js UI on the host against the local runner
+	@$(ENV_LOADER) \
+		cd ui-v2 && \
+		COTS_API_BASE_URL="$${COTS_API_BASE_URL:-http://localhost:8080}" \
+		DB_TYPE="$${UI_DB_TYPE:-sqlite}" \
+		DB_PATH="$${UI_DB_PATH:-$$(pwd)/data/tokyo-tester-auth.db}" \
+		DATABASE_URL="$${UI_DATABASE_URL:-}" \
+		AUTH_SECRET="$${AUTH_SECRET:-local-dev-auth-secret}" \
+		AUTH_TRUST_HOST="$${AUTH_TRUST_HOST:-true}" \
+		bun run db:migrate && \
+		COTS_API_BASE_URL="$${COTS_API_BASE_URL:-http://localhost:8080}" \
+		DB_TYPE="$${UI_DB_TYPE:-sqlite}" \
+		DB_PATH="$${UI_DB_PATH:-$$(pwd)/data/tokyo-tester-auth.db}" \
+		DATABASE_URL="$${UI_DATABASE_URL:-}" \
+		AUTH_SECRET="$${AUTH_SECRET:-local-dev-auth-secret}" \
+		AUTH_TRUST_HOST="$${AUTH_TRUST_HOST:-true}" \
+		bun run dev
+
+dev-local: doctor ## Run both the UI and runner on the host for Docker socket or volume edge cases
+	@$(ENV_LOADER) \
+		printf "UI: http://localhost:3000\n"; \
+		printf "Runner: http://localhost:8080\n"; \
+		$(MAKE) ui-dev & \
+		ui_pid=$$!; \
+		trap 'kill $$ui_pid >/dev/null 2>&1 || true' INT TERM EXIT; \
+		$(MAKE) runner-dev
 
 agent-dev: ensure-docker-socket ## Expose the local MCP server on http://localhost:8090/mcp (run after make dev)
 	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) --profile agent-dev up --build -d --no-deps mcp

@@ -491,10 +491,8 @@ func translateServices(nodes []FlowNode, serviceDeps map[string][]string) ([]con
 		cfg := config.ServiceConfig{
 			Name:     serviceName,
 			Type:     node.Data.Service.Type,
+			Image:    node.Data.Service.Image,
 			Registry: node.Data.Service.Registry,
-		}
-		if cfg.Type == "generic" {
-			cfg.Image = node.Data.Service.Image
 		}
 		if len(node.Data.Service.Command) > 0 {
 			cfg.Command = make([]string, 0, len(node.Data.Service.Command))
@@ -745,22 +743,25 @@ func buildTestConfig(
 			"password": valueOrDefault(testDef.CacheConfig, func(cfg *CacheConfig) string { return cfg.Password }, ""),
 		}
 	case "queue":
-		return map[string]any{
-			"service":          valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) string { return cfg.Service }, targetService),
-			"broker_type":      valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) string { return cfg.BrokerType }, "kafka"),
-			"operation":        valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) string { return cfg.Operation }, "produce"),
-			"topic":            valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) string { return cfg.Topic }, ""),
-			"message":          valueOrDefaultAny(testDef.QueueConfig, func(cfg *QueueConfig) any { return cfg.Message }, ""),
-			"key":              valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) string { return cfg.Key }, ""),
-			"partition":        valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) int { return cfg.Partition }, 0),
-			"timeout":          valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) int { return cfg.Timeout }, 10),
-			"from_beginning":   valueOrDefaultAny(testDef.QueueConfig, func(cfg *QueueConfig) any { return cfg.FromBeginning }, false),
-			"expected_count":   valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) int { return cfg.ExpectedCount }, 1),
-			"expected_message": valueOrDefaultAny(testDef.QueueConfig, func(cfg *QueueConfig) any { return cfg.ExpectedMessage }, ""),
+		cfg := map[string]any{
+			"service":        valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) string { return cfg.Service }, targetService),
+			"broker_type":    valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) string { return cfg.BrokerType }, "kafka"),
+			"operation":      valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) string { return cfg.Operation }, "produce"),
+			"topic":          valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) string { return cfg.Topic }, ""),
+			"message":        valueOrDefaultAny(testDef.QueueConfig, func(cfg *QueueConfig) any { return cfg.Message }, ""),
+			"key":            valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) string { return cfg.Key }, ""),
+			"partition":      valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) int { return cfg.Partition }, 0),
+			"timeout":        valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) int { return cfg.Timeout }, 10),
+			"from_beginning": valueOrDefaultAny(testDef.QueueConfig, func(cfg *QueueConfig) any { return cfg.FromBeginning }, false),
+			"expected_count": valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) int { return cfg.ExpectedCount }, 1),
 			"expected_exists": valueOrDefault(testDef.QueueConfig, func(cfg *QueueConfig) bool {
 				return boolOrDefault(cfg.ExpectedExists, true)
 			}, true),
 		}
+		if testDef.QueueConfig != nil && testDef.QueueConfig.ExpectedMessage != nil {
+			cfg["expected_message"] = testDef.QueueConfig.ExpectedMessage
+		}
+		return cfg
 	default:
 		return map[string]any{
 			"duration_ms": valueOrDefault(testDef.DelayConfig, func(cfg *DelayConfig) int { return cfg.DurationMs }, 1000),

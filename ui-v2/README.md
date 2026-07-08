@@ -4,7 +4,7 @@ This `ui-v2` app now includes Auth.js credentials authentication with a one-time
 
 ## Getting Started
 
-For the complete application, use `make dev` from the repository root. It starts the UI and runner and applies pending migrations automatically. The steps below are only for running the UI process by itself.
+For the complete application, use `make dev` from the repository root. It starts the UI and runner and applies pending migrations automatically. `make dev` may run the runner on the host when the Docker socket is non-standard. Use `make dev-local` when you want both the UI and runner on the host. The steps below are only for running the UI process by itself.
 
 1. Install dependencies:
 

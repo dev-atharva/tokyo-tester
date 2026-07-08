@@ -189,8 +189,8 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className=" flex flex-col h-[80vh] min-w-[80vw] max-w-368  p-0">
-        <DialogHeader className="border-b bg-muted/30 px-6 py-5">
+      <DialogContent className="flex max-h-[85vh] min-h-0 min-w-[80vw] max-w-368 flex-col overflow-hidden p-0">
+        <DialogHeader className="shrink-0 border-b bg-muted/30 px-6 py-5">
           <div className="flex items-center justify-between">
             <div className=" flex items-center gap-2.5">
               <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
@@ -208,8 +208,8 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
           </div>
         </DialogHeader>
 
-        <div className="grid h-full gap-5 overflow-hidden px-6 py-5 md:grid-cols-[360px_minmax(0,1fr)]">
-          <div className="flex flex-col gap-3">
+        <div className="grid min-h-0 flex-1 gap-5 overflow-hidden px-6 py-5 md:grid-cols-[360px_minmax(0,1fr)]">
+          <div className="flex min-h-0 flex-col gap-3">
             <div className="flex items-center justify-between">
               <h3 className=" text-sm font-semibold tracking-tight text-foreground/90 uppercase">
                 Recent Runs
@@ -218,7 +218,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                 {executions.length} total
               </span>
             </div>
-            <ScrollArea className="h-full rounded-xl border border-border/60 bg-muted/20 shadow-sm">
+            <ScrollArea className="min-h-0 flex-1 rounded-xl border border-border/60 bg-muted/20 shadow-sm">
               <div className="space-y-2 p-3">
                 {executions.length === 0 ? (
                   <div className="flex items-center justify-center py-12 text-sm text-muted-foreground italic">
@@ -276,11 +276,11 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
             </ScrollArea>
           </div>
 
-          <div className="flex flex-col gap-4">
+          <div className="flex min-h-0 flex-col gap-4">
             <h3 className="text-sm font-semibold tracking-tight text-foreground/90 uppercase">
               Execution Details
             </h3>
-            <div className="rounded-xl border border-border/60 bg-card shadow-sm overflow-hidden">
+            <div className="min-h-0 flex-1 rounded-xl border border-border/60 bg-card shadow-sm overflow-hidden">
               {!selectedExecution ? (
                 <div className="flex flex-col items-center justify-center h-full gap-3 p-8">
                   <div className="p-3 rounded-full bg-muted/50">
@@ -296,8 +296,8 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col h-full">
-                  <div className="p-4 border-b bg-muted/20 space-y-3">
+                <div className="flex h-full min-h-0 flex-col">
+                  <div className="shrink-0 p-4 border-b bg-muted/20 space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0 space-y-2">
                         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -341,8 +341,8 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                       )}
                   </div>
 
-                  <ScrollArea className="flex-1 p-4">
-                    <div className="space-y-4">
+                  <ScrollArea className="min-h-0 flex-1">
+                    <div className="space-y-4 p-4">
                       <div className="flex items-center justify-between">
                         <h4 className="text-sm font-semibold tracking-tight text-foreground/90 uppercase">
                           Scenario Runs

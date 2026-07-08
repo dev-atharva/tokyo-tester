@@ -11,7 +11,8 @@ Install:
 - Git
 - Docker Engine or Docker Desktop with Docker Compose
 - GNU Make
-- Go, only when `make doctor` says the detected Docker socket requires the host-runner fallback
+- Go, when `make doctor` says the detected Docker socket requires the host-runner fallback or when you use `make dev-local`
+- Bun, when you use `make dev-local` or run `ui-v2` directly
 
 Give Docker enough memory for the services your workflows will provision. The larger sample workflow can use 4–6 GB.
 
@@ -24,6 +25,14 @@ make dev
 ```
 
 `make dev` performs the environment checks, detects the Docker socket, builds the development services, and applies both databases' pending migrations. Do not reset either database for a normal upgrade.
+
+The startup mode depends on the Docker socket:
+
+- With the standard `/var/run/docker.sock`, `make dev` runs the UI and runner in Docker Compose.
+- With a non-standard socket, including the default Colima socket at `$HOME/.colima/default/docker.sock`, `make dev` runs the UI in Docker and runs the Go runner on the host. The host runner uses the detected `DOCKER_HOST` and sets `TESTCONTAINERS_RYUK_DISABLED=true`.
+- If Dockerized UI development has volume or build issues on a machine, use `make dev-local` to run both the UI and runner directly on the host.
+
+The runner validates Docker at startup whenever the workflow worker or janitor is enabled. If Docker is stopped, the socket is wrong, or the socket is mounted incorrectly, startup fails immediately instead of allowing users to submit runs that will fail later.
 
 Open [http://localhost:3000/setup](http://localhost:3000/setup) on the first boot. Later boots use [http://localhost:3000/login](http://localhost:3000/login).
 
@@ -108,6 +117,7 @@ Confirm that the agent can:
 ```bash
 make doctor     # inspect prerequisites and ports
 make dev        # start UI + runner and apply migrations
+make dev-local  # run UI + runner directly on the host
 make agent-dev  # expose development MCP on port 8090
 make check      # run backend, frontend, and Compose checks
 make down       # stop services and preserve databases

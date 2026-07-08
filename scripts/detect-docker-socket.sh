@@ -22,6 +22,7 @@ if [[ "$CONTEXT_DOCKER_HOST" == unix://* ]]; then
 fi
 SOCKET_LOCATIONS+=(
     "/var/run/docker.sock"
+    "$HOME/.colima/default/docker.sock"
     "$HOME/.rd/docker.sock"
     "$HOME/.docker/run/docker.sock"
     "/run/docker.sock"

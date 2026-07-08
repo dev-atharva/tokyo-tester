@@ -53,12 +53,14 @@ The full matrix is intentionally opt-in through `make test-complex-e2e` because 
 - `docker-compose.yml` wires the UI and runner together with separate SQLite volumes
 - the frontend sync layer persists queued edits locally, flushes them to `POST /api/v1/sync/batch`, and hydrates from `GET /api/v1/sync/pull/{clientId}`
 - the runner's embedded SQLite worker coordinates execution, persists checkpoints, and streams replayable SSE updates to the UI
+- when workflow execution or cleanup is enabled, the runner validates Docker reachability during startup and fails before serving if the daemon or socket is unavailable
 
 ## Production Notes
 
 Follow the complete [Production deployment runbook](./docs/production-deployment.md) before exposing Tokyo Tester to a network. It covers DNS/TLS, secrets, migrations, verification, agent access, backups, upgrades, rollback, and incident commands.
 
 - `make prod` builds the standalone UI image and runs the single-server production stack
+- production startup detects the host Docker socket before Compose starts, then the runner checks Docker again from inside the container; a bad socket now fails startup instead of waiting until a workflow is run
 - the UI still uses Bun for app scripts, but database migration runs through `node ./src/db/migrate.mjs` because `better-sqlite3` is a Node-only runtime dependency
 - workflow definitions are synced from the browser, while execution-owned records like workflow runs, scenario runs, and test results are treated as backend-owned during execution
 - if you have an old UI image cached, rebuild the service before retesting production behavior:
@@ -77,10 +79,24 @@ make dev
 
 That checks the machine, starts the UI and runner, and applies pending UI and runner migrations. A database reset is not required for a normal update.
 
+`make dev` chooses the startup mode from the detected Docker socket:
+
+- standard `/var/run/docker.sock`: UI and runner run in Docker Compose
+- non-standard sockets such as Colima or Rancher Desktop: UI runs in Docker and the Go runner runs on the host with `TESTCONTAINERS_RYUK_DISABLED=true`
+
+If Dockerized UI mounts or local socket routing misbehave on a development machine, use:
+
+```bash
+make dev-local
+```
+
+That runs both the UI and runner on the host while still applying the same migrations and Docker checks.
+
 Useful commands:
 
 ```bash
 make prod
+make dev-local
 make check
 make down
 make reset # also deletes local database volumes
@@ -94,6 +110,7 @@ Common ports:
 
 - UI: `http://localhost:3000`
 - Runner API when using the host-runner development fallback: `http://localhost:8080`
+- Local MCP adapter: `http://localhost:8090/mcp`
 
 ## AI Agent Integration
 

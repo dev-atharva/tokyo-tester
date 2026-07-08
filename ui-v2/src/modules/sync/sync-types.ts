@@ -135,6 +135,7 @@ export interface SessionData {
   service_graph?: JsonValue;
   test_plan?: JsonValue;
   runtime_snapshot?: JsonValue;
+  version?: number;
   created_at: string;
   updated_at: string;
   user_id: string;

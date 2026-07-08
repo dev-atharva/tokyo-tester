@@ -1,3 +1,8 @@
+import type {
+  SessionData,
+  TestResultData,
+  WorkflowRunData,
+} from "@/modules/sync/sync-types";
 import type { WorkflowRunInput } from "../types/react-flow-cots";
 
 type Fetcher = (
@@ -25,4 +30,25 @@ export async function submitWorkflowRun(
     if (body) message = body;
   }
   throw new Error(message);
+}
+
+export interface WorkflowRunSnapshot {
+  workflowRun: WorkflowRunData;
+  scenarioRuns: SessionData[];
+  testResults: TestResultData[];
+}
+
+export async function fetchWorkflowRunSnapshot(
+  workflowRunId: string,
+  projectId: string,
+  fetcher: Fetcher = fetch,
+): Promise<WorkflowRunSnapshot> {
+  const query = new URLSearchParams({ projectId });
+  const response = await fetcher(
+    `/api/v1/workflow-runs/${encodeURIComponent(workflowRunId)}?${query.toString()}`,
+  );
+  if (!response.ok) {
+    throw new Error(`Runner returned ${response.status}`);
+  }
+  return (await response.json()) as WorkflowRunSnapshot;
 }

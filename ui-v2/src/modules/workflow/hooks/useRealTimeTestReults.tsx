@@ -31,9 +31,6 @@ export function useRealtimeTestResults({
     (state) => state.activeWorkflowRunId,
   );
   const executions = useExecutionStore((state) => state.executions);
-  const updateExecutionStatus = useExecutionStore(
-    (state) => state.updateExecutionStatus,
-  );
   const activeExecution = useMemo(
     () =>
       activeWorkflowRunId ? (executions[activeWorkflowRunId] ?? null) : null,
@@ -115,11 +112,6 @@ export function useRealtimeTestResults({
           ? activeExecution.finishedAt - activeExecution.startedAt
           : 0,
       };
-      updateExecutionStatus(
-        workflowRunId,
-        failed > 0 ? "partial_failed" : "completed",
-        summary,
-      );
       onAllTestsComplete?.(workflowRunId, summary);
       notifiedRuns.current.add(workflowRunId);
     }
@@ -128,7 +120,6 @@ export function useRealtimeTestResults({
     onAllTestsComplete,
     onTestComplete,
     testResults,
-    updateExecutionStatus,
     workflowRunId,
   ]);
 

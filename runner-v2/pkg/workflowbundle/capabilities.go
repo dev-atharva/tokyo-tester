@@ -9,6 +9,8 @@ type Capabilities struct {
 	TestTypes              []TestCapability `json:"testTypes"`
 	EdgeRelations          []string         `json:"edgeRelations"`
 	EdgeReadiness          []string         `json:"edgeReadiness"`
+	AuthoringRules         []string         `json:"authoringRules"`
+	ResourceURIs           []string         `json:"resourceUris"`
 	Limits                 map[string]int   `json:"limits"`
 }
 
@@ -35,6 +37,19 @@ func AgentCapabilities() Capabilities {
 		},
 		EdgeRelations: []string{"calls", "reads", "writes", "publishes", "consumes"},
 		EdgeReadiness: []string{"none", "source_requires_target", "target_requires_source"},
-		Limits:        map[string]int{"maxBundleBytes": 10 << 20},
+		AuthoringRules: []string{
+			"Inspect every relevant repository before authoring; ask targeted questions for missing evidence.",
+			"Send only compact summaries to MCP; never send source files, raw manifests, logs, or secrets.",
+			"Review complex or multi-repo plans with tokyo_review_workflow_plan before authoring the bundle.",
+			"Use container ports and validated sanitized service labels in tests.",
+			"Keep waitStratergy spelling in workflow JSON for schema version 2.",
+		},
+		ResourceURIs: []string{
+			"tokyo://authoring",
+			"tokyo://scenario-patterns",
+			"tokyo://quality-rubric",
+			"tokyo://capabilities",
+		},
+		Limits: map[string]int{"maxBundleBytes": 10 << 20, "maxReviewResponseWarnings": 8},
 	}
 }

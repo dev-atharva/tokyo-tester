@@ -6,6 +6,12 @@
       "sourceType": "github",
       "computedHash": "a4c830509e85557b59339d8d93a4e243e9e59c686e7678854d39230e12c2a6dc"
     },
+    "create-skill": {
+      "source": "siviter-xyz/dot-agent",
+      "sourceType": "github",
+      "skillPath": "skills/create-skill/SKILL.md",
+      "computedHash": "117464d5a01acfbf3c7d3939a90df78e2196025f545bdded831aa4aa63a80080"
+    },
     "frontend-design": {
       "source": "anthropics/skills",
       "sourceType": "github",
@@ -20,6 +26,12 @@
       "source": "itechmeat/llm-code",
       "sourceType": "github",
       "computedHash": "548231eb3e2c90365755d63464532eceb2468cc4c0a3cf91ef4132efe3467ea0"
+    },
+    "mcp-best-practices": {
+      "source": "tenequm/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mcp-best-practices/SKILL.md",
+      "computedHash": "2d747b7c25e3a074ab38a841de0d81cdee0f2630d80b9058cb820f00f5b1168b"
     },
     "next-best-practices": {
       "source": "vercel-labs/next-skills",

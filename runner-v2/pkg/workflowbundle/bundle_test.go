@@ -155,6 +155,177 @@ func TestDecodeAndTranslateScenario(t *testing.T) {
 	}
 }
 
+func TestTranslatePreservesCustomImageForPredefinedService(t *testing.T) {
+	raw := `{
+		"schemaVersion": 2,
+		"kind": "cots.workflow-bundle",
+		"workflow": {
+			"name": "Custom MySQL",
+			"nodes": [
+				{
+					"id": "mysql-node",
+					"data": {
+						"label": "mysql",
+						"service": {
+							"type": "mysql",
+							"image": "mysql:8.4"
+						}
+					}
+				}
+			],
+			"edges": []
+		},
+		"scenarios": [
+			{
+				"name": "database path",
+				"tests": [
+					{
+						"id": "test-db-1",
+						"name": "ping mysql",
+						"type": "database",
+						"targetServices": ["mysql"],
+						"databaseConfig": {
+							"driver": "mysql",
+							"database": "testdb",
+							"user": "root",
+							"password": "root",
+							"query": "SELECT 1"
+						}
+					}
+				],
+				"testOrder": ["test-db-1"]
+			}
+		]
+	}`
+
+	bundle, err := Decode(strings.NewReader(raw))
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+
+	translated, err := bundle.TranslateScenario(bundle.Scenarios[0])
+	if err != nil {
+		t.Fatalf("TranslateScenario() error = %v", err)
+	}
+
+	if got := translated.Services[0].Image; got != "mysql:8.4" {
+		t.Fatalf("expected custom mysql image to be preserved, got %q", got)
+	}
+}
+
+func TestTranslateQueueOmitsExpectedMessageWhenAbsent(t *testing.T) {
+	raw := `{
+		"schemaVersion": 2,
+		"kind": "cots.workflow-bundle",
+		"workflow": {
+			"name": "Kafka Consume",
+			"nodes": [
+				{
+					"id": "kafka-node",
+					"data": {
+						"label": "kafka",
+						"service": {
+							"type": "kafka"
+						}
+					}
+				}
+			],
+			"edges": []
+		},
+		"scenarios": [
+			{
+				"name": "consume without body assertion",
+				"tests": [
+					{
+						"id": "test-queue-1",
+						"name": "consume order",
+						"type": "queue",
+						"targetServices": ["kafka"],
+						"queueConfig": {
+							"service": "kafka",
+							"brokerType": "kafka",
+							"operation": "consume",
+							"topic": "orders"
+						}
+					}
+				],
+				"testOrder": ["test-queue-1"]
+			}
+		]
+	}`
+
+	bundle, err := Decode(strings.NewReader(raw))
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+
+	translated, err := bundle.TranslateScenario(bundle.Scenarios[0])
+	if err != nil {
+		t.Fatalf("TranslateScenario() error = %v", err)
+	}
+
+	if _, exists := translated.Tests[0].Config["expected_message"]; exists {
+		t.Fatalf("expected omitted expectedMessage to stay absent, got config %#v", translated.Tests[0].Config)
+	}
+}
+
+func TestTranslateQueueKeepsExplicitEmptyExpectedMessage(t *testing.T) {
+	raw := `{
+		"schemaVersion": 2,
+		"kind": "cots.workflow-bundle",
+		"workflow": {
+			"name": "Kafka Consume",
+			"nodes": [
+				{
+					"id": "kafka-node",
+					"data": {
+						"label": "kafka",
+						"service": {
+							"type": "kafka"
+						}
+					}
+				}
+			],
+			"edges": []
+		},
+		"scenarios": [
+			{
+				"name": "consume empty payload",
+				"tests": [
+					{
+						"id": "test-queue-1",
+						"name": "consume empty order",
+						"type": "queue",
+						"targetServices": ["kafka"],
+						"queueConfig": {
+							"service": "kafka",
+							"brokerType": "kafka",
+							"operation": "consume",
+							"topic": "orders",
+							"expectedMessage": ""
+						}
+					}
+				],
+				"testOrder": ["test-queue-1"]
+			}
+		]
+	}`
+
+	bundle, err := Decode(strings.NewReader(raw))
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+
+	translated, err := bundle.TranslateScenario(bundle.Scenarios[0])
+	if err != nil {
+		t.Fatalf("TranslateScenario() error = %v", err)
+	}
+
+	if got, exists := translated.Tests[0].Config["expected_message"]; !exists || got != "" {
+		t.Fatalf("expected explicit empty expectedMessage to be preserved, got %#v", translated.Tests[0].Config)
+	}
+}
+
 func TestDecodeRejectsInvalidSchemaVersion(t *testing.T) {
 	raw := `{
 		"schemaVersion": 3,
