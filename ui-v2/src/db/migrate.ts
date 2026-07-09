@@ -7,7 +7,9 @@ async function main() {
   const folder =
     database.type === "postgres"
       ? "./src/db/migrations/postgres"
-      : "./src/db/migrations/sqlite";
+      : database.type === "mysql"
+        ? "./src/db/migrations/mysql"
+        : "./src/db/migrations/sqlite";
   const absoluteFolder = resolve(process.cwd(), folder);
   const sql = readdirSync(absoluteFolder)
     .filter((entry) => entry.endsWith(".sql"))
@@ -17,6 +19,12 @@ async function main() {
 
   if (database.type === "postgres") {
     await database.client.unsafe(sql);
+    await database.client.end();
+    return;
+  }
+
+  if (database.type === "mysql") {
+    await database.client.query(sql);
     await database.client.end();
     return;
   }

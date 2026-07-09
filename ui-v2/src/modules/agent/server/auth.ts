@@ -63,7 +63,7 @@ export async function createAgentToken(input: {
     expiresAt: input.expiresAt,
     createdAt: new Date(),
   };
-  if (connection.type === "postgres") {
+  if (connection.type !== "sqlite") {
     await connection.db.insert(connection.tables.agentTokens).values(record);
   } else {
     connection.db.insert(connection.tables.agentTokens).values(record).run();
@@ -87,7 +87,7 @@ export async function authenticateAgentRequest(
     gt(connection.tables.agentTokens.expiresAt, new Date()),
   );
   const rows =
-    connection.type === "postgres"
+    connection.type !== "sqlite"
       ? await connection.db
           .select()
           .from(connection.tables.agentTokens)

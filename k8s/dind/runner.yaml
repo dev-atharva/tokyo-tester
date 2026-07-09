@@ -1,0 +1,159 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tokyo-runner
+  namespace: tokyo-tester
+  labels:
+    app.kubernetes.io/name: tokyo-runner
+    app.kubernetes.io/part-of: tokyo-tester
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tokyo-runner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tokyo-runner
+        app.kubernetes.io/part-of: tokyo-tester
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: runner
+          image: tokyo-runner:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          args:
+            - |
+              until docker info >/dev/null 2>&1; do
+                echo "waiting for DinD";
+                sleep 1;
+              done
+              exec /app/cots -migrate
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: APP_ENV
+              value: production
+            - name: PORT
+              value: "8080"
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: tokyo-config
+                  key: runner-log-level
+            - name: CORS_ORIGIN
+              valueFrom:
+                configMapKeyRef:
+                  name: tokyo-config
+                  key: public-origin
+            # Use sqlite by default. For postgres/mysql, set DB_TYPE and add DATABASE_URL from a Secret.
+            - name: DB_TYPE
+              value: sqlite
+            - name: DB_PATH
+              value: /app/data/cots.db
+            - name: DOCKER_HOST
+              value: unix:///var/run/docker.sock
+            - name: TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE
+              value: /var/run/docker.sock
+            - name: TESTCONTAINERS_HOST_OVERRIDE
+              value: 127.0.0.1
+            - name: TESTCONTAINERS_RYUK_DISABLED
+              value: "true"
+            - name: JANITOR_ENABLED
+              value: "true"
+            - name: WORKFLOW_WORKER_ENABLED
+              value: "true"
+            - name: WORKFLOW_WORKER_CONCURRENCY
+              valueFrom:
+                configMapKeyRef:
+                  name: tokyo-config
+                  key: workflow-worker-concurrency
+            - name: WORKFLOW_SCENARIO_CONCURRENCY
+              valueFrom:
+                configMapKeyRef:
+                  name: tokyo-config
+                  key: workflow-scenario-concurrency
+            - name: WORKFLOW_JOB_LEASE_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: tokyo-config
+                  key: workflow-job-lease-seconds
+            - name: WORKFLOW_JOB_HEARTBEAT_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: tokyo-config
+                  key: workflow-job-heartbeat-seconds
+            - name: WORKFLOW_JOB_MAX_RECOVERIES
+              valueFrom:
+                configMapKeyRef:
+                  name: tokyo-config
+                  key: workflow-job-max-recoveries
+            - name: WORKFLOW_EVENT_RETENTION_DAYS
+              valueFrom:
+                configMapKeyRef:
+                  name: tokyo-config
+                  key: workflow-event-retention-days
+            - name: WORKFLOW_JOB_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tokyo-secrets
+                  key: workflow-job-encryption-key
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - name: runner-data
+              mountPath: /app/data
+            - name: docker-run
+              mountPath: /var/run
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+        - name: dind
+          image: docker:27-dind
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: DOCKER_TLS_CERTDIR
+              value: ""
+          volumeMounts:
+            - name: docker-run
+              mountPath: /var/run
+            - name: docker-graph
+              mountPath: /var/lib/docker
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "4"
+              memory: 6Gi
+      volumes:
+        - name: runner-data
+          persistentVolumeClaim:
+            claimName: runner-data
+        - name: docker-run
+          emptyDir: {}
+        - name: docker-graph
+          emptyDir: {}

@@ -1,6 +1,8 @@
 # Production deployment runbook
 
-This runbook deploys Tokyo Tester to one Linux server with Docker Compose. Caddy is the only public entry point. The UI, MCP adapter, runner, SQLite databases, and Docker socket stay on the internal Compose network.
+This runbook deploys Tokyo Tester to one Linux server with Docker Compose. Caddy is the only public entry point. The UI, MCP adapter, runner, app databases, and Docker socket stay on the internal Compose network.
+
+For Kubernetes, use the separate [Kubernetes DinD deployment runbook](./kubernetes-dind-deployment.md). That profile runs the current Docker/Testcontainers runner with a privileged Docker-in-Docker sidecar and keeps native Kubernetes provisioning as a future architecture change.
 
 > Tokyo Tester's runner can create containers through the host Docker daemon. Treat the server and runner container as privileged infrastructure. Do not colocate unrelated, untrusted workloads on this host.
 
@@ -50,7 +52,9 @@ WORKFLOW_JOB_ENCRYPTION_KEY=<openssl-rand-base64-value>
 
 Keep `AUTH_SECRET` and `WORKFLOW_JOB_ENCRYPTION_KEY` in a protected password manager or secret store in addition to `.env`. Losing the workflow encryption key can make queued execution payloads unreadable. Changing either secret is an intentional rotation procedure, not a routine deployment step.
 
-The default deployment uses `runner_data` for workflows, revisions, executions, and results, and `ui_data` for authentication, projects, memberships, and agent tokens. PostgreSQL can be selected separately with `RUNNER_DB_TYPE`, `RUNNER_DATABASE_URL`, `UI_DB_TYPE`, and `UI_DATABASE_URL`.
+The default deployment uses `runner_data` for workflows, revisions, executions, and results, and `ui_data` for authentication, projects, memberships, and agent tokens. SQLite is the default app database. PostgreSQL or MySQL can be selected separately with `RUNNER_DB_TYPE`, `RUNNER_DATABASE_URL`, `UI_DB_TYPE`, and `UI_DATABASE_URL`; use `postgres` or `mysql` as the `*_DB_TYPE` value. Workflow MySQL service nodes are separate from this app database setting.
+
+For MySQL, the UI expects a normal MySQL URL such as `mysql://user:pass@host:3306/tokyo_ui`. The runner accepts either that URL shape or the Go MySQL DSN shape such as `user:pass@tcp(host:3306)/tokyo_runner`; it enables `parseTime=true` and `multiStatements=true` automatically.
 
 ## 3. Validate and deploy
 
@@ -123,7 +127,7 @@ docker compose --profile agent up -d
 sha256sum "$BACKUP_DIR"/*.tgz > "$BACKUP_DIR/SHA256SUMS"
 ```
 
-Store the archives and matching secret values encrypted, off the server. Regularly test restoration on a separate machine. With PostgreSQL, use the provider's snapshot or `pg_dump`/`pg_restore` procedure instead of copying container files.
+Store the archives and matching secret values encrypted, off the server. Regularly test restoration on a separate machine. With PostgreSQL or MySQL, use the provider's snapshot/export procedure instead of copying container files.
 
 ### Restore a backup
 

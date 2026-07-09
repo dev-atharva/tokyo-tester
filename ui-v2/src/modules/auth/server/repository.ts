@@ -2,6 +2,11 @@ import { eq, sql } from "drizzle-orm";
 import { type DatabaseConnection, getDb } from "@/db";
 import type { AuthUser, UserListItem } from "../types";
 
+type UserRow = Record<string, unknown> & {
+  createdAt?: unknown;
+  updatedAt?: unknown;
+};
+
 function mapUser(record: Record<string, unknown> | undefined): AuthUser | null {
   if (!record) {
     return null;
@@ -20,7 +25,7 @@ function mapUser(record: Record<string, unknown> | undefined): AuthUser | null {
 async function countUsersWithConnection(
   connection: DatabaseConnection,
 ): Promise<number> {
-  if (connection.type === "postgres") {
+  if (connection.type !== "sqlite") {
     const result = await connection.db
       .select({ count: sql<number>`count(*)` })
       .from(connection.tables.users);
@@ -43,7 +48,7 @@ export async function countUsers(): Promise<number> {
 export async function getUserByEmail(email: string): Promise<AuthUser | null> {
   const connection = getDb();
 
-  if (connection.type === "postgres") {
+  if (connection.type !== "sqlite") {
     const rows = await connection.db
       .select()
       .from(connection.tables.users)
@@ -65,7 +70,7 @@ export async function getUserByEmail(email: string): Promise<AuthUser | null> {
 export async function getUserById(id: string): Promise<AuthUser | null> {
   const connection = getDb();
 
-  if (connection.type === "postgres") {
+  if (connection.type !== "sqlite") {
     const rows = await connection.db
       .select()
       .from(connection.tables.users)
@@ -87,18 +92,16 @@ export async function getUserById(id: string): Promise<AuthUser | null> {
 export async function listUsers(): Promise<UserListItem[]> {
   const connection = getDb();
 
-  if (connection.type === "postgres") {
-    const rows = await connection.db
-      .select()
-      .from(connection.tables.users);
+  if (connection.type !== "sqlite") {
+    const rows = await connection.db.select().from(connection.tables.users);
 
     return rows
-      .map((row) => ({
+      .map((row: UserRow) => ({
         ...(mapUser(row as Record<string, unknown>) as AuthUser),
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       }))
-      .sort((left, right) =>
+      .sort((left: UserListItem, right: UserListItem) =>
         String(left.email).localeCompare(String(right.email)),
       );
   }
@@ -106,18 +109,20 @@ export async function listUsers(): Promise<UserListItem[]> {
   const rows = connection.db.select().from(connection.tables.users).all();
 
   return rows
-    .map((row) => ({
+    .map((row: UserRow) => ({
       ...(mapUser(row as Record<string, unknown>) as AuthUser),
       createdAt: row.createdAt ? Number(row.createdAt) : null,
       updatedAt: row.updatedAt ? Number(row.updatedAt) : null,
     }))
-    .sort((left, right) => String(left.email).localeCompare(String(right.email)));
+    .sort((left: UserListItem, right: UserListItem) =>
+      String(left.email).localeCompare(String(right.email)),
+    );
 }
 
 export async function updateUserTimestamp(id: string): Promise<void> {
   const connection = getDb();
 
-  if (connection.type === "postgres") {
+  if (connection.type !== "sqlite") {
     await connection.db
       .update(connection.tables.users)
       .set({ updatedAt: new Date() })
@@ -139,7 +144,7 @@ export async function updateUserStatus(
   const connection = getDb();
   const payload = { isActive, updatedAt: new Date() };
 
-  if (connection.type === "postgres") {
+  if (connection.type !== "sqlite") {
     await connection.db
       .update(connection.tables.users)
       .set(payload)

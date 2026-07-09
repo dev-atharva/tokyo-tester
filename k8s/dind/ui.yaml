@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tokyo-ui
+  namespace: tokyo-tester
+  labels:
+    app.kubernetes.io/name: tokyo-ui
+    app.kubernetes.io/part-of: tokyo-tester
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tokyo-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tokyo-ui
+        app.kubernetes.io/part-of: tokyo-tester
+    spec:
+      containers:
+        - name: ui
+          image: tokyo-ui:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          args:
+            - bun run db:migrate && bun run start
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "3000"
+            - name: COTS_API_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tokyo-config
+                  key: runner-url
+            # Use sqlite by default. For postgres/mysql, set DB_TYPE and add DATABASE_URL from a Secret.
+            - name: DB_TYPE
+              value: sqlite
+            - name: DB_PATH
+              value: /app/data/tokyo-tester-auth.db
+            - name: AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tokyo-secrets
+                  key: auth-secret
+            - name: AUTH_TRUST_HOST
+              value: "true"
+            - name: AUTH_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tokyo-config
+                  key: public-origin
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - name: ui-data
+              mountPath: /app/data
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: ui-data
+          persistentVolumeClaim:
+            claimName: ui-data

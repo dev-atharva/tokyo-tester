@@ -58,7 +58,8 @@ export async function createInitialAdmin(
   const now = new Date();
 
   if (connection.type === "postgres") {
-    const user = await connection.db.transaction(async (tx) => {
+    // biome-ignore lint/suspicious/noExplicitAny: Drizzle transaction types are dialect-specific and selected at runtime.
+    const user = await connection.db.transaction(async (tx: any) => {
       const existingUsers = await tx
         .select({ count: sql<number>`count(*)` })
         .from(connection.tables.users);
@@ -84,6 +85,53 @@ export async function createInitialAdmin(
 
       return inserted[0];
     });
+
+    const result = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      isActive: user.isActive,
+      passwordHash: user.passwordHash,
+    };
+    await ensurePersonalProject(result.id);
+    return result;
+  }
+
+  if (connection.type === "mysql") {
+    // biome-ignore lint/suspicious/noExplicitAny: Drizzle transaction types are dialect-specific and selected at runtime.
+    const user = await connection.db.transaction(async (tx: any) => {
+      const existingUsers = await tx
+        .select({ count: sql<number>`count(*)` })
+        .from(connection.tables.users);
+
+      if (Number(existingUsers[0]?.count ?? 0) > 0) {
+        throw new Error("Initial setup has already been completed.");
+      }
+
+      await tx.insert(connection.tables.users).values({
+        id: userId,
+        email: normalizedEmail,
+        name: input.name.trim(),
+        passwordHash,
+        role: ADMIN_USER_ROLE,
+        isActive: true,
+        setupCompletedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const rows = await tx
+        .select()
+        .from(connection.tables.users)
+        .where(eq(connection.tables.users.id, userId))
+        .limit(1);
+      return rows[0];
+    });
+
+    if (!user) {
+      throw new Error("Failed to create initial administrator.");
+    }
 
     const result = {
       id: user.id,
@@ -187,6 +235,26 @@ export async function createUser(input: CreateUserInput): Promise<AuthUser> {
     };
     await ensurePersonalProject(result.id);
     return result;
+  }
+
+  if (connection.type === "mysql") {
+    await connection.db.insert(connection.tables.users).values({
+      id: userId,
+      email: normalizedEmail,
+      name: input.name.trim(),
+      passwordHash,
+      role: input.role || DEFAULT_USER_ROLE,
+      isActive: input.isActive ?? true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const user = await getUserById(userId);
+    if (!user) {
+      throw new Error("Failed to create user.");
+    }
+    await ensurePersonalProject(user.id);
+    return user;
   }
 
   connection.db

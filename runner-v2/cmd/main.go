@@ -14,6 +14,7 @@ import (
 	"github.com/dev-atharva/cots/pkg/api"
 	"github.com/dev-atharva/cots/pkg/config"
 	"github.com/dev-atharva/cots/pkg/db"
+	mysqldb "github.com/dev-atharva/cots/pkg/db/mysql"
 	"github.com/dev-atharva/cots/pkg/db/postgres"
 	"github.com/dev-atharva/cots/pkg/db/sqlite"
 	"github.com/dev-atharva/cots/pkg/dockerhealth"
@@ -94,6 +95,13 @@ func main() {
 			} else {
 				log.Info("PostgresSQL database initialized")
 			}
+		case "mysql":
+			database, err = mysqldb.NewClient(cfg.Database.URL)
+			if err != nil {
+				log.Warn("failed to initialize MySQL database", "error", err)
+			} else {
+				log.Info("MySQL database initialized")
+			}
 		}
 
 		if database != nil {
@@ -128,6 +136,7 @@ func main() {
 		log.Info("to enable database sync: ")
 		log.Info(" For SQlite: export DB_TYPE=sqlite DB_PATH=./data/cots.db")
 		log.Info(" For Postgres: export DB_TYPE=postgres DATABASE_URL=postgres://user:pass@host:5432/db")
+		log.Info(" For MySQL: export DB_TYPE=mysql DATABASE_URL=mysql://user:pass@host:3306/db")
 	}
 
 	handler := api.NewHandler(database, cfg.App)

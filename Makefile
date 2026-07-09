@@ -4,6 +4,9 @@ COMPOSE := docker compose
 COMPOSE_FILES := -f docker-compose.yml
 DEV_COMPOSE_FILES := -f docker-compose.yml -f docker-compose.dev.yml
 SOCKET_ENV_FILE := .env.docker-socket
+K8S_DIR ?= k8s/dind
+KUBECTL ?= kubectl
+IMAGE_TAG ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo local)
 DEV_SECRETS = AUTH_SECRET="$${AUTH_SECRET:-local-dev-auth-secret}" WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}"
 UI_RUNNER_CHECK_PATHS := proxy.ts package.json src/app/layout.tsx src/app/globals.css src/app/api/v1/workflow-runs src/modules/sync/sync-hydration.tsx src/modules/workflow/hooks/useRealtimeLogs.tsx src/modules/workflow/hooks/useWorkflowExecution.tsx src/modules/workflow/lib src/modules/workflow/server src/modules/workflow/stores/execution.store.sync.ts src/modules/workflow/types/workflow-run-input.contract.test.ts
 ENV_LOADER = set -a; \
@@ -11,13 +14,13 @@ ENV_LOADER = set -a; \
 	if [ -f ./.env ]; then . ./.env; fi; \
 	set +a;
 
-.PHONY: help ensure-docker-socket doctor dev dev-docker dev-host-runner dev-local dev-support runner-dev ui-dev agent-dev prod down reset test test-go test-ui test-test-api test-api-build test-complex-e2e check compose-check
+.PHONY: help ensure-docker-socket doctor dev dev-docker dev-host-runner dev-local dev-support runner-dev ui-dev agent-dev prod k8s-render k8s-apply k8s-build-images k8s-push-images down reset test test-go test-ui test-test-api test-api-build test-complex-e2e check compose-check
 
 help: ## Show available commands
 	@printf "Tokyo Tester commands\n\n"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-8s %s\n", $$1, $$2}'
-	@printf "\nOptional env: use .env for app overrides. Docker socket settings are auto-detected into $(SOCKET_ENV_FILE).\n"
+	@printf "\nOptional env: use .env for app overrides. RUNNER_DB_TYPE and UI_DB_TYPE accept sqlite, postgres, or mysql. Docker socket settings are auto-detected into $(SOCKET_ENV_FILE).\n"
 
 ensure-docker-socket: ## Detect the Docker socket and write .env.docker-socket
 	@bash ./scripts/detect-docker-socket.sh
@@ -102,6 +105,24 @@ agent-dev: ensure-docker-socket ## Expose the local MCP server on http://localho
 
 prod: ensure-docker-socket ## Run the local production-like stack
 	@$(ENV_LOADER) $(COMPOSE) $(COMPOSE_FILES) --profile agent up --build -d
+
+k8s-render: ## Render the Kubernetes DinD deployment manifests
+	@$(KUBECTL) kustomize $(K8S_DIR)
+
+k8s-apply: ## Apply the Kubernetes DinD deployment manifests
+	@$(KUBECTL) apply -k $(K8S_DIR)
+
+k8s-build-images: ## Build Kubernetes images (set IMAGE_REGISTRY=registry/org)
+	@test -n "$(IMAGE_REGISTRY)" || (printf "Set IMAGE_REGISTRY=registry/org\n"; exit 1)
+	docker build -t $(IMAGE_REGISTRY)/tokyo-runner:$(IMAGE_TAG) --target runner ./runner-v2
+	docker build -t $(IMAGE_REGISTRY)/tokyo-mcp:$(IMAGE_TAG) --target mcp ./runner-v2
+	docker build -t $(IMAGE_REGISTRY)/tokyo-ui:$(IMAGE_TAG) ./ui-v2
+
+k8s-push-images: ## Push Kubernetes images (set IMAGE_REGISTRY=registry/org)
+	@test -n "$(IMAGE_REGISTRY)" || (printf "Set IMAGE_REGISTRY=registry/org\n"; exit 1)
+	docker push $(IMAGE_REGISTRY)/tokyo-runner:$(IMAGE_TAG)
+	docker push $(IMAGE_REGISTRY)/tokyo-mcp:$(IMAGE_TAG)
+	docker push $(IMAGE_REGISTRY)/tokyo-ui:$(IMAGE_TAG)
 
 test: test-go test-ui test-test-api ## Run backend and frontend tests
 

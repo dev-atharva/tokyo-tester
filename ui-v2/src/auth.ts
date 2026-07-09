@@ -12,7 +12,7 @@ import {
 function getAdapter(): Adapter {
   const database = getDb();
 
-  if (database.type === "postgres") {
+  if (database.type === "postgres" || database.type === "mysql") {
     return DrizzleAdapter(database.db, {
       usersTable: database.tables.users,
       accountsTable: database.tables.accounts,

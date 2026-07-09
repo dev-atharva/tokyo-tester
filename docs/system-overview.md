@@ -36,7 +36,7 @@ That translation happens in the UI before the run starts, and again in the runne
 
 When the user starts execution, the UI creates a workflow run id, prepares scenario run ids, updates local state, flushes pending workflow changes, and submits the run to `POST /api/v1/workflow-runs`.
 
-The runner's embedded SQLite worker then takes over:
+The runner's embedded durable worker then takes over:
 
 - it has already checked Docker reachability during startup when workflow execution or cleanup is enabled
 - it validates the workflow again
@@ -151,7 +151,7 @@ When a terminal workflow SSE event arrives, the UI updates immediately and then 
 
 ## Runtime notes
 
-- the UI production image runs the app with Bun, but database migration uses a small Node entrypoint because `better-sqlite3` is not supported by Bun
+- the UI production image runs the app with Bun, but database migration uses a small Node entrypoint so SQLite, PostgreSQL, and MySQL migrations run consistently
 - DB-backed routes are forced to render dynamically in the production build so auth and workflow pages are not incorrectly treated as static at build time
 - in development, `make dev` auto-selects Docker Compose or host-runner mode based on the detected Docker socket; `make dev-local` runs both UI and runner on the host for socket or volume edge cases
 - in production, `make prod` still starts the Compose stack, but the runner now fails fast when Docker is unreachable instead of accepting workflow submissions that cannot run

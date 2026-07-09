@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-export type DatabaseType = "sqlite" | "postgres";
+export type DatabaseType = "sqlite" | "postgres" | "mysql";
 
 export interface DatabaseConfig {
   type: DatabaseType;
@@ -10,7 +10,12 @@ export interface DatabaseConfig {
 }
 
 export function getDatabaseConfig(): DatabaseConfig {
-  const type = process.env.DB_TYPE === "postgres" ? "postgres" : "sqlite";
+  const type =
+    process.env.DB_TYPE === "postgres"
+      ? "postgres"
+      : process.env.DB_TYPE === "mysql"
+        ? "mysql"
+        : "sqlite";
   const sqlitePath = resolve(
     process.env.DB_PATH || "./data/tokyo-tester-auth.db",
   );
@@ -29,8 +34,11 @@ export function getDatabaseConfig(): DatabaseConfig {
 export function assertDatabaseConfig(
   config = getDatabaseConfig(),
 ): DatabaseConfig {
-  if (config.type === "postgres" && !config.databaseUrl) {
-    throw new Error("DATABASE_URL must be set when DB_TYPE=postgres");
+  if (
+    (config.type === "postgres" || config.type === "mysql") &&
+    !config.databaseUrl
+  ) {
+    throw new Error(`DATABASE_URL must be set when DB_TYPE=${config.type}`);
   }
 
   return config;

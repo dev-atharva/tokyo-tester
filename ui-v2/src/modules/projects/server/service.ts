@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import type {
   ProjectAction,
@@ -64,7 +64,7 @@ function mapMembership(
 }
 
 function sortMemberships(projects: ProjectMembership[]) {
-  return projects.sort((left, right) => {
+  return projects.sort((left: ProjectMembership, right: ProjectMembership) => {
     if (left.kind !== right.kind) return left.kind === "personal" ? -1 : 1;
     return left.name.localeCompare(right.name);
   });
@@ -76,7 +76,7 @@ export async function listProjectsForUser(
 ): Promise<ProjectMembership[]> {
   const connection = getDb();
 
-  if (connection.type === "postgres") {
+  if (connection.type !== "sqlite") {
     const rows =
       role === "admin"
         ? await connection.db
@@ -109,7 +109,7 @@ export async function listProjectsForUser(
             .where(eq(connection.tables.projectMembers.userId, userId));
 
     return sortMemberships(
-      rows.map((row) => mapMembership(row as Record<string, unknown>, role)),
+      rows.map((row: Record<string, unknown>) => mapMembership(row, role)),
     );
   }
 
@@ -147,9 +147,7 @@ export async function listProjectsForUser(
           .all();
 
   return sortMemberships(
-    projectRows.map((row) =>
-      mapMembership(row as Record<string, unknown>, role),
-    ),
+    projectRows.map((row: Record<string, unknown>) => mapMembership(row, role)),
   );
 }
 
@@ -162,7 +160,8 @@ export async function createProject(
   const projectId = randomUUID();
 
   if (connection.type === "postgres") {
-    const result = await connection.db.transaction(async (tx) => {
+    // biome-ignore lint/suspicious/noExplicitAny: Drizzle transaction types are dialect-specific and selected at runtime.
+    const result = await connection.db.transaction(async (tx: any) => {
       const inserted = await tx
         .insert(connection.tables.projects)
         .values({
@@ -183,6 +182,37 @@ export async function createProject(
       });
 
       return inserted[0];
+    });
+
+    return mapProject(result as Record<string, unknown>);
+  }
+
+  if (connection.type === "mysql") {
+    // biome-ignore lint/suspicious/noExplicitAny: Drizzle transaction types are dialect-specific and selected at runtime.
+    const result = await connection.db.transaction(async (tx: any) => {
+      await tx.insert(connection.tables.projects).values({
+        id: projectId,
+        name: name.trim(),
+        kind: "team",
+        createdBy: adminUserId,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await tx.insert(connection.tables.projectMembers).values({
+        projectId,
+        userId: adminUserId,
+        role: "owner",
+        createdAt: now,
+      });
+
+      const rows = await tx
+        .select()
+        .from(connection.tables.projects)
+        .where(eq(connection.tables.projects.id, projectId))
+        .limit(1);
+
+      return rows[0];
     });
 
     return mapProject(result as Record<string, unknown>);
@@ -229,7 +259,7 @@ export async function ensurePersonalProject(
   const now = new Date();
 
   const findExisting = async () => {
-    if (connection.type === "postgres") {
+    if (connection.type !== "sqlite") {
       const rows = await connection.db
         .select()
         .from(connection.tables.projects)
@@ -270,6 +300,13 @@ export async function ensurePersonalProject(
         .insert(connection.tables.projects)
         .values(values)
         .onConflictDoNothing();
+    } else if (connection.type === "mysql") {
+      await connection.db
+        .insert(connection.tables.projects)
+        .values(values)
+        .onDuplicateKeyUpdate({
+          set: { id: sql`${connection.tables.projects.id}` },
+        });
     } else {
       connection.db
         .insert(connection.tables.projects)
@@ -298,6 +335,13 @@ export async function ensurePersonalProject(
         ],
         set: { role: "owner" },
       });
+  } else if (connection.type === "mysql") {
+    await connection.db
+      .insert(connection.tables.projectMembers)
+      .values(membership)
+      .onDuplicateKeyUpdate({
+        set: { role: "owner" },
+      });
   } else {
     connection.db
       .insert(connection.tables.projectMembers)
@@ -322,7 +366,7 @@ export async function getProject(
 ): Promise<ProjectSummary | null> {
   const connection = getDb();
   const row =
-    connection.type === "postgres"
+    connection.type !== "sqlite"
       ? (
           await connection.db
             .select()
@@ -343,7 +387,7 @@ export async function listProjectMembers(
 ): Promise<ProjectMemberUser[]> {
   const connection = getDb();
 
-  if (connection.type === "postgres") {
+  if (connection.type !== "sqlite") {
     const rows = await connection.db
       .select({
         id: connection.tables.users.id,
@@ -360,7 +404,9 @@ export async function listProjectMembers(
       )
       .where(eq(connection.tables.projectMembers.projectId, projectId));
 
-    return rows.sort((left, right) => left.email.localeCompare(right.email));
+    return rows.sort((left: ProjectMemberUser, right: ProjectMemberUser) =>
+      left.email.localeCompare(right.email),
+    );
   }
 
   const rows = connection.db
@@ -381,8 +427,17 @@ export async function listProjectMembers(
     .all();
 
   return rows
-    .map((row) => ({ ...row, isActive: Boolean(row.isActive) }))
-    .sort((left, right) => left.email.localeCompare(right.email));
+    .map((row: Record<string, unknown>) => ({
+      id: String(row.id),
+      email: String(row.email),
+      name: row.name ? String(row.name) : null,
+      role: String(row.role),
+      projectRole: row.projectRole as ProjectRole,
+      isActive: Boolean(row.isActive),
+    }))
+    .sort((left: ProjectMemberUser, right: ProjectMemberUser) =>
+      left.email.localeCompare(right.email),
+    );
 }
 
 export async function addUsersToProject(
@@ -414,6 +469,25 @@ export async function addUsersToProject(
       .insert(connection.tables.projectMembers)
       .values(members)
       .onConflictDoNothing();
+    return;
+  }
+
+  if (connection.type === "mysql") {
+    for (const userId of userIds) {
+      await connection.db
+        .insert(connection.tables.projectMembers)
+        .values({
+          projectId,
+          userId,
+          role: projectRole,
+          createdAt: now,
+        })
+        .onDuplicateKeyUpdate({
+          set: {
+            userId: sql`${connection.tables.projectMembers.userId}`,
+          },
+        });
+    }
     return;
   }
 
@@ -450,7 +524,7 @@ export async function removeUserFromProject(
     throw new Error("The final team owner cannot be removed");
   }
 
-  if (connection.type === "postgres") {
+  if (connection.type !== "sqlite") {
     await connection.db
       .delete(connection.tables.projectMembers)
       .where(
@@ -498,7 +572,7 @@ export async function updateProjectMemberRole(
     eq(connection.tables.projectMembers.projectId, projectId),
     eq(connection.tables.projectMembers.userId, userId),
   );
-  if (connection.type === "postgres") {
+  if (connection.type !== "sqlite") {
     await connection.db
       .update(connection.tables.projectMembers)
       .set({ role: projectRole })
@@ -560,29 +634,33 @@ export async function listUnassignedUsersForProject(
   const members = await listProjectMembers(projectId);
   const memberIds = new Set(members.map((member) => member.id));
 
-  if (connection.type === "postgres") {
+  if (connection.type !== "sqlite") {
     const rows = await connection.db.select().from(connection.tables.users);
     return rows
-      .filter((row) => !memberIds.has(row.id))
-      .map((row) => ({
-        id: row.id,
-        email: row.email,
-        name: row.name,
-        role: row.role,
-        isActive: row.isActive,
+      .filter((row: Record<string, unknown>) => !memberIds.has(String(row.id)))
+      .map((row: Record<string, unknown>) => ({
+        id: String(row.id),
+        email: String(row.email),
+        name: row.name ? String(row.name) : null,
+        role: String(row.role),
+        isActive: Boolean(row.isActive),
       }))
-      .sort((left, right) => left.email.localeCompare(right.email));
+      .sort((left: ProjectMemberUser, right: ProjectMemberUser) =>
+        left.email.localeCompare(right.email),
+      );
   }
 
   const rows = connection.db.select().from(connection.tables.users).all();
   return rows
-    .filter((row) => !memberIds.has(String(row.id)))
-    .map((row) => ({
+    .filter((row: Record<string, unknown>) => !memberIds.has(String(row.id)))
+    .map((row: Record<string, unknown>) => ({
       id: String(row.id),
       email: String(row.email),
       name: row.name ? String(row.name) : null,
       role: String(row.role),
       isActive: Boolean(row.isActive),
     }))
-    .sort((left, right) => left.email.localeCompare(right.email));
+    .sort((left: ProjectMemberUser, right: ProjectMemberUser) =>
+      left.email.localeCompare(right.email),
+    );
 }

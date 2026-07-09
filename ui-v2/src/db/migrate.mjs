@@ -1,10 +1,16 @@
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import Database from "better-sqlite3";
+import mysql from "mysql2/promise";
 import postgres from "postgres";
 
 function getDatabaseConfig() {
-  const type = process.env.DB_TYPE === "postgres" ? "postgres" : "sqlite";
+  const type =
+    process.env.DB_TYPE === "postgres"
+      ? "postgres"
+      : process.env.DB_TYPE === "mysql"
+        ? "mysql"
+        : "sqlite";
   const sqlitePath = resolve(
     process.env.DB_PATH || "./data/tokyo-tester-auth.db",
   );
@@ -23,14 +29,19 @@ function getDatabaseConfig() {
 async function main() {
   const database = getDatabaseConfig();
 
-  if (database.type === "postgres" && !database.databaseUrl) {
-    throw new Error("DATABASE_URL must be set when DB_TYPE=postgres");
+  if (
+    (database.type === "postgres" || database.type === "mysql") &&
+    !database.databaseUrl
+  ) {
+    throw new Error(`DATABASE_URL must be set when DB_TYPE=${database.type}`);
   }
 
   const folder =
     database.type === "postgres"
       ? "./src/db/migrations/postgres"
-      : "./src/db/migrations/sqlite";
+      : database.type === "mysql"
+        ? "./src/db/migrations/mysql"
+        : "./src/db/migrations/sqlite";
   const absoluteFolder = resolve(process.cwd(), folder);
   const migrations = readdirSync(absoluteFolder)
     .filter((entry) => entry.endsWith(".sql"))
@@ -63,6 +74,33 @@ async function main() {
           INSERT INTO "_ui_schema_migration" ("name") VALUES (${migration.name})
         `;
       });
+    }
+    await client.end();
+    return;
+  }
+
+  if (database.type === "mysql") {
+    const client = mysql.createPool({
+      uri: database.databaseUrl,
+      multipleStatements: true,
+    });
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS \`_ui_schema_migration\` (
+        \`name\` VARCHAR(255) PRIMARY KEY,
+        \`appliedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    for (const migration of migrations) {
+      const [applied] = await client.query(
+        "SELECT 1 FROM `_ui_schema_migration` WHERE `name` = ?",
+        [migration.name],
+      );
+      if (Array.isArray(applied) && applied.length > 0) continue;
+      await client.query(migration.sql);
+      await client.query(
+        "INSERT INTO `_ui_schema_migration` (`name`) VALUES (?)",
+        [migration.name],
+      );
     }
     await client.end();
     return;
