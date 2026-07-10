@@ -3,7 +3,11 @@ import "./globals.css";
 import { ThemeProvider } from "next-themes";
 import { auth } from "@/auth";
 import { AppShell } from "@/modules/auth/components/app-shell";
-import { listProjectsForUser } from "@/modules/projects/server/service";
+import { getUserById } from "@/modules/auth/server/service";
+import {
+  ensurePersonalProject,
+  listProjectsForUser,
+} from "@/modules/projects/server/service";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +28,15 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
-  const projects = session?.user?.id
-    ? await listProjectsForUser(session.user.id, session.user.role)
+  const sessionUser = session?.user?.id
+    ? await getUserById(session.user.id)
+    : null;
+
+  if (sessionUser) {
+    await ensurePersonalProject(sessionUser.id);
+  }
+  const projects = sessionUser
+    ? await listProjectsForUser(sessionUser.id, sessionUser.role)
     : [];
 
   return (
@@ -33,10 +44,10 @@ export default async function RootLayout({
       <body className="antialiased">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <AppShell
-            userId={session?.user?.id ?? null}
-            userName={session?.user?.name ?? null}
-            userEmail={session?.user?.email ?? null}
-            userRole={session?.user?.role ?? null}
+            userId={sessionUser?.id ?? null}
+            userName={sessionUser?.name ?? null}
+            userEmail={sessionUser?.email ?? null}
+            userRole={sessionUser?.role ?? null}
             projects={projects}
           >
             {children}

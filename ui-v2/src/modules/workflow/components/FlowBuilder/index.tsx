@@ -5,6 +5,7 @@ import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import "@xyflow/react/dist/style.css";
 import { toast } from "sonner";
+import { useProjectContext } from "@/modules/projects/project-context";
 import {
   createGenericServiceNode,
   createKafkaNode,
@@ -33,9 +34,11 @@ import { ExecutionHistory } from "../ExecutionHistory";
 import { ShortcutsDialog } from "../KeyboardShortCutsDialog";
 import { NodeConfigDialog } from "../NodeConfigDialog";
 import { NodeDrawer } from "../NodeDrawer";
+import { RunWorkflowDialog } from "../RunWorkflowDialog";
 import { ScenarioDialog } from "../ScenarioDialog";
 import { ServiceNode } from "../ServiceNode";
 import { WorkflowLogsDrawer } from "../WorkflowLogsDrawer";
+import { WorkflowVersionsDialog } from "../WorkflowVersionsDialog";
 import { FlowCanvas } from "./FlowCanvas";
 
 const EXECUTION_FALLBACK_POLL_INTERVAL_MS = 15000;
@@ -87,6 +90,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   } = useUIStore();
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isVersionsOpen, setIsVersionsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"overview" | "detail">("overview");
   const [selectedArchitectureNodeId, setSelectedArchitectureNodeId] = useState<
     string | null
@@ -95,6 +99,10 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
     string[] | null
   >(null);
   const autoLayoutWorkflowRef = useRef<string | null>(null);
+  const [isRunDialogOpen, setIsRunDialogOpen] = useState(false);
+  const { activeProject } = useProjectContext();
+  const canEdit = activeProject?.allowedActions.includes("edit") ?? false;
+  const canRun = activeProject?.allowedActions.includes("run") ?? false;
 
   // Graph operations
   const {
@@ -131,6 +139,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
 
   useEffect(() => {
     if (
+      !canEdit ||
       !workflow ||
       nodes.length === 0 ||
       autoLayoutWorkflowRef.current === workflow.id ||
@@ -139,8 +148,8 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
       return;
     }
     autoLayoutWorkflowRef.current = workflow.id;
-    void tidyLayout();
-  }, [edges, nodes.length, tidyLayout, workflow]);
+    void tidyLayout({ persist: false });
+  }, [canEdit, edges, nodes.length, tidyLayout, workflow]);
 
   // Execution
   const { execute, isExecuting, canExecute } = useWorkflowExecution({
@@ -152,6 +161,16 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
     onComplete: onWorkComplete,
     onError,
   });
+  const runnableScenarios = useMemo(
+    () =>
+      Object.values(scenariosMap)
+        .filter(
+          (scenario) =>
+            scenario.workflowId === workflowId && !scenario.is_deleted,
+        )
+        .sort((left, right) => right.updated_at.localeCompare(left.updated_at)),
+    [scenariosMap, workflowId],
+  );
 
   // Realtime logs
   const { isConnected: isRunnerRealtimeConnected } = useRealtimeLogs({
@@ -285,11 +304,11 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
         ...node,
         data: {
           ...node.data,
-          onDelete: deleteNode,
+          onDelete: canEdit ? deleteNode : undefined,
         },
       })),
     );
-  }, [workflow?.id, deleteNode, setNodes, workflow]);
+  }, [workflow?.id, deleteNode, setNodes, workflow, canEdit]);
 
   // Add service node helper
   const handleAddNode = (
@@ -384,13 +403,15 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
       },
       openAddNode: {
         shortcut: { key: "n", ctrl: true },
-        handler: openDrawer,
+        handler: () => {
+          if (canEdit) openDrawer();
+        },
       },
       runWorkflow: {
         shortcut: { key: "Enter", ctrl: true },
         handler: () => {
-          if (canExecute) {
-            execute();
+          if (canRun && canExecute) {
+            setIsRunDialogOpen(true);
           }
         },
       },
@@ -460,14 +481,16 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           onConnect={connectNodes}
           onNodeDoubleClick={(_, node) => openNodeConfig(node)}
           onEdgeClick={(_, edge) => setEditingEdgeId(edge.id)}
-          onExecute={execute}
+          onExecute={() => setIsRunDialogOpen(true)}
           onOpenDrawer={openDrawer}
           onOpenScenarios={openScenarios}
           onOpenLogs={openLogs}
           onOpenShortcuts={openShortcuts}
           onOpenHistory={() => setIsHistoryOpen(true)}
+          onOpenVersions={() => setIsVersionsOpen(true)}
           isExecuting={isExecuting}
-          canExecute={canExecute}
+          canExecute={canRun && canExecute}
+          canEdit={canEdit}
           hasActiveExecution={!!activeExecution}
           reviewEdgeCount={reviewEdgeCount}
           viewMode={viewMode}
@@ -480,28 +503,36 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           workflowStats={workflowStats}
         />
 
-        <EdgeConfigDialog
-          edge={editingEdge}
-          nodes={nodes}
-          onClose={() => setEditingEdgeId(null)}
-          onSave={updateEdge}
-        />
+        {canEdit ? (
+          <EdgeConfigDialog
+            edge={editingEdge}
+            nodes={nodes}
+            onClose={() => setEditingEdgeId(null)}
+            onSave={updateEdge}
+          />
+        ) : null}
 
-        <NodeDrawer
-          currentWorkflowName={workflow.name}
-          isOpen={isDrawerOpen}
-          onClose={closeDrawer}
-          onAddNode={handleAddNode}
-          onWorkflowNameChange={(name) => updateWorkflowName(workflow.id, name)}
-        />
+        {canEdit ? (
+          <NodeDrawer
+            currentWorkflowName={workflow.name}
+            isOpen={isDrawerOpen}
+            onClose={closeDrawer}
+            onAddNode={handleAddNode}
+            onWorkflowNameChange={(name) =>
+              updateWorkflowName(workflow.id, name)
+            }
+          />
+        ) : null}
 
-        <NodeConfigDialog
-          isOpen={isNodeConfigOpen}
-          node={selectedNode}
-          nodes={nodes}
-          onClose={closeNodeConfig}
-          onSave={updateNode}
-        />
+        {canEdit ? (
+          <NodeConfigDialog
+            isOpen={isNodeConfigOpen}
+            node={selectedNode}
+            nodes={nodes}
+            onClose={closeNodeConfig}
+            onSave={updateNode}
+          />
+        ) : null}
 
         <ScenarioDialog
           open={isScenarioDialogOpen}
@@ -518,6 +549,15 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
             setFocusedScenarioServices(serviceNames);
             setSelectedArchitectureNodeId(null);
           }}
+          canEdit={canEdit}
+        />
+
+        <RunWorkflowDialog
+          open={isRunDialogOpen}
+          onOpenChange={setIsRunDialogOpen}
+          scenarios={runnableScenarios}
+          isExecuting={isExecuting}
+          onRun={execute}
         />
 
         <WorkflowLogsDrawer
@@ -540,6 +580,16 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           workflowId={workflowId}
           open={isHistoryOpen}
           onOpenChange={setIsHistoryOpen}
+          canEdit={canEdit}
+        />
+
+        <WorkflowVersionsDialog
+          open={isVersionsOpen}
+          onOpenChange={setIsVersionsOpen}
+          workflowId={workflowId}
+          projectId={workflow.projectId}
+          workflowVersion={workflow.version}
+          canEdit={canEdit}
         />
       </ReactFlowProvider>
     </div>

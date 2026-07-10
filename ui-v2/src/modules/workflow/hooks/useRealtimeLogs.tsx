@@ -10,6 +10,8 @@ import {
   resolveScenarioTestStatus,
   workflowStatusFromLogEvent,
 } from "../lib/realtime-events";
+import { fetchWorkflowRunSnapshot } from "../lib/runner-client";
+import { hydrateWorkflowRunSnapshot } from "../lib/workflow-run-snapshot";
 import { useExecutionStore } from "../stores/execution.store.sync";
 import { useScenarioRunStore } from "../stores/scenario-run.store.sync";
 import { useTestResultStore } from "../stores/test-result.store";
@@ -21,6 +23,18 @@ import type {
 interface UseRealtimeLogsProps {
   onComplete?: (result: unknown) => void;
   onError?: (error: string) => void;
+}
+
+function reconcileWorkflowRunSnapshot(
+  workflowRunId: string,
+  projectId?: string,
+) {
+  if (!projectId) return;
+  void fetchWorkflowRunSnapshot(workflowRunId, projectId)
+    .then(hydrateWorkflowRunSnapshot)
+    .catch((error) => {
+      console.warn("Failed to reconcile workflow run snapshot", error);
+    });
 }
 
 export function useRealtimeLogs({
@@ -141,6 +155,7 @@ export function useRealtimeLogs({
 
     const {
       workflowRunId,
+      projectId,
       scenarioId,
       message,
       status,
@@ -226,6 +241,7 @@ export function useRealtimeLogs({
         result,
         workflowError,
       );
+      reconcileWorkflowRunSnapshot(workflowRunId, projectId || activeProjectId);
       if (aggregatedStatus === "completed") {
         onComplete?.(result);
       } else if (
@@ -246,11 +262,13 @@ export function useRealtimeLogs({
 
     if (workflowStatus === "completed") {
       updateExecutionStatus(workflowRunId, "completed", result);
+      reconcileWorkflowRunSnapshot(workflowRunId, projectId || activeProjectId);
       onComplete?.(result);
     }
 
     if (workflowStatus === "failed") {
       failExecution(workflowRunId, error ?? "Workflow execution failed");
+      reconcileWorkflowRunSnapshot(workflowRunId, projectId || activeProjectId);
       onError?.(error ?? "Workflow execution failed");
     }
     setRunnerLogQueue((queued) => queued.slice(1));
@@ -265,6 +283,7 @@ export function useRealtimeLogs({
     failExecution,
     onError,
     updateReplayCursor,
+    activeProjectId,
   ]);
 
   useEffect(() => {

@@ -177,6 +177,55 @@ func TestProcessBatchSupportsScenarioEntities(t *testing.T) {
 	}
 }
 
+func TestProcessBatchRejectsStaleWorkflowUpdate(t *testing.T) {
+	t.Parallel()
+	service, database := newTestService(t)
+	defer database.Close()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	payload := types.WorkflowData{
+		ID: "wf-concurrent", ProjectID: "project-1", UserID: "user-1", Name: "Original",
+		NodesConfig: rawJSON(t, []any{}), EdgesConfig: rawJSON(t, []any{}), Metadata: rawJSON(t, map[string]any{}),
+		Version: 1, CreatedAt: now, UpdatedAt: now, ClientID: "client-a",
+	}
+	insert := newSyncChange(t, "workflow", payload.ID, "insert", payload, now)
+	insert.ClientVersion = 0
+	if response, err := service.ProcessBatch(context.Background(), &types.SyncBatchRequest{
+		ClientID: "client-a", UserID: "user-1", ProjectID: "project-1", TimeStamp: now, Changes: []types.SyncChange{insert},
+	}); err != nil || !response.Success {
+		t.Fatalf("insert failed: response=%+v error=%v", response, err)
+	}
+
+	payload.Name = "First editor"
+	first := newSyncChange(t, "workflow", payload.ID, "update", payload, now.Add(time.Second))
+	first.ClientVersion = 1
+	if response, err := service.ProcessBatch(context.Background(), &types.SyncBatchRequest{
+		ClientID: "client-a", UserID: "user-1", ProjectID: "project-1", TimeStamp: now, Changes: []types.SyncChange{first},
+	}); err != nil || !response.Success || len(response.Conflicts) != 0 {
+		t.Fatalf("first update failed: response=%+v error=%v", response, err)
+	}
+
+	payload.Name = "Stale second editor"
+	stale := newSyncChange(t, "workflow", payload.ID, "update", payload, now.Add(2*time.Second))
+	stale.ClientVersion = 1
+	response, err := service.ProcessBatch(context.Background(), &types.SyncBatchRequest{
+		ClientID: "client-b", UserID: "user-2", ProjectID: "project-1", TimeStamp: now, Changes: []types.SyncChange{stale},
+	})
+	if err != nil || !response.Success || len(response.Conflicts) != 1 {
+		t.Fatalf("expected one acknowledged conflict: response=%+v error=%v", response, err)
+	}
+	if response.Conflicts[0].ClientVersion != 1 || response.Conflicts[0].CurrentVersion != 2 {
+		t.Fatalf("unexpected conflict versions: %+v", response.Conflicts[0])
+	}
+	persisted, err := database.GetWorkflow(context.Background(), payload.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Name != "First editor" || persisted.Version != 2 {
+		t.Fatalf("stale update overwrote current data: %+v", persisted)
+	}
+}
+
 func TestPullChangesIncludesScenariosAndWorkflowRuns(t *testing.T) {
 	t.Parallel()
 

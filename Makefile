@@ -4,6 +4,9 @@ COMPOSE := docker compose
 COMPOSE_FILES := -f docker-compose.yml
 DEV_COMPOSE_FILES := -f docker-compose.yml -f docker-compose.dev.yml
 SOCKET_ENV_FILE := .env.docker-socket
+K8S_DIR ?= k8s/dind
+KUBECTL ?= kubectl
+IMAGE_TAG ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo local)
 DEV_SECRETS = AUTH_SECRET="$${AUTH_SECRET:-local-dev-auth-secret}" WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}"
 UI_RUNNER_CHECK_PATHS := proxy.ts package.json src/app/layout.tsx src/app/globals.css src/app/api/v1/workflow-runs src/modules/sync/sync-hydration.tsx src/modules/workflow/hooks/useRealtimeLogs.tsx src/modules/workflow/hooks/useWorkflowExecution.tsx src/modules/workflow/lib src/modules/workflow/server src/modules/workflow/stores/execution.store.sync.ts src/modules/workflow/types/workflow-run-input.contract.test.ts
 ENV_LOADER = set -a; \
@@ -11,13 +14,13 @@ ENV_LOADER = set -a; \
 	if [ -f ./.env ]; then . ./.env; fi; \
 	set +a;
 
-.PHONY: help ensure-docker-socket doctor dev dev-docker dev-host-runner dev-support runner-dev prod down reset test test-go test-ui test-test-api test-api-build test-complex-e2e check compose-check
+.PHONY: help ensure-docker-socket doctor dev dev-docker dev-host-runner dev-local dev-support runner-dev ui-dev agent-dev prod k8s-render k8s-apply k8s-build-images k8s-push-images down reset test test-go test-ui test-test-api test-api-build test-complex-e2e check compose-check
 
 help: ## Show available commands
 	@printf "Tokyo Tester commands\n\n"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-8s %s\n", $$1, $$2}'
-	@printf "\nOptional env: use .env for app overrides. Docker socket settings are auto-detected into $(SOCKET_ENV_FILE).\n"
+	@printf "\nOptional env: use .env for app overrides. RUNNER_DB_TYPE and UI_DB_TYPE accept sqlite, postgres, or mysql. Docker socket settings are auto-detected into $(SOCKET_ENV_FILE).\n"
 
 ensure-docker-socket: ## Detect the Docker socket and write .env.docker-socket
 	@bash ./scripts/detect-docker-socket.sh
@@ -68,18 +71,68 @@ dev-host-runner: dev-support ## Run the UI in Docker and the runner on the host
 	@printf "Runner logs will stream below. Stop with Ctrl+C, then use 'make down' to stop docker Services.\n\n"
 	@$(MAKE) runner-dev
 
+ui-dev: ## Run the Next.js UI on the host against the local runner
+	@$(ENV_LOADER) \
+		cd ui-v2 && \
+		COTS_API_BASE_URL="$${COTS_API_BASE_URL:-http://localhost:8080}" \
+		DB_TYPE="$${UI_DB_TYPE:-sqlite}" \
+		DB_PATH="$${UI_DB_PATH:-$$(pwd)/data/tokyo-tester-auth.db}" \
+		DATABASE_URL="$${UI_DATABASE_URL:-}" \
+		AUTH_SECRET="$${AUTH_SECRET:-local-dev-auth-secret}" \
+		AUTH_TRUST_HOST="$${AUTH_TRUST_HOST:-true}" \
+		bun run db:migrate && \
+		COTS_API_BASE_URL="$${COTS_API_BASE_URL:-http://localhost:8080}" \
+		DB_TYPE="$${UI_DB_TYPE:-sqlite}" \
+		DB_PATH="$${UI_DB_PATH:-$$(pwd)/data/tokyo-tester-auth.db}" \
+		DATABASE_URL="$${UI_DATABASE_URL:-}" \
+		AUTH_SECRET="$${AUTH_SECRET:-local-dev-auth-secret}" \
+		AUTH_TRUST_HOST="$${AUTH_TRUST_HOST:-true}" \
+		bun run dev
+
+dev-local: doctor ## Run both the UI and runner on the host for Docker socket or volume edge cases
+	@$(ENV_LOADER) \
+		printf "UI: http://localhost:3000\n"; \
+		printf "Runner: http://localhost:8080\n"; \
+		$(MAKE) ui-dev & \
+		ui_pid=$$!; \
+		trap 'kill $$ui_pid >/dev/null 2>&1 || true' INT TERM EXIT; \
+		$(MAKE) runner-dev
+
+agent-dev: ensure-docker-socket ## Expose the local MCP server on http://localhost:8090/mcp (run after make dev)
+	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) --profile agent-dev up --build -d --no-deps mcp
+	@printf "Tokyo Tester MCP: http://localhost:8090/mcp\n"
+	@printf "Health check:      http://localhost:8090/health\n"
+
 prod: ensure-docker-socket ## Run the local production-like stack
-	@$(ENV_LOADER) $(COMPOSE) $(COMPOSE_FILES) up --build -d
+	@$(ENV_LOADER) $(COMPOSE) $(COMPOSE_FILES) --profile agent up --build -d
+
+k8s-render: ## Render the Kubernetes DinD deployment manifests
+	@$(KUBECTL) kustomize $(K8S_DIR)
+
+k8s-apply: ## Apply the Kubernetes DinD deployment manifests
+	@$(KUBECTL) apply -k $(K8S_DIR)
+
+k8s-build-images: ## Build Kubernetes images (set IMAGE_REGISTRY=registry/org)
+	@test -n "$(IMAGE_REGISTRY)" || (printf "Set IMAGE_REGISTRY=registry/org\n"; exit 1)
+	docker build -t $(IMAGE_REGISTRY)/tokyo-runner:$(IMAGE_TAG) --target runner ./runner-v2
+	docker build -t $(IMAGE_REGISTRY)/tokyo-mcp:$(IMAGE_TAG) --target mcp ./runner-v2
+	docker build -t $(IMAGE_REGISTRY)/tokyo-ui:$(IMAGE_TAG) ./ui-v2
+
+k8s-push-images: ## Push Kubernetes images (set IMAGE_REGISTRY=registry/org)
+	@test -n "$(IMAGE_REGISTRY)" || (printf "Set IMAGE_REGISTRY=registry/org\n"; exit 1)
+	docker push $(IMAGE_REGISTRY)/tokyo-runner:$(IMAGE_TAG)
+	docker push $(IMAGE_REGISTRY)/tokyo-mcp:$(IMAGE_TAG)
+	docker push $(IMAGE_REGISTRY)/tokyo-ui:$(IMAGE_TAG)
 
 test: test-go test-ui test-test-api ## Run backend and frontend tests
 
 test-go: ## Run all Go tests
 	@cd runner-v2 && GOCACHE="$${GOCACHE:-/tmp/tokyo-tester-go-cache}" go test ./...
 
-test-ui: ## Type-check and test the UI, including Node-based auth tests
+test-ui: ## Type-check and test the UI, including Node-based auth/database tests
 	@cd ui-v2 && bunx next typegen && bunx tsc --noEmit
 	@cd ui-v2 && bun test src/modules/workflow src/modules/sync
-	@cd ui-v2 && node --import tsx --test src/modules/auth/server/service.test.ts
+	@cd ui-v2 && node --import tsx --test src/modules/auth/server/service.test.ts src/modules/projects/server/service.integration.test.ts
 
 test-test-api: ## Type-check and unit-test the reusable test application
 	@cd test-api && bun run typecheck && bun test
@@ -91,7 +144,7 @@ test-complex-e2e: test-api-build ## Run the opt-in, resource-heavy payment provi
 	@cd runner-v2 && RUN_COMPLEX_PAYMENT_E2E=1 GOCACHE="$${GOCACHE:-/tmp/tokyo-tester-go-cache}" go test -count=1 -timeout=60m ./e2e -run TestComplexPaymentFixturesE2E
 
 compose-check: ## Validate production and development Compose files
-	@AUTH_SECRET=compose-check-auth-secret WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" $(COMPOSE) $(COMPOSE_FILES) config --quiet
+	@AUTH_SECRET=compose-check-auth-secret WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" $(COMPOSE) $(COMPOSE_FILES) --profile agent config --quiet
 	@AUTH_SECRET=compose-check-auth-secret WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" $(COMPOSE) $(DEV_COMPOSE_FILES) config --quiet
 
 check: test compose-check ## Run tests and validate deployment configuration
@@ -99,7 +152,7 @@ check: test compose-check ## Run tests and validate deployment configuration
 	@cd ui-v2 && bunx biome check $(UI_RUNNER_CHECK_PATHS)
 
 down: ## Stop the stack while preserving database volumes
-	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) down --remove-orphans
+	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) --profile agent --profile agent-dev down --remove-orphans
 
 reset: ## Stop the dev stack and delete all local database volumes
-	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) down --volumes --remove-orphans
+	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) --profile agent --profile agent-dev down --volumes --remove-orphans

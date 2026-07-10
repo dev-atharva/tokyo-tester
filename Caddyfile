@@ -1,0 +1,14 @@
+{$TOKYO_TESTER_DOMAIN:localhost} {
+	encode zstd gzip
+
+	handle /mcp* {
+		request_body {
+			max_size 2MB
+		}
+		reverse_proxy mcp:8090
+	}
+
+	handle {
+		reverse_proxy ui:3000
+	}
+}

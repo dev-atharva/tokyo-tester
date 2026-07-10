@@ -1,10 +1,22 @@
 import Database from "better-sqlite3";
 import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3";
+import { drizzle as drizzleMySQL } from "drizzle-orm/mysql2";
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
+import mysql from "mysql2/promise";
 import postgres from "postgres";
 import { assertDatabaseConfig } from "./env";
 import {
+  mysqlAccounts,
+  mysqlAgentTokens,
+  mysqlProjectMembers,
+  mysqlProjects,
+  mysqlSessions,
+  mysqlUsers,
+  mysqlVerificationTokens,
+} from "./schema/mysql";
+import {
   pgAccounts,
+  pgAgentTokens,
   pgProjectMembers,
   pgProjects,
   pgSessions,
@@ -13,6 +25,7 @@ import {
 } from "./schema/postgres";
 import {
   sqliteAccounts,
+  sqliteAgentTokens,
   sqliteProjectMembers,
   sqliteProjects,
   sqliteSessions,
@@ -20,38 +33,16 @@ import {
   sqliteVerificationTokens,
 } from "./schema/sqlite";
 
-type SqliteDatabase = ReturnType<typeof drizzleSqlite>;
-type PostgresDatabase = ReturnType<typeof drizzlePostgres>;
-
-type SqliteConnection = {
-  type: "sqlite";
-  db: SqliteDatabase;
-  client: InstanceType<typeof Database>;
-  tables: {
-    users: typeof sqliteUsers;
-    projects: typeof sqliteProjects;
-    projectMembers: typeof sqliteProjectMembers;
-    accounts: typeof sqliteAccounts;
-    sessions: typeof sqliteSessions;
-    verificationTokens: typeof sqliteVerificationTokens;
-  };
+export type DatabaseConnection = {
+  type: "sqlite" | "postgres" | "mysql";
+  // Drizzle exposes incompatible structural types for each SQL dialect; callers branch by `type`.
+  // biome-ignore lint/suspicious/noExplicitAny: The app stores a dialect-specific Drizzle instance behind the discriminant.
+  db: any;
+  // biome-ignore lint/suspicious/noExplicitAny: SQLite, postgres-js, and mysql2 clients do not share a useful common interface.
+  client: any;
+  // biome-ignore lint/suspicious/noExplicitAny: Table objects come from dialect-specific schema modules.
+  tables: any;
 };
-
-type PostgresConnection = {
-  type: "postgres";
-  db: PostgresDatabase;
-  client: postgres.Sql;
-  tables: {
-    users: typeof pgUsers;
-    projects: typeof pgProjects;
-    projectMembers: typeof pgProjectMembers;
-    accounts: typeof pgAccounts;
-    sessions: typeof pgSessions;
-    verificationTokens: typeof pgVerificationTokens;
-  };
-};
-
-export type DatabaseConnection = SqliteConnection | PostgresConnection;
 
 declare global {
   // eslint-disable-next-line no-var
@@ -88,8 +79,37 @@ export function getDb(): DatabaseConnection {
         projects: pgProjects,
         projectMembers: pgProjectMembers,
         accounts: pgAccounts,
+        agentTokens: pgAgentTokens,
         sessions: pgSessions,
         verificationTokens: pgVerificationTokens,
+      },
+    };
+
+    return globalThis.__tokyoTesterDb;
+  }
+
+  if (config.type === "mysql") {
+    const databaseUrl = config.databaseUrl;
+    if (!databaseUrl) {
+      throw new Error("DATABASE_URL must be set when DB_TYPE=mysql");
+    }
+
+    const client = mysql.createPool({ uri: databaseUrl });
+    // biome-ignore lint/suspicious/noExplicitAny: drizzle-orm/mysql2's overload is narrower than mysql2's promise pool type here.
+    const db = drizzleMySQL(client as any);
+
+    globalThis.__tokyoTesterDb = {
+      type: "mysql",
+      db,
+      client,
+      tables: {
+        users: mysqlUsers,
+        projects: mysqlProjects,
+        projectMembers: mysqlProjectMembers,
+        accounts: mysqlAccounts,
+        agentTokens: mysqlAgentTokens,
+        sessions: mysqlSessions,
+        verificationTokens: mysqlVerificationTokens,
       },
     };
 
@@ -109,6 +129,7 @@ export function getDb(): DatabaseConnection {
       projects: sqliteProjects,
       projectMembers: sqliteProjectMembers,
       accounts: sqliteAccounts,
+      agentTokens: sqliteAgentTokens,
       sessions: sqliteSessions,
       verificationTokens: sqliteVerificationTokens,
     },

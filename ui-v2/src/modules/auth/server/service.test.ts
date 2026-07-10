@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import Database from "better-sqlite3";
@@ -23,12 +23,12 @@ function resetDbCache() {
 
 function runSqliteMigration(targetPath: string) {
   const database = new Database(targetPath);
-  const migration = readFileSync(
-    resolve(process.cwd(), "src/db/migrations/sqlite/001_auth.sql"),
-    "utf8",
-  );
-
-  database.exec(migration);
+  const migrationDir = resolve(process.cwd(), "src/db/migrations/sqlite");
+  for (const name of readdirSync(migrationDir)
+    .filter((entry) => entry.endsWith(".sql"))
+    .sort()) {
+    database.exec(readFileSync(resolve(migrationDir, name), "utf8"));
+  }
   database.close();
 }
 
@@ -66,6 +66,16 @@ describe("auth service", () => {
     assert.equal(user.email, "admin@example.com");
     assert.equal(user.role, "admin");
     assert.equal(await countUsers(), 1);
+    const database = new Database(dbPath, { readonly: true });
+    const personal = database
+      .prepare(
+        `SELECT p.kind, pm.role FROM project p
+         JOIN project_member pm ON pm.projectId = p.id
+         WHERE p.createdBy = ? AND p.kind = 'personal'`,
+      )
+      .get(user.id) as { kind: string; role: string } | undefined;
+    database.close();
+    assert.deepEqual(personal, { kind: "personal", role: "owner" });
 
     await assert.rejects(
       createInitialAdmin({

@@ -9,7 +9,10 @@ import {
   trackSync,
 } from "@/modules/sync/sync-middleware";
 import { useWorkflowStore } from "./workflow.store.sync";
-import type { Scenario, ScenarioTestDefinition } from "../types/react-flow-cots";
+import type {
+  Scenario,
+  ScenarioTestDefinition,
+} from "../types/react-flow-cots";
 
 const indexedDBStorage = {
   getItem: async (name: string) => {
@@ -41,7 +44,9 @@ interface ScenarioStore {
   createScenario: (workflowId: string, name?: string) => string;
   updateScenario: (
     scenarioId: string,
-    updates: Partial<Pick<Scenario, "name" | "description" | "tests" | "testOrder">>,
+    updates: Partial<
+      Pick<Scenario, "name" | "description" | "tests" | "testOrder">
+    >,
   ) => void;
   deleteScenario: (scenarioId: string) => void;
   setActiveScenario: (workflowId: string, scenarioId: string | null) => void;
@@ -49,10 +54,12 @@ interface ScenarioStore {
   getScenariosByWorkflow: (workflowId: string) => Scenario[];
   getActiveScenarioForWorkflow: (workflowId: string) => Scenario | null;
   upsertScenarioFromSync: (scenario: Scenario) => void;
+  replaceScenarioFromSync: (scenario: Scenario) => void;
 }
 
 function deriveOrder(tests: ScenarioTestDefinition[], order?: string[]) {
-  const existing = order?.filter((id) => tests.some((test) => test.id === id)) ?? [];
+  const existing =
+    order?.filter((id) => tests.some((test) => test.id === id)) ?? [];
   const missing = tests
     .map((test) => test.id)
     .filter((id) => !existing.includes(id));
@@ -70,7 +77,8 @@ export const useScenarioStore = create<ScenarioStore>()(
         createScenario: (workflowId, name = "New Scenario") => {
           const id = generateId();
           const projectId =
-            useWorkflowStore.getState().getWorkflow(workflowId)?.projectId ?? "";
+            useWorkflowStore.getState().getWorkflow(workflowId)?.projectId ??
+            "";
           const scenario: Scenario = addSyncMetadata({
             id,
             projectId,
@@ -113,7 +121,10 @@ export const useScenarioStore = create<ScenarioStore>()(
             }
 
             const nextTests = updates.tests ?? current.tests;
-            const nextOrder = deriveOrder(nextTests, updates.testOrder ?? current.testOrder);
+            const nextOrder = deriveOrder(
+              nextTests,
+              updates.testOrder ?? current.testOrder,
+            );
 
             return {
               scenarios: {
@@ -146,7 +157,8 @@ export const useScenarioStore = create<ScenarioStore>()(
             activeScenarioIdByWorkflow: {
               ...state.activeScenarioIdByWorkflow,
               [scenario.workflowId]:
-                state.activeScenarioIdByWorkflow[scenario.workflowId] === scenarioId
+                state.activeScenarioIdByWorkflow[scenario.workflowId] ===
+                scenarioId
                   ? null
                   : state.activeScenarioIdByWorkflow[scenario.workflowId],
             },
@@ -171,7 +183,9 @@ export const useScenarioStore = create<ScenarioStore>()(
               (scenario) =>
                 scenario.workflowId === workflowId && !scenario.is_deleted,
             )
-            .sort((left, right) => right.updated_at.localeCompare(left.updated_at)),
+            .sort((left, right) =>
+              right.updated_at.localeCompare(left.updated_at),
+            ),
 
         getActiveScenarioForWorkflow: (workflowId) => {
           const activeId = get().activeScenarioIdByWorkflow[workflowId];
@@ -202,11 +216,23 @@ export const useScenarioStore = create<ScenarioStore>()(
               activeScenarioIdByWorkflow: {
                 ...state.activeScenarioIdByWorkflow,
                 [scenario.workflowId]:
-                  state.activeScenarioIdByWorkflow[scenario.workflowId] ?? scenario.id,
+                  state.activeScenarioIdByWorkflow[scenario.workflowId] ??
+                  scenario.id,
               },
             };
           });
         },
+
+        replaceScenarioFromSync: (scenario) =>
+          set((state) => ({
+            scenarios: { ...state.scenarios, [scenario.id]: scenario },
+            activeScenarioIdByWorkflow: {
+              ...state.activeScenarioIdByWorkflow,
+              [scenario.workflowId]:
+                state.activeScenarioIdByWorkflow[scenario.workflowId] ??
+                scenario.id,
+            },
+          })),
       }),
       {
         entityType: "scenario",

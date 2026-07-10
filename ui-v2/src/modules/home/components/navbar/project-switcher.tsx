@@ -1,19 +1,25 @@
 "use client";
 
 import { useTransition } from "react";
-import { useProjectContext } from "@/modules/projects/project-context";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
 } from "@/components/ui/select";
+import { useProjectContext } from "@/modules/projects/project-context";
 
 export function ProjectSwitcher() {
   const [isPending, startTransition] = useTransition();
   const { projects, activeProjectId, setActiveProjectId } = useProjectContext();
 
   const activeProject = projects.find((p) => p.id === activeProjectId);
+  const personalProjects = projects.filter(
+    (project) => project.kind === "personal",
+  );
+  const teamProjects = projects.filter((project) => project.kind === "team");
 
   if (projects.length === 0) {
     return (
@@ -38,15 +44,26 @@ export function ProjectSwitcher() {
         </span>
       </SelectTrigger>
       <SelectContent className="border-amber-700/18 dark:border-amber-300/12 bg-amber-50/95 dark:bg-stone-950/95 backdrop-blur-md shadow-lg">
-        {projects.map((project) => (
-          <SelectItem
-            key={project.id}
-            value={project.id}
-            className="text-sm focus:bg-amber-500/10 dark:focus:bg-amber-300/8"
-          >
-            {project.name}
-          </SelectItem>
-        ))}
+        {personalProjects.length > 0 ? (
+          <SelectGroup>
+            <SelectLabel>Personal</SelectLabel>
+            {personalProjects.map((project) => (
+              <SelectItem key={project.id} value={project.id}>
+                {project.name}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        ) : null}
+        {teamProjects.length > 0 ? (
+          <SelectGroup>
+            <SelectLabel>Teams</SelectLabel>
+            {teamProjects.map((project) => (
+              <SelectItem key={project.id} value={project.id}>
+                {project.name}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        ) : null}
       </SelectContent>
     </Select>
   );

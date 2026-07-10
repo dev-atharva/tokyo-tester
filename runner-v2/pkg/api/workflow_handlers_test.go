@@ -21,6 +21,10 @@ import (
 )
 
 func newWorkflowAPIHarness(t *testing.T) (*Handler, *WorkflowService, *sqlite.Client, []byte) {
+	return newWorkflowAPIHarnessWithSeed(t, true)
+}
+
+func newWorkflowAPIHarnessWithSeed(t *testing.T, seedWorkflow bool) (*Handler, *WorkflowService, *sqlite.Client, []byte) {
 	t.Helper()
 	client, err := sqlite.NewClient(filepath.Join(t.TempDir(), "workflow-api.db"))
 	if err != nil {
@@ -41,20 +45,22 @@ func newWorkflowAPIHarness(t *testing.T) (*Handler, *WorkflowService, *sqlite.Cl
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	if err := client.UpsertWorkflow(context.Background(), &db.Workflow{
-		ID: request.WorkflowID, ProjectID: request.ProjectID, Name: request.WorkflowName,
-		NodesConfig: "[]", EdgesConfig: "[]", Version: 1, CreatedAt: now, UpdatedAt: now,
-		ClientID: request.ClientID, UserID: request.UserID,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	for _, scenario := range request.Scenarios {
-		if err := client.UpsertScenario(context.Background(), &db.Scenario{
-			ID: scenario.ID, ProjectID: request.ProjectID, WorkflowID: request.WorkflowID,
-			Name: scenario.Name, TestsConfig: "[]", TestOrder: "[]", Version: 1,
-			CreatedAt: now, UpdatedAt: now, ClientID: request.ClientID, UserID: request.UserID,
+	if seedWorkflow {
+		if err := client.UpsertWorkflow(context.Background(), &db.Workflow{
+			ID: request.WorkflowID, ProjectID: request.ProjectID, Name: request.WorkflowName,
+			NodesConfig: "[]", EdgesConfig: "[]", Version: 1, CreatedAt: now, UpdatedAt: now,
+			ClientID: request.ClientID, UserID: request.UserID,
 		}); err != nil {
 			t.Fatal(err)
+		}
+		for _, scenario := range request.Scenarios {
+			if err := client.UpsertScenario(context.Background(), &db.Scenario{
+				ID: scenario.ID, ProjectID: request.ProjectID, WorkflowID: request.WorkflowID,
+				Name: scenario.Name, TestsConfig: "[]", TestOrder: "[]", Version: 1,
+				CreatedAt: now, UpdatedAt: now, ClientID: request.ClientID, UserID: request.UserID,
+			}); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 
@@ -76,8 +82,40 @@ func newWorkflowAPIHarness(t *testing.T) (*Handler, *WorkflowService, *sqlite.Cl
 	return handler, service, client, payload
 }
 
+func TestWorkflowRunSubmissionPersistsUnsyncedGraph(t *testing.T) {
+	handler, _, client, payload := newWorkflowAPIHarnessWithSeed(t, false)
+	router := NewRouter(handler, nil, false)
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/workflow-runs", bytes.NewReader(payload)))
+	if recorder.Code != http.StatusAccepted || !strings.Contains(recorder.Body.String(), `"created":true`) {
+		t.Fatalf("unexpected submission for unsynced workflow: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var request workflowrun.Request
+	if err := json.Unmarshal(payload, &request); err != nil {
+		t.Fatal(err)
+	}
+	workflow, err := client.GetWorkflow(context.Background(), request.WorkflowID)
+	if err != nil {
+		t.Fatalf("workflow was not persisted from run payload: %v", err)
+	}
+	if workflow.ProjectID != request.ProjectID || !strings.Contains(workflow.NodesConfig, `"id"`) {
+		t.Fatalf("unexpected persisted workflow: %+v", workflow)
+	}
+	for _, scenario := range request.Scenarios {
+		persisted, err := client.GetScenario(context.Background(), scenario.ID)
+		if err != nil {
+			t.Fatalf("scenario %s was not persisted from run payload: %v", scenario.ID, err)
+		}
+		if persisted.ProjectID != request.ProjectID || persisted.WorkflowID != request.WorkflowID {
+			t.Fatalf("unexpected persisted scenario: %+v", persisted)
+		}
+	}
+}
+
 func TestWorkflowRunSubmissionIsIdempotent(t *testing.T) {
-	handler, _, _, payload := newWorkflowAPIHarness(t)
+	handler, _, client, payload := newWorkflowAPIHarness(t)
 	router := NewRouter(handler, nil, false)
 
 	post := func(body []byte) *httptest.ResponseRecorder {
@@ -87,12 +125,23 @@ func TestWorkflowRunSubmissionIsIdempotent(t *testing.T) {
 	}
 
 	first := post(payload)
-	if first.Code != http.StatusAccepted || !strings.Contains(first.Body.String(), `"created":true`) {
+	if first.Code != http.StatusAccepted || !strings.Contains(first.Body.String(), `"created":true`) || !strings.Contains(first.Body.String(), `"workflowRevisionId"`) {
 		t.Fatalf("unexpected first submission: status=%d body=%s", first.Code, first.Body.String())
 	}
 	second := post(payload)
 	if second.Code != http.StatusAccepted || !strings.Contains(second.Body.String(), `"created":false`) {
 		t.Fatalf("unexpected idempotent submission: status=%d body=%s", second.Code, second.Body.String())
+	}
+	var submitted workflowrun.Request
+	if err := json.Unmarshal(payload, &submitted); err != nil {
+		t.Fatal(err)
+	}
+	revisions, err := client.ListWorkflowRevisions(context.Background(), submitted.ProjectID, submitted.WorkflowID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revisions) != 1 {
+		t.Fatalf("idempotent retry created %d execution revisions", len(revisions))
 	}
 
 	var changed map[string]any

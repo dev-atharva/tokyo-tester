@@ -15,6 +15,9 @@ var sqliteMigrations embed.FS
 //go:embed migrations/postgres/*.sql
 var postgresMigrations embed.FS
 
+//go:embed migrations/mysql/*.sql
+var mysqlMigrations embed.FS
+
 type Migrator struct {
 	conn   *sql.DB
 	dbType string
@@ -53,6 +56,9 @@ func (m *Migrator) RunMigrations() error {
 	case "postgres":
 		fs = postgresMigrations
 		migrationPath = "migrations/postgres"
+	case "mysql":
+		fs = mysqlMigrations
+		migrationPath = "migrations/mysql"
 	default:
 		return fmt.Errorf("unsupported database : %s", m.dbType)
 	}
@@ -98,24 +104,33 @@ func (m *Migrator) RunMigrations() error {
 			return fmt.Errorf("failed to read migration file %s: %w", entry.Name(), err)
 		}
 
-		ctx := context.Background()
-		tx, err := m.conn.BeginTx(ctx, nil)
-		if err != nil {
-			return fmt.Errorf("failed to start transaction for migration %s: %w", entry.Name(), err)
-		}
+		if m.dbType == "mysql" {
+			if _, err := m.conn.ExecContext(context.Background(), string(sqlBytes)); err != nil {
+				return fmt.Errorf("failed to execute the migration %s: %w", entry.Name(), err)
+			}
+			if err := m.recordMigration(entry.Name()); err != nil {
+				return fmt.Errorf("failed to record migration %s: %w", entry.Name(), err)
+			}
+		} else {
+			ctx := context.Background()
+			tx, err := m.conn.BeginTx(ctx, nil)
+			if err != nil {
+				return fmt.Errorf("failed to start transaction for migration %s: %w", entry.Name(), err)
+			}
 
-		if _, err := tx.ExecContext(ctx, string(sqlBytes)); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("failed to execute the migration %s: %w", entry.Name(), err)
-		}
+			if _, err := tx.ExecContext(ctx, string(sqlBytes)); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("failed to execute the migration %s: %w", entry.Name(), err)
+			}
 
-		if _, err := tx.ExecContext(ctx, m.insertMigrationQuery(), entry.Name()); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("failed to record migration %s: %w", entry.Name(), err)
-		}
+			if _, err := tx.ExecContext(ctx, m.insertMigrationQuery(), entry.Name()); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("failed to record migration %s: %w", entry.Name(), err)
+			}
 
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("failed to commit migration %s: %w", entry.Name(), err)
+			if err := tx.Commit(); err != nil {
+				return fmt.Errorf("failed to commit migration %s: %w", entry.Name(), err)
+			}
 		}
 		log.Printf("Applied migrations: %s", entry.Name())
 	}
@@ -125,6 +140,15 @@ func (m *Migrator) RunMigrations() error {
 
 func (m *Migrator) ensureMigrationsTable() error {
 	ctx := context.Background()
+	if m.dbType == "mysql" {
+		_, err := m.conn.ExecContext(ctx, `
+			CREATE TABLE IF NOT EXISTS schema_migrations (
+				name VARCHAR(255) PRIMARY KEY,
+				applied_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+			)
+		`)
+		return err
+	}
 	_, err := m.conn.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			name TEXT PRIMARY KEY,
@@ -198,6 +222,16 @@ func (m *Migrator) columnExists(tableName, columnName string) (bool, error) {
 			)
 		`, tableName, columnName).Scan(&exists)
 		return exists, err
+	case "mysql":
+		var exists bool
+		err := m.conn.QueryRowContext(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM information_schema.columns
+				WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?
+			)
+		`, tableName, columnName).Scan(&exists)
+		return exists, err
 	default:
 		return false, fmt.Errorf("unsupported database type: %s", m.dbType)
 	}
@@ -219,6 +253,9 @@ func (m *Migrator) selectMigrationQuery() string {
 func (m *Migrator) insertMigrationQuery() string {
 	if m.dbType == "postgres" {
 		return `INSERT INTO schema_migrations (name, applied_at) VALUES ($1, CURRENT_TIMESTAMP)`
+	}
+	if m.dbType == "mysql" {
+		return `INSERT INTO schema_migrations (name, applied_at) VALUES (?, CURRENT_TIMESTAMP(3))`
 	}
 	return `INSERT INTO schema_migrations (name, applied_at) VALUES (?, CURRENT_TIMESTAMP)`
 }

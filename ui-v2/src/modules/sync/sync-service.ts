@@ -1,6 +1,7 @@
 import { getOrCreateClientId, getProjectId, getUserId } from "./client-id";
 import { FastQueue } from "./fast-queue";
 import type {
+  EntityType,
   SyncBatchRequest,
   SyncBatchResponse,
   SyncChange,
@@ -16,6 +17,7 @@ declare global {
 
 const PERSISTED_SYNC_QUEUE_KEY = "cots_sync_queue";
 const DEFAULT_SYNC_BASE_URL = "";
+const PRE_RUN_SYNC_ENTITIES = new Set<EntityType>(["workflow", "scenario"]);
 
 export class SyncService {
   private _baseUrl: string;
@@ -114,17 +116,59 @@ export class SyncService {
   ): void {
     if (!this.enabled) return;
 
+    const serializedVersion = Number(
+      (change.data as { version?: number } | null)?.version ?? 0,
+    );
     const fullChange: SyncChange = {
       ...change,
       client_time: new Date().toISOString(),
-      client_version: 1,
+      client_version:
+        change.change_type === "insert"
+          ? 0
+          : Math.max(0, serializedVersion - 1),
     };
+
+    if (this.coalesceQueuedChange(fullChange)) {
+      console.log(
+        `[SyncService] Coalesced: ${change.entity_type}/${change.entity_id} (${change.change_type}) - Queue: ${this.syncQueue.getSize()}`,
+      );
+      return;
+    }
 
     this.syncQueue.enqueue(fullChange);
     this.persistQueue();
     console.log(
       `[SyncService] Queued: ${change.entity_type}/${change.entity_id} (${change.change_type}) - Queue: ${this.syncQueue.getSize()}`,
     );
+  }
+
+  private coalesceQueuedChange(incoming: SyncChange): boolean {
+    const current = this.syncQueue.toArray();
+    const index = current.findIndex(
+      (change) =>
+        change.entity_type === incoming.entity_type &&
+        change.entity_id === incoming.entity_id,
+    );
+    if (index === -1) {
+      return false;
+    }
+
+    const existing = current[index];
+    if (
+      existing.change_type === "insert" &&
+      incoming.change_type === "update"
+    ) {
+      current[index] = {
+        ...incoming,
+        change_type: "insert",
+        client_version: 0,
+      };
+      this.replaceQueue(current);
+      this.persistQueue();
+      return true;
+    }
+
+    return false;
   }
 
   async flush(): Promise<SyncBatchResponse | null> {
@@ -136,6 +180,12 @@ export class SyncService {
     this.persistQueue();
     if (batch.length === 0) return null;
 
+    return this.commitBatch(batch);
+  }
+
+  private async commitBatch(
+    batch: SyncChange[],
+  ): Promise<SyncBatchResponse | null> {
     console.log(`[SyncService] Flushing ${batch.length} changes...`);
 
     try {
@@ -144,9 +194,37 @@ export class SyncService {
         `[SyncService] ✅ Synced ${response.processed_count}/${batch.length}`,
       );
 
-      if (response.conflicts && response.conflicts.length > 0) {
-        console.warn("[SyncService] Conflicts:", response.conflicts);
+      const repairedBatch = this.repairMissingEntityUpdates(
+        batch,
+        response.errors,
+      );
+      if (repairedBatch) {
+        console.warn(
+          "[SyncService] Retrying missing local entities as inserts",
+        );
+        const retryResponse = await this.sendBatch(repairedBatch);
+        console.log(
+          `[SyncService] ✅ Synced ${retryResponse.processed_count}/${repairedBatch.length} repaired changes`,
+        );
+        this.dispatchConflicts(retryResponse, repairedBatch);
+        if (retryResponse.errors && retryResponse.errors.length > 0) {
+          console.warn(
+            "[SyncService] Sync completed with server-reported errors:",
+            retryResponse.errors,
+          );
+        }
+        if (!retryResponse.success || (retryResponse.errors?.length ?? 0) > 0) {
+          this.syncQueue.unshiftMany(repairedBatch);
+          this.persistQueue();
+          console.warn(
+            `[SyncService] Re-queued ${repairedBatch.length} repaired changes because the server rolled back the batch`,
+          );
+          return null;
+        }
+        return retryResponse;
       }
+
+      this.dispatchConflicts(response, batch);
       if (response.errors && response.errors.length > 0) {
         console.warn(
           "[SyncService] Sync completed with server-reported errors:",
@@ -173,6 +251,76 @@ export class SyncService {
     }
   }
 
+  private dispatchConflicts(
+    response: SyncBatchResponse,
+    batch: SyncChange[],
+  ): void {
+    if (!response.conflicts || response.conflicts.length === 0) {
+      return;
+    }
+
+    console.warn("[SyncService] Conflicts:", response.conflicts);
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent("tokyo:sync-conflict", {
+        detail: response.conflicts.map((conflict) => ({
+          ...conflict,
+          local_data: batch.find(
+            (change) =>
+              change.entity_type === conflict.entity_type &&
+              change.entity_id === conflict.entity_id,
+          )?.data,
+        })),
+      }),
+    );
+  }
+
+  private repairMissingEntityUpdates(
+    batch: SyncChange[],
+    errors: SyncBatchResponse["errors"],
+  ): SyncChange[] | null {
+    if (!errors?.length) {
+      return null;
+    }
+
+    const missingUpdates = new Set(
+      errors
+        .filter(
+          (error) =>
+            (error.entity_type === "workflow" ||
+              error.entity_type === "scenario") &&
+            Boolean(error.entity_id) &&
+            error.message.includes("no longer exists"),
+        )
+        .map((error) => `${error.entity_type}:${error.entity_id}`),
+    );
+    if (missingUpdates.size === 0) {
+      return null;
+    }
+
+    let repaired = false;
+    const repairedBatch = batch.map((change) => {
+      if (
+        change.change_type !== "update" ||
+        !missingUpdates.has(`${change.entity_type}:${change.entity_id}`) ||
+        isDeletedPayload(change.data)
+      ) {
+        return change;
+      }
+      repaired = true;
+      return {
+        ...change,
+        change_type: "insert" as const,
+        client_version: 0,
+      };
+    });
+
+    return repaired ? repairedBatch : null;
+  }
+
   async flushPending(maxAttempts: number = 10): Promise<void> {
     // Zustand sync middleware enqueues changes in a microtask after updating its
     // store. Let those changes reach this queue before deciding there is
@@ -187,6 +335,74 @@ export class SyncService {
       if (result === null) {
         break;
       }
+    }
+  }
+
+  async flushPendingBeforeRun(maxAttempts: number = 10): Promise<void> {
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    let attempts = 0;
+    while (this.hasPendingPreRunChanges() && attempts < maxAttempts) {
+      attempts += 1;
+      const batch = this.dequeueMatching((change) =>
+        PRE_RUN_SYNC_ENTITIES.has(change.entity_type),
+      );
+      if (batch.length === 0) return;
+
+      const result = await this.commitBatch(batch);
+      if (result === null) return;
+    }
+  }
+
+  hasPendingPreRunChanges(): boolean {
+    return this.syncQueue
+      .toArray()
+      .some((change) => PRE_RUN_SYNC_ENTITIES.has(change.entity_type));
+  }
+
+  hasBlockingPreRunChanges(workflowId: string): boolean {
+    return this.syncQueue.toArray().some((change) => {
+      if (
+        change.entity_type !== "workflow" ||
+        change.entity_id !== workflowId
+      ) {
+        return false;
+      }
+      return change.change_type === "insert" || change.change_type === "delete";
+    });
+  }
+
+  getPendingPreRunChanges(): SyncChange[] {
+    return this.syncQueue
+      .toArray()
+      .filter((change) => PRE_RUN_SYNC_ENTITIES.has(change.entity_type));
+  }
+
+  private dequeueMatching(
+    predicate: (change: SyncChange) => boolean,
+  ): SyncChange[] {
+    const current = this.syncQueue.toArray();
+    const batch: SyncChange[] = [];
+    const remaining: SyncChange[] = [];
+
+    for (const change of current) {
+      if (predicate(change) && batch.length < this._maxBatchSize) {
+        batch.push(change);
+      } else {
+        remaining.push(change);
+      }
+    }
+
+    this.replaceQueue(remaining);
+    this.persistQueue();
+
+    return batch;
+  }
+
+  private replaceQueue(changes: SyncChange[]): void {
+    this.syncQueue.clear();
+    for (const change of changes) {
+      this.syncQueue.enqueue(change);
     }
   }
 
@@ -385,6 +601,16 @@ function getCurrentProjectIdSafe() {
   } catch {
     return null;
   }
+}
+
+function isDeletedPayload(data: SyncChange["data"]): boolean {
+  return Boolean(
+    data &&
+      typeof data === "object" &&
+      !Array.isArray(data) &&
+      "is_deleted" in data &&
+      data.is_deleted === true,
+  );
 }
 
 export const syncService = new SyncService();

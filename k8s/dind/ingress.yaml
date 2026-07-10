@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tokyo-tester
+  namespace: tokyo-tester
+  labels:
+    app.kubernetes.io/name: tokyo-tester
+    app.kubernetes.io/part-of: tokyo-tester
+spec:
+  rules:
+    - host: tokyo.example.com
+      http:
+        paths:
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: tokyo-mcp
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tokyo-ui
+                port:
+                  name: http

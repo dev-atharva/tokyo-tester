@@ -4,6 +4,8 @@ This `ui-v2` app now includes Auth.js credentials authentication with a one-time
 
 ## Getting Started
 
+For the complete application, use `make dev` from the repository root. It starts the UI and runner and applies pending migrations automatically. `make dev` may run the runner on the host when the Docker socket is non-standard. Use `make dev-local` when you want both the UI and runner on the host. The steps below are only for running the UI process by itself.
+
 1. Install dependencies:
 
 ```bash
@@ -53,6 +55,9 @@ bun dev
 - the sync queue is persisted in `localStorage`, restored on startup, and flushed on interval plus page hide/close events
 - active workflow runs also reconcile from the backend, so logs and results can recover if realtime updates are missed
 - execution-owned entities like workflow runs, scenario runs, and test results are treated as backend-owned during a run
+- Personal and Team workspaces share the workflow builder but enforce owner, editor, and runner permissions
+- workflow edits use optimistic concurrency; stale changes require loading the current version or preserving the local edit as a copy
+- immutable workflow revisions are created manually, on execution, and when restoring history
 
 ## Notes
 

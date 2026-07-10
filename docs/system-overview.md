@@ -27,6 +27,8 @@ Before a run starts, the UI checks the graph and translates it into executable d
 - `translateWorkflowGraphToServiceGraph` turns the visual graph into a service dependency graph.
 - `validateScenario` checks that scenarios target real services and that test dependencies line up.
 - `translateScenarioToExecutionBundle` trims the workflow down to just the services and tests needed for one scenario.
+- Predefined services such as PostgreSQL, MySQL, Redis, Kafka, RabbitMQ, MongoDB, MariaDB, and Memcached can still carry custom image values; defaults are used only when the workflow leaves the image empty.
+- Optional assertions remain optional. For example, omitting a queue `expectedMessage` does not become an empty-string assertion.
 
 That translation happens in the UI before the run starts, and again in the runner when a workflow bundle is executed.
 
@@ -34,8 +36,9 @@ That translation happens in the UI before the run starts, and again in the runne
 
 When the user starts execution, the UI creates a workflow run id, prepares scenario run ids, updates local state, flushes pending workflow changes, and submits the run to `POST /api/v1/workflow-runs`.
 
-The runner's embedded SQLite worker then takes over:
+The runner's embedded durable worker then takes over:
 
+- it has already checked Docker reachability during startup when workflow execution or cleanup is enabled
 - it validates the workflow again
 - it translates the graph into a service graph
 - it runs scenarios with controlled concurrency
@@ -144,10 +147,14 @@ In a production build, a few things make that less reliable:
 
 Because of that, Tokyo Tester treats realtime as an accelerator, not the only delivery path. Workflow logs and execution progress are persisted, SSE reconnects replay missed events with `Last-Event-ID`, and snapshots reconcile the UI after longer gaps.
 
+When a terminal workflow SSE event arrives, the UI updates immediately and then fetches the durable workflow-run snapshot from the runner. That snapshot hydrates the workflow run, scenario runs, and test results so stored execution state and realtime UI state converge even if the final result batch arrived late or was missed by the browser.
+
 ## Runtime notes
 
-- the UI production image runs the app with Bun, but database migration uses a small Node entrypoint because `better-sqlite3` is not supported by Bun
+- the UI production image runs the app with Bun, but database migration uses a small Node entrypoint so SQLite, PostgreSQL, and MySQL migrations run consistently
 - DB-backed routes are forced to render dynamically in the production build so auth and workflow pages are not incorrectly treated as static at build time
+- in development, `make dev` auto-selects Docker Compose or host-runner mode based on the detected Docker socket; `make dev-local` runs both UI and runner on the host for socket or volume edge cases
+- in production, `make prod` still starts the Compose stack, but the runner now fails fast when Docker is unreachable instead of accepting workflow submissions that cannot run
 
 ## A good first workflow to try
 

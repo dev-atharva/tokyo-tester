@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tokyo Tester"
+  short_description: "Author and run Tokyo Tester workflows"
+  default_prompt: "Use $tokyo-tester to inspect this repository and create a validated Tokyo Tester workflow."

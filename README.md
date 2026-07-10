@@ -48,13 +48,23 @@ The full matrix is intentionally opt-in through `make test-complex-e2e` because 
 
 - `ui-v2` is the Next.js app for editing workflows, scenarios, and executions
 - `runner-v2` is the Go service that provisions containers, runs tests, and cleans up
-- `docker-compose.yml` wires the UI and runner together with separate SQLite volumes
+- the separately deployed `mcp` process exposes agent-safe tools and has no Docker socket or database access
+- Caddy routes public `/mcp` traffic to that process while keeping the runner private
+- `docker-compose.yml` wires the UI and runner together with separate app databases; SQLite is the default, and PostgreSQL or MySQL can be selected with `DB_TYPE`/`DATABASE_URL`
 - the frontend sync layer persists queued edits locally, flushes them to `POST /api/v1/sync/batch`, and hydrates from `GET /api/v1/sync/pull/{clientId}`
-- the runner's embedded SQLite worker coordinates execution, persists checkpoints, and streams replayable SSE updates to the UI
+- the runner's embedded durable worker coordinates execution, persists checkpoints, and streams replayable SSE updates to the UI on SQLite or MySQL app databases
+- when workflow execution or cleanup is enabled, the runner validates Docker reachability during startup and fails before serving if the daemon or socket is unavailable
 
 ## Production Notes
 
-- `make prod` builds the standalone UI image and runs the production-like stack
+Follow the complete [Production deployment runbook](./docs/production-deployment.md) before exposing Tokyo Tester to a network. It covers DNS/TLS, secrets, migrations, verification, agent access, backups, upgrades, rollback, and incident commands.
+
+For Kubernetes, use the transitional [Kubernetes DinD deployment runbook](./docs/kubernetes-dind-deployment.md). It deploys the runner with a privileged Docker-in-Docker sidecar while keeping the runner private and UI/MCP behind your cluster routing.
+
+- `make prod` builds the standalone UI image and runs the single-server production stack
+- `kubectl apply -k k8s/dind` deploys the Kubernetes runner + DinD profile after you set images, secrets, and domain values
+- `RUNNER_DB_TYPE` and `UI_DB_TYPE` accept `sqlite`, `postgres`, or `mysql`; workflow MySQL service nodes are separate from this app database setting
+- production startup detects the host Docker socket before Compose starts, then the runner checks Docker again from inside the container; a bad socket now fails startup instead of waiting until a workflow is run
 - the UI still uses Bun for app scripts, but database migration runs through `node ./src/db/migrate.mjs` because `better-sqlite3` is a Node-only runtime dependency
 - workflow definitions are synced from the browser, while execution-owned records like workflow runs, scenario runs, and test results are treated as backend-owned during execution
 - if you have an old UI image cached, rebuild the service before retesting production behavior:
@@ -71,16 +81,32 @@ The easiest way to run everything locally is with Docker:
 make dev
 ```
 
-That starts the dev stack with the UI and runner.
+That checks the machine, starts the UI and runner, and applies pending UI and runner migrations. A database reset is not required for a normal update.
+
+`make dev` chooses the startup mode from the detected Docker socket:
+
+- standard `/var/run/docker.sock`: UI and runner run in Docker Compose
+- non-standard sockets such as Colima or Rancher Desktop: UI runs in Docker and the Go runner runs on the host with `TESTCONTAINERS_RYUK_DISABLED=true`
+
+If Dockerized UI mounts or local socket routing misbehave on a development machine, use:
+
+```bash
+make dev-local
+```
+
+That runs both the UI and runner on the host while still applying the same migrations and Docker checks.
 
 Useful commands:
 
 ```bash
 make prod
+make dev-local
 make check
 make down
 make reset # also deletes local database volumes
 ```
+
+For a second-PC development setup with a coding agent and several local repositories, follow [Development setup with a coding agent](./docs/development-agent-setup.md).
 
 If you want to run pieces manually, the main environment values live in [`.env.example`](./.env.example).
 
@@ -88,13 +114,37 @@ Common ports:
 
 - UI: `http://localhost:3000`
 - Runner API when using the host-runner development fallback: `http://localhost:8080`
+- Local MCP adapter: `http://localhost:8090/mcp`
+
+## AI Agent Integration
+
+For local development, run `make dev`, then run `make agent-dev` in another terminal. Connect the coding agent to `http://localhost:8090/mcp` with a project-scoped token. The in-app **Docs** page walks through token creation, skill installation, and a practical multi-repository test.
+
+The production Compose stack exposes a remote MCP endpoint at `https://<TOKYO_TESTER_DOMAIN>/mcp`. The MCP process forwards project-scoped operations to the authenticated UI/API and never receives filesystem or Docker access.
+
+The current authentication path is an explicitly private-beta personal token. While signed in, create one with `POST /api/v1/agent/tokens`:
+
+```json
+{
+  "name": "My coding agent",
+  "projectId": "<project-id>",
+  "scopes": ["read", "workflow:write", "run"],
+  "expiresInDays": 30
+}
+```
+
+The raw `tt_pat_...` token is returned once. Configure the MCP client to send it as `Authorization: Bearer <token>`. Use the repository skill at [`.agents/skills/tokyo-tester`](./.agents/skills/tokyo-tester) to guide repository inspection, workflow authoring, validation, execution, and repair.
+
+Revoke a token with `DELETE /api/v1/agent/tokens/<token-id>` from an authenticated session.
+
+Before opening MCP registration broadly, replace private-beta tokens with an OAuth 2.1 authorization server and MCP protected-resource discovery. The MCP adapter is intentionally isolated so that authentication transport can change without touching workflow execution.
 
 ## Built With
 
 - Next.js
 - React
 - Zustand
-- SQLite durable worker
+- SQLite/MySQL durable worker
 - Go
 - Chi
 - Docker

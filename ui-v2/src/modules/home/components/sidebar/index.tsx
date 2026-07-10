@@ -2,8 +2,10 @@
 
 import {
   IconChevronDown,
+  IconBook2,
   IconFolders,
   IconTopologyRing2,
+  IconUserShield,
   IconUsers,
 } from "@tabler/icons-react";
 import Link from "next/link";
@@ -26,6 +28,7 @@ import {
   SidebarMenuSub,
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
+import { useProjectContext } from "@/modules/projects/project-context";
 
 interface MenuItem {
   title: string;
@@ -135,13 +138,30 @@ const MenuItemRender = ({ items, isSubItem }: MenuItemRenderProps) => {
 };
 
 export const HomeSidebar = ({ userRole }: { userRole: string | null }) => {
+  const { activeProject } = useProjectContext();
   const items: MenuItem[] = [
     {
       title: "Workflows",
       url: "/workflow",
       icon: IconTopologyRing2,
     },
+    {
+      title: "Docs",
+      url: "/docs",
+      icon: IconBook2,
+    },
   ];
+
+  if (
+    activeProject?.kind === "team" &&
+    activeProject.allowedActions.includes("manage")
+  ) {
+    items.push({
+      title: "Team members",
+      url: `/projects/${activeProject.id}/members`,
+      icon: IconUserShield,
+    });
+  }
 
   if (userRole === "admin") {
     items.push(

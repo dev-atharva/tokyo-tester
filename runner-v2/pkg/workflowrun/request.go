@@ -9,17 +9,18 @@ import (
 )
 
 type Request struct {
-	WorkflowRunID    string                           `json:"workflowRunId"`
-	ProjectID        string                           `json:"projectId"`
-	WorkflowID       string                           `json:"workflowId"`
-	WorkflowName     string                           `json:"workflowName"`
-	Nodes            []workflowbundle.FlowNode        `json:"nodes"`
-	Edges            []workflowbundle.FlowEdge        `json:"edges"`
-	Scenarios        []Scenario                       `json:"scenarios"`
-	UserID           string                           `json:"userId,omitempty"`
-	ClientID         string                           `json:"clientId,omitempty"`
-	RegistrySecrets  map[string]config.RegistryConfig `json:"registrySecrets,omitempty"`
-	ExecutionOptions ExecutionOptions                 `json:"executionOptions,omitempty"`
+	WorkflowRunID      string                           `json:"workflowRunId"`
+	WorkflowRevisionID string                           `json:"workflowRevisionId,omitempty"`
+	ProjectID          string                           `json:"projectId"`
+	WorkflowID         string                           `json:"workflowId"`
+	WorkflowName       string                           `json:"workflowName"`
+	Nodes              []workflowbundle.FlowNode        `json:"nodes"`
+	Edges              []workflowbundle.FlowEdge        `json:"edges"`
+	Scenarios          []Scenario                       `json:"scenarios"`
+	UserID             string                           `json:"userId,omitempty"`
+	ClientID           string                           `json:"clientId,omitempty"`
+	RegistrySecrets    map[string]config.RegistryConfig `json:"registrySecrets,omitempty"`
+	ExecutionOptions   ExecutionOptions                 `json:"executionOptions,omitempty"`
 }
 
 type Scenario struct {

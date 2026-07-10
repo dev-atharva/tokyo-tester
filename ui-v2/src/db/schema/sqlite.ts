@@ -28,6 +28,9 @@ export const sqliteUsers = sqliteTable("user", {
 export const sqliteProjects = sqliteTable("project", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  kind: text("kind", { enum: ["personal", "team"] })
+    .notNull()
+    .default("team"),
   createdBy: text("createdBy")
     .notNull()
     .references(() => sqliteUsers.id, { onDelete: "cascade" }),
@@ -48,6 +51,9 @@ export const sqliteProjectMembers = sqliteTable(
     userId: text("userId")
       .notNull()
       .references(() => sqliteUsers.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["owner", "editor", "runner"] })
+      .notNull()
+      .default("editor"),
     createdAt: integer("createdAt", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(unixepoch() * 1000)`),
@@ -56,6 +62,23 @@ export const sqliteProjectMembers = sqliteTable(
     pk: primaryKey({ columns: [table.projectId, table.userId] }),
   }),
 );
+
+export const sqliteAgentTokens = sqliteTable("agent_token", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  tokenHash: text("tokenHash").notNull().unique(),
+  userId: text("userId")
+    .notNull()
+    .references(() => sqliteUsers.id, { onDelete: "cascade" }),
+  projectId: text("projectId")
+    .notNull()
+    .references(() => sqliteProjects.id, { onDelete: "cascade" }),
+  scopes: text("scopes").notNull(),
+  expiresAt: integer("expiresAt", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
 
 export const sqliteAccounts = sqliteTable(
   "account",

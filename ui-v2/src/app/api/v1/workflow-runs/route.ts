@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { auth } from "@/auth";
-import { userHasProjectAccess } from "@/modules/projects/server/service";
+import { userHasProjectPermission } from "@/modules/projects/server/service";
 import { bindWorkflowRequestToIdentity } from "@/modules/workflow/server/authorized-request";
 import { proxyRunnerRequest } from "@/modules/workflow/server/runner-proxy";
 
@@ -25,7 +25,12 @@ export async function POST(request: NextRequest) {
   const projectId = typeof body.projectId === "string" ? body.projectId : "";
   if (
     !projectId ||
-    !(await userHasProjectAccess(session.user.id, projectId, session.user.role))
+    !(await userHasProjectPermission(
+      session.user.id,
+      projectId,
+      "run",
+      session.user.role,
+    ))
   ) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }

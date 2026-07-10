@@ -1,13 +1,18 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdminSession } from "@/modules/auth/server/guards";
-import { createUser, normalizeEmail, setUserActiveState } from "@/modules/auth/server/service";
 import type { AdminActionState } from "@/modules/admin/state";
+import { requireAdminSession } from "@/modules/auth/server/guards";
+import {
+  createUser,
+  normalizeEmail,
+  setUserActiveState,
+} from "@/modules/auth/server/service";
 import {
   addUsersToProject,
   createProject,
   removeUserFromProject,
+  updateProjectMemberRole,
 } from "@/modules/projects/server/service";
 
 function readTrimmedString(formData: FormData, key: string) {
@@ -29,7 +34,8 @@ export async function createUserAdminAction(
 
     if (!email || !name || password.length < 8) {
       return {
-        error: "Name, email, and a password of at least 8 characters are required.",
+        error:
+          "Name, email, and a password of at least 8 characters are required.",
         success: null,
       };
     }
@@ -102,7 +108,9 @@ export async function createProjectAdminAction(
   } catch (error) {
     return {
       error:
-        error instanceof Error ? error.message : "Failed to create the project.",
+        error instanceof Error
+          ? error.message
+          : "Failed to create the project.",
       success: null,
     };
   }
@@ -115,9 +123,12 @@ export async function addProjectMembersAction(
   try {
     await requireAdminSession();
     const projectId = readTrimmedString(formData, "projectId");
-    const selectedUsers = formData.getAll("userIds").filter(
-      (value): value is string => typeof value === "string" && value.length > 0,
-    );
+    const selectedUsers = formData
+      .getAll("userIds")
+      .filter(
+        (value): value is string =>
+          typeof value === "string" && value.length > 0,
+      );
 
     if (!projectId || selectedUsers.length === 0) {
       return {
@@ -135,8 +146,7 @@ export async function addProjectMembersAction(
     };
   } catch (error) {
     return {
-      error:
-        error instanceof Error ? error.message : "Failed to add members.",
+      error: error instanceof Error ? error.message : "Failed to add members.",
       success: null,
     };
   }
@@ -157,4 +167,23 @@ export async function removeProjectMemberAction(formData: FormData) {
   } catch (error) {
     console.error("[Admin] Failed to remove project member:", error);
   }
+}
+
+export async function updateProjectMemberRoleAdminAction(formData: FormData) {
+  await requireAdminSession();
+  const projectId = readTrimmedString(formData, "projectId");
+  const userId = readTrimmedString(formData, "userId");
+  const projectRole = readTrimmedString(formData, "projectRole");
+  if (
+    !projectId ||
+    !userId ||
+    !["owner", "editor", "runner"].includes(projectRole)
+  )
+    return;
+  await updateProjectMemberRole(
+    projectId,
+    userId,
+    projectRole as "owner" | "editor" | "runner",
+  );
+  revalidatePath("/admin/projects");
 }

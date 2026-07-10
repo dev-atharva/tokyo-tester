@@ -165,15 +165,21 @@ export function useWorkflowGraph(workflowId: string) {
     [setEdges, setNodes, updateWorkflowGraph, workflow],
   );
 
-  const tidyLayout = useCallback(async () => {
-    const layout = await layoutArchitecture(nodesRef.current, edgesRef.current);
-    setNodes(layout.nodes);
-    setEdges(layout.edges);
-    if (workflow) {
-      updateWorkflowGraph(workflow.id, layout.nodes, layout.edges);
-    }
-    return layout;
-  }, [setEdges, setNodes, updateWorkflowGraph, workflow]);
+  const tidyLayout = useCallback(
+    async (options?: { persist?: boolean }) => {
+      const layout = await layoutArchitecture(
+        nodesRef.current,
+        edgesRef.current,
+      );
+      setNodes(layout.nodes);
+      setEdges(layout.edges);
+      if (workflow && options?.persist !== false) {
+        updateWorkflowGraph(workflow.id, layout.nodes, layout.edges);
+      }
+      return layout;
+    },
+    [setEdges, setNodes, updateWorkflowGraph, workflow],
+  );
 
   return {
     workflow,

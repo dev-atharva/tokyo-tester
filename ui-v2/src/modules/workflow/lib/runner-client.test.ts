@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { WorkflowRunInput } from "../types/react-flow-cots";
-import { submitWorkflowRun } from "./runner-client";
+import { fetchWorkflowRunSnapshot, submitWorkflowRun } from "./runner-client";
 
 const input = {
   workflowRunId: "run-1",
@@ -36,5 +36,19 @@ describe("runner client", () => {
         ),
       ),
     ).rejects.toThrow("workflow must be synchronized");
+  });
+
+  test("fetches a workflow run snapshot through the same-origin runner proxy", async () => {
+    let url = "";
+    await fetchWorkflowRunSnapshot("run/1", "project 1", async (request) => {
+      url = request.toString();
+      return Response.json({
+        workflowRun: { id: "run/1" },
+        scenarioRuns: [],
+        testResults: [],
+      });
+    });
+
+    expect(url).toBe("/api/v1/workflow-runs/run%2F1?projectId=project+1");
   });
 });

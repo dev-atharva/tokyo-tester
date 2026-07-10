@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tokyo-config
+  namespace: tokyo-tester
+data:
+  public-origin: "https://tokyo.example.com"
+  runner-url: "http://tokyo-runner:8080"
+  ui-url: "http://tokyo-ui:3000"
+  runner-log-level: "info"
+  workflow-worker-concurrency: "1"
+  workflow-scenario-concurrency: "1"
+  workflow-job-lease-seconds: "60"
+  workflow-job-heartbeat-seconds: "15"
+  workflow-job-max-recoveries: "3"
+  workflow-event-retention-days: "30"

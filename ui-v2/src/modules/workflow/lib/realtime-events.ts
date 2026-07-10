@@ -30,6 +30,10 @@ export function isWorkflowRunStatus(
   );
 }
 
+export function isWorkflowRunActive(status: WorkflowRunStatus | undefined) {
+  return status === "pending" || status === "running";
+}
+
 export function shouldPollExecutionFallback({
   workflowRunId,
   projectId,
@@ -44,7 +48,7 @@ export function shouldPollExecutionFallback({
   return Boolean(
     workflowRunId &&
       projectId &&
-      (status === "pending" || status === "running") &&
+      isWorkflowRunActive(status) &&
       !realtimeConnected,
   );
 }

@@ -100,6 +100,31 @@ type WorkflowRunEvent struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
+// WorkflowRevision is an immutable, server-owned checkpoint of a workflow and
+// its scenarios. Runs reference one of these checkpoints for reproducibility.
+type WorkflowRevision struct {
+	ID              string    `json:"id"`
+	ProjectID       string    `json:"project_id"`
+	WorkflowID      string    `json:"workflow_id"`
+	RevisionNumber  int       `json:"revision_number"`
+	WorkflowVersion int       `json:"workflow_version"`
+	Snapshot        string    `json:"-"`
+	Message         string    `json:"message"`
+	CreatedBy       string    `json:"created_by"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+type WorkflowSnapshot struct {
+	Workflow  *Workflow   `json:"workflow"`
+	Scenarios []*Scenario `json:"scenarios"`
+}
+
+type WorkflowRevisionStore interface {
+	CreateWorkflowRevision(ctx context.Context, revision *WorkflowRevision) error
+	ListWorkflowRevisions(ctx context.Context, projectID, workflowID string) ([]*WorkflowRevision, error)
+	GetWorkflowRevision(ctx context.Context, projectID, workflowID, revisionID string) (*WorkflowRevision, error)
+}
+
 type Workflow struct {
 	ID          string    `json:"id"`
 	ProjectID   string    `json:"project_id"`
@@ -214,11 +239,16 @@ type SyncMetadata struct {
 
 type Tx interface {
 	UpsertWorkflow(ctx context.Context, workflow *Workflow) error
+	UpdateWorkflowIfVersion(ctx context.Context, workflow *Workflow, baseVersion int) (bool, error)
 	GetWorkflow(ctx context.Context, id string) (*Workflow, error)
 	DeleteWorkflow(ctx context.Context, id string) error
+	DeleteWorkflowIfVersion(ctx context.Context, id string, baseVersion int) (bool, error)
 	UpsertScenario(ctx context.Context, scenario *Scenario) error
+	UpdateScenarioIfVersion(ctx context.Context, scenario *Scenario, baseVersion int) (bool, error)
 	GetScenario(ctx context.Context, id string) (*Scenario, error)
+	ListScenariosByWorkflow(ctx context.Context, workflowID string) ([]*Scenario, error)
 	DeleteScenario(ctx context.Context, id string) error
+	DeleteScenarioIfVersion(ctx context.Context, id string, baseVersion int) (bool, error)
 	UpsertWorkflowRun(ctx context.Context, workflowRun *WorkflowRun) error
 	GetWorkflowRun(ctx context.Context, id string) (*WorkflowRun, error)
 	DeleteWorkflowRun(ctx context.Context, id string) error

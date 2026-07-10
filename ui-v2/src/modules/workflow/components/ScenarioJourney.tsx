@@ -35,7 +35,7 @@ import type { ScenarioTestDefinition } from "../types/react-flow-cots";
 
 interface ScenarioJourneyProps {
   workflowId: string;
-  onConfigure: () => void;
+  onConfigure?: () => void;
   onFocusServices: (serviceNames: string[]) => void;
 }
 
@@ -103,10 +103,12 @@ export function ScenarioJourney({
             Create a scenario and add its first step in Configure mode.
           </p>
         </div>
-        <Button onClick={onConfigure}>
-          <IconPencil className="mr-2 size-4" />
-          Configure scenarios
-        </Button>
+        {onConfigure ? (
+          <Button onClick={onConfigure}>
+            <IconPencil className="mr-2 size-4" />
+            Configure scenarios
+          </Button>
+        ) : null}
       </div>
     );
   }
@@ -164,10 +166,12 @@ export function ScenarioJourney({
             <IconEye className="mr-1.5 size-4" />
             Focus on graph
           </Button>
-          <Button size="sm" variant="secondary" onClick={onConfigure}>
-            <IconPencil className="mr-1.5 size-4" />
-            Edit journey
-          </Button>
+          {onConfigure ? (
+            <Button size="sm" variant="secondary" onClick={onConfigure}>
+              <IconPencil className="mr-1.5 size-4" />
+              Edit journey
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -176,9 +180,11 @@ export function ScenarioJourney({
           {steps.length === 0 ? (
             <div className="rounded-xl border border-dashed p-8 text-center">
               <p className="text-sm font-medium">This journey has no steps.</p>
-              <Button className="mt-3" size="sm" onClick={onConfigure}>
-                Add the first step
-              </Button>
+              {onConfigure ? (
+                <Button className="mt-3" size="sm" onClick={onConfigure}>
+                  Add the first step
+                </Button>
+              ) : null}
             </div>
           ) : (
             <ol>

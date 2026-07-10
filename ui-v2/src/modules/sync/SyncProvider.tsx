@@ -8,18 +8,35 @@ import {
   useEffect,
   useState,
 } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useProjectContext } from "@/modules/projects/project-context";
-import { initializeSyncWithHydration } from "./sync-hydration";
+import { useScenarioStore } from "@/modules/workflow/stores/scenario.store.sync";
+import { useWorkflowStore } from "@/modules/workflow/stores/workflow.store.sync";
+import {
+  deserializeScenario,
+  deserializeWorkflow,
+  initializeSyncWithHydration,
+} from "./sync-hydration";
 import {
   checkSyncHealth,
   initSync,
-  stopSync,
   type SyncConfig,
+  stopSync,
   syncNow,
 } from "./sync-init";
 import { syncService } from "./sync-service";
+import type { ConflictInfo, ScenarioData, WorkflowData } from "./sync-types";
 
 interface SyncContextValue {
   isInitialized: boolean;
@@ -52,6 +69,76 @@ export function SyncProvider({
     "healthy" | "degraded" | "down" | "error" | "unknown"
   >("unknown");
   const [queueSize, setQueueSize] = useState(0);
+  const [conflict, setConflict] = useState<ConflictInfo | null>(null);
+
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const conflicts = (event as CustomEvent<ConflictInfo[]>).detail;
+      const actionableConflict = conflicts?.find(
+        (item) => item.current_version > item.client_version,
+      );
+      if (!actionableConflict) {
+        return;
+      }
+      setConflict((current) => current ?? actionableConflict);
+    };
+    window.addEventListener("tokyo:sync-conflict", listener);
+    return () => window.removeEventListener("tokyo:sync-conflict", listener);
+  }, []);
+
+  const acceptServerVersion = useCallback(() => {
+    if (!conflict?.current_data) {
+      setConflict(null);
+      return;
+    }
+    if (conflict.entity_type === "workflow") {
+      useWorkflowStore
+        .getState()
+        .replaceWorkflowFromSync(
+          deserializeWorkflow(conflict.current_data as WorkflowData),
+        );
+    } else if (conflict.entity_type === "scenario") {
+      useScenarioStore
+        .getState()
+        .replaceScenarioFromSync(
+          deserializeScenario(conflict.current_data as ScenarioData),
+        );
+    }
+    setConflict(null);
+  }, [conflict]);
+
+  const keepLocalCopy = useCallback(() => {
+    const local = conflict?.local_data as Record<string, unknown> | undefined;
+    if (!local) {
+      acceptServerVersion();
+      return;
+    }
+    if (conflict?.entity_type === "workflow") {
+      const store = useWorkflowStore.getState();
+      const id = store.createWorkflow(
+        String(local.project_id ?? ""),
+        `${String(local.name ?? "Workflow")} (conflict copy)`,
+        String(local.description ?? ""),
+      );
+      store.updateWorkflowGraph(
+        id,
+        (local.nodes_config as never[]) ?? [],
+        (local.edges_config as never[]) ?? [],
+      );
+    } else if (conflict?.entity_type === "scenario") {
+      const store = useScenarioStore.getState();
+      const id = store.createScenario(
+        String(local.workflow_id ?? ""),
+        `${String(local.name ?? "Scenario")} (conflict copy)`,
+      );
+      store.updateScenario(id, {
+        description: String(local.description ?? ""),
+        tests: (local.tests_config as never[]) ?? [],
+        testOrder: (local.test_order as string[]) ?? [],
+      });
+    }
+    acceptServerVersion();
+  }, [acceptServerVersion, conflict]);
 
   const checkHealth = useCallback(async () => {
     try {
@@ -127,10 +214,22 @@ export function SyncProvider({
     }, statusPollingInterval);
 
     return () => clearInterval(interval);
-  }, [isInitialized, statusPollingInterval, checkHealth, userId, activeProjectId]);
+  }, [
+    isInitialized,
+    statusPollingInterval,
+    checkHealth,
+    userId,
+    activeProjectId,
+  ]);
 
   useEffect(() => {
-    if (!isInitialized || !userId || !activeProjectId || typeof document === "undefined" || typeof window === "undefined") {
+    if (
+      !isInitialized ||
+      !userId ||
+      !activeProjectId ||
+      typeof document === "undefined" ||
+      typeof window === "undefined"
+    ) {
       return;
     }
 
@@ -190,17 +289,45 @@ export function SyncProvider({
 
   return (
     <SyncContext.Provider value={contextValue}>
-      <>
-        {children}
-        {activeProjectId && isHydrating ? (
-          <div className="pointer-events-none fixed bottom-4 right-4 z-50 rounded-md border bg-background/90 px-3 py-2 shadow-sm backdrop-blur">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <div className="h-3.5 w-3.5 animate-spin rounded-full border border-border border-t-primary" />
-              <span>Syncing workspace data...</span>
-            </div>
+      {children}
+      {activeProjectId && isHydrating ? (
+        <div className="pointer-events-none fixed bottom-4 right-4 z-50 rounded-md border bg-background/90 px-3 py-2 shadow-sm backdrop-blur">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="h-3.5 w-3.5 animate-spin rounded-full border border-border border-t-primary" />
+            <span>Syncing workspace data...</span>
           </div>
-        ) : null}
-      </>
+        </div>
+      ) : null}
+      <AlertDialog
+        open={Boolean(conflict)}
+        onOpenChange={(open) => {
+          if (!open) setConflict(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>This item changed elsewhere</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your edit started from version {conflict?.client_version}, but
+              version {conflict?.current_version} is now on the server. Keep
+              your work as a separate copy or load the current version.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Dismiss</AlertDialogCancel>
+            <AlertDialogAction
+              type="button"
+              variant="outline"
+              onClick={keepLocalCopy}
+            >
+              Keep as copy
+            </AlertDialogAction>
+            <AlertDialogAction type="button" onClick={acceptServerVersion}>
+              Load current
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SyncContext.Provider>
   );
 }

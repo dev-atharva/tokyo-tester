@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tokyo-runner-private
+  namespace: tokyo-tester
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tokyo-runner
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tokyo-ui
+      ports:
+        - protocol: TCP
+          port: 8080

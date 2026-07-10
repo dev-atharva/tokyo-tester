@@ -40,8 +40,12 @@ func (c *DatabaseConfig) Validate() error {
 		if c.URL == "" {
 			return fmt.Errorf("DATABASE_URL must be set for postgres")
 		}
+	case "mysql":
+		if c.URL == "" {
+			return fmt.Errorf("DATABASE_URL must be set for mysql")
+		}
 	default:
-		return fmt.Errorf("unsupported database type : %s (must be 'sqlite' or 'postgres')", c.Type)
+		return fmt.Errorf("unsupported database type : %s (must be 'sqlite', 'postgres', or 'mysql')", c.Type)
 	}
 	return nil
 }

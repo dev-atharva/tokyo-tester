@@ -104,14 +104,15 @@ export function useRealtimeTestResults({
       const failed = testResults.filter(
         (test) => test.status === "failed",
       ).length;
-      onAllTestsComplete?.(workflowRunId, {
+      const summary = {
         total: testResults.length,
         passed,
         failed,
         duration: activeExecution.finishedAt
           ? activeExecution.finishedAt - activeExecution.startedAt
           : 0,
-      });
+      };
+      onAllTestsComplete?.(workflowRunId, summary);
       notifiedRuns.current.add(workflowRunId);
     }
   }, [
@@ -144,6 +145,8 @@ export function useRealtimeTestResults({
       ),
     hasFailures: summary.failed > 0,
     sessionId: workflowRunId,
-    isActive: !!activeExecution,
+    isActive:
+      activeExecution?.status === "pending" ||
+      activeExecution?.status === "running",
   };
 }

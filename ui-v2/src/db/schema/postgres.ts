@@ -30,6 +30,9 @@ export const pgUsers = pgTable("user", {
 export const pgProjects = pgTable("project", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  kind: text("kind", { enum: ["personal", "team"] })
+    .notNull()
+    .default("team"),
   createdBy: text("createdBy")
     .notNull()
     .references(() => pgUsers.id, { onDelete: "cascade" }),
@@ -50,6 +53,9 @@ export const pgProjectMembers = pgTable(
     userId: text("userId")
       .notNull()
       .references(() => pgUsers.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["owner", "editor", "runner"] })
+      .notNull()
+      .default("editor"),
     createdAt: timestamp("createdAt", { mode: "date" })
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
@@ -58,6 +64,23 @@ export const pgProjectMembers = pgTable(
     pk: primaryKey({ columns: [table.projectId, table.userId] }),
   }),
 );
+
+export const pgAgentTokens = pgTable("agent_token", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  tokenHash: text("tokenHash").notNull().unique(),
+  userId: text("userId")
+    .notNull()
+    .references(() => pgUsers.id, { onDelete: "cascade" }),
+  projectId: text("projectId")
+    .notNull()
+    .references(() => pgProjects.id, { onDelete: "cascade" }),
+  scopes: text("scopes").notNull(),
+  expiresAt: timestamp("expiresAt", { mode: "date" }).notNull(),
+  createdAt: timestamp("createdAt", { mode: "date" })
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
 
 export const pgAccounts = pgTable(
   "account",
