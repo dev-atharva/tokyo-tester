@@ -206,7 +206,6 @@ export class SyncService {
         console.log(
           `[SyncService] ✅ Synced ${retryResponse.processed_count}/${repairedBatch.length} repaired changes`,
         );
-        this.dispatchConflicts(retryResponse, repairedBatch);
         if (retryResponse.errors && retryResponse.errors.length > 0) {
           console.warn(
             "[SyncService] Sync completed with server-reported errors:",
@@ -221,10 +220,10 @@ export class SyncService {
           );
           return null;
         }
+        this.dispatchConflicts(retryResponse, repairedBatch);
         return retryResponse;
       }
 
-      this.dispatchConflicts(response, batch);
       if (response.errors && response.errors.length > 0) {
         console.warn(
           "[SyncService] Sync completed with server-reported errors:",
@@ -241,6 +240,7 @@ export class SyncService {
         return null;
       }
 
+      this.dispatchConflicts(response, batch);
       return response;
     } catch (error) {
       console.error("[SyncService] Failed:", error);
@@ -461,7 +461,7 @@ export class SyncService {
       project_id: projectId,
       client_id: clientId,
       timestamp: new Date().toISOString(),
-      changes,
+      changes: orderSyncChanges(changes),
     };
 
     const url = `${this._baseUrl}/api/v1/sync/batch`;
@@ -593,6 +593,26 @@ export class SyncService {
       console.error("[SyncService] Failed to persist queue:", error);
     }
   }
+}
+
+const SYNC_ENTITY_ORDER: Record<EntityType, number> = {
+  workflow: 0,
+  scenario: 1,
+  workflow_run: 2,
+  scenario_run: 3,
+  test_result: 4,
+};
+
+function orderSyncChanges(changes: SyncChange[]): SyncChange[] {
+  return changes
+    .map((change, index) => ({ change, index }))
+    .sort(
+      (left, right) =>
+        SYNC_ENTITY_ORDER[left.change.entity_type] -
+          SYNC_ENTITY_ORDER[right.change.entity_type] ||
+        left.index - right.index,
+    )
+    .map(({ change }) => change);
 }
 
 function getCurrentProjectIdSafe() {

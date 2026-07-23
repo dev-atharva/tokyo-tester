@@ -240,6 +240,56 @@ describe("sync service", () => {
     ).toEqual(["workflow_run", "scenario_run"]);
   });
 
+  test("sends parent entities before dependent run history", async () => {
+    setCurrentSessionUserId("user-1");
+    setCurrentSessionProjectId("project-1");
+    let sentEntityTypes: string[] = [];
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const body = JSON.parse(String(init?.body)) as {
+        changes: Array<{ entity_type: string }>;
+      };
+      sentEntityTypes = body.changes.map((change) => change.entity_type);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          processed_count: body.changes.length,
+          errors: [],
+          server_version: 1,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const service = new SyncService();
+    for (const entityType of [
+      "test_result",
+      "scenario_run",
+      "workflow_run",
+      "scenario",
+      "workflow",
+    ] as const) {
+      service.queueChange({
+        entity_type: entityType,
+        entity_id: entityType,
+        change_type: "insert",
+        data: { id: entityType },
+      });
+    }
+
+    await service.flush();
+
+    expect(sentEntityTypes).toEqual([
+      "workflow",
+      "scenario",
+      "workflow_run",
+      "scenario_run",
+      "test_result",
+    ]);
+  });
+
   test("only unsynced workflow creates or deletes block a run after pre-run sync fails", async () => {
     setCurrentSessionUserId("user-1");
     setCurrentSessionProjectId("project-1");

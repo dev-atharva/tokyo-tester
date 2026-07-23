@@ -443,6 +443,8 @@ export const WorkflowList = () => {
               return (
                 <div
                   key={workflow.id}
+                  data-testid="workflow-card"
+                  data-workflow-name={workflow.name}
                   className="group relative w-full cursor-pointer rounded-xl border-2 border-border/60 bg-card p-5 text-left transition-all duration-200 hover:border-primary/50 hover:shadow-lg"
                 >
                   <div className="flex items-start justify-between gap-4">
