@@ -41,6 +41,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      HOSTNAME: 0.0.0.0
       COTS_API_BASE_URL: ${COTS_API_BASE_URL:-http://runner:8080}
       DB_TYPE: ${UI_DB_TYPE:-sqlite}
       DB_PATH: /app/data/tokyo-tester-auth.db
@@ -55,7 +56,7 @@ services:
         condition: service_healthy
     networks:
       - tokyo-tester
-    command: ["sh", "-c", "bun run db:migrate && bun run start"]
+    command: ["sh", "-c", "node ./src/db/migrate.mjs && exec node server.js"]
     restart: unless-stopped
 
   mcp:

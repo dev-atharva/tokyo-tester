@@ -4,9 +4,6 @@ COMPOSE := docker compose
 COMPOSE_FILES := -f docker-compose.yml
 DEV_COMPOSE_FILES := -f docker-compose.yml -f docker-compose.dev.yml
 SOCKET_ENV_FILE := .env.docker-socket
-K8S_DIR ?= k8s/dind
-KUBECTL ?= kubectl
-IMAGE_TAG ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo local)
 DEV_SECRETS = AUTH_SECRET="$${AUTH_SECRET:-local-dev-auth-secret}" WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}"
 UI_RUNNER_CHECK_PATHS := proxy.ts package.json src/app/layout.tsx src/app/globals.css src/app/api/v1/workflow-runs src/modules/sync/sync-hydration.tsx src/modules/workflow/hooks/useRealtimeLogs.tsx src/modules/workflow/hooks/useWorkflowExecution.tsx src/modules/workflow/lib src/modules/workflow/server src/modules/workflow/stores/execution.store.sync.ts src/modules/workflow/types/workflow-run-input.contract.test.ts
 ENV_LOADER = set -a; \
@@ -14,7 +11,7 @@ ENV_LOADER = set -a; \
 	if [ -f ./.env ]; then . ./.env; fi; \
 	set +a;
 
-.PHONY: help ensure-docker-socket doctor dev dev-docker dev-host-runner dev-local dev-support runner-dev ui-dev agent-dev prod k8s-render k8s-apply k8s-build-images k8s-push-images down reset test test-go test-ui test-test-api test-api-build test-complex-e2e check compose-check
+.PHONY: help ensure-docker-socket doctor dev dev-docker dev-host-runner dev-local dev-support runner-dev ui-dev agent-dev prod prod-check prod-verify prod-backup prod-capture e2e e2e-install e2e-docker e2e-docker-leak down reset test test-go test-ui test-test-api test-api-build test-complex-e2e check compose-check
 
 help: ## Show available commands
 	@printf "Tokyo Tester commands\n\n"
@@ -103,26 +100,20 @@ agent-dev: ensure-docker-socket ## Expose the local MCP server on http://localho
 	@printf "Tokyo Tester MCP: http://localhost:8090/mcp\n"
 	@printf "Health check:      http://localhost:8090/health\n"
 
-prod: ensure-docker-socket ## Run the local production-like stack
-	@$(ENV_LOADER) $(COMPOSE) $(COMPOSE_FILES) --profile agent up --build -d
+prod-check: ensure-docker-socket ## Validate the dedicated Docker production host
+	@$(ENV_LOADER) bash ./scripts/prod-check.sh
 
-k8s-render: ## Render the Kubernetes DinD deployment manifests
-	@$(KUBECTL) kustomize $(K8S_DIR)
+prod: prod-check ## Build, migrate, and start the supported production stack
+	@$(ENV_LOADER) $(COMPOSE) $(COMPOSE_FILES) --profile agent up --build -d --wait --wait-timeout "$${PROD_WAIT_TIMEOUT:-180}"
 
-k8s-apply: ## Apply the Kubernetes DinD deployment manifests
-	@$(KUBECTL) apply -k $(K8S_DIR)
+prod-verify: ## Verify production health, execute a Docker smoke workflow, and check for leaks
+	@$(ENV_LOADER) bash ./scripts/prod-verify.sh
 
-k8s-build-images: ## Build Kubernetes images (set IMAGE_REGISTRY=registry/org)
-	@test -n "$(IMAGE_REGISTRY)" || (printf "Set IMAGE_REGISTRY=registry/org\n"; exit 1)
-	docker build -t $(IMAGE_REGISTRY)/tokyo-runner:$(IMAGE_TAG) --target runner ./runner-v2
-	docker build -t $(IMAGE_REGISTRY)/tokyo-mcp:$(IMAGE_TAG) --target mcp ./runner-v2
-	docker build -t $(IMAGE_REGISTRY)/tokyo-ui:$(IMAGE_TAG) ./ui-v2
+prod-backup: ## Stop writers briefly and create checksummed backups of both SQLite databases
+	@$(ENV_LOADER) bash ./scripts/prod-backup.sh
 
-k8s-push-images: ## Push Kubernetes images (set IMAGE_REGISTRY=registry/org)
-	@test -n "$(IMAGE_REGISTRY)" || (printf "Set IMAGE_REGISTRY=registry/org\n"; exit 1)
-	docker push $(IMAGE_REGISTRY)/tokyo-runner:$(IMAGE_TAG)
-	docker push $(IMAGE_REGISTRY)/tokyo-mcp:$(IMAGE_TAG)
-	docker push $(IMAGE_REGISTRY)/tokyo-ui:$(IMAGE_TAG)
+prod-capture: ## Capture a redacted deployment baseline before reconciling server-only changes
+	@$(ENV_LOADER) bash ./scripts/capture-production-baseline.sh
 
 test: test-go test-ui test-test-api ## Run backend and frontend tests
 
@@ -142,6 +133,17 @@ test-api-build: ensure-docker-socket ## Build both compatible tags for the workf
 
 test-complex-e2e: test-api-build ## Run the opt-in, resource-heavy payment provider matrix
 	@cd runner-v2 && RUN_COMPLEX_PAYMENT_E2E=1 GOCACHE="$${GOCACHE:-/tmp/tokyo-tester-go-cache}" go test -count=1 -timeout=60m ./e2e -run TestComplexPaymentFixturesE2E
+
+e2e-install: ## Install the pinned Playwright harness and Chromium
+	@cd e2e && bun install --frozen-lockfile && bunx playwright install chromium
+
+e2e: e2e-docker ## Run the supported whole-product Docker journey
+
+e2e-docker: ensure-docker-socket ## Run the guided Docker production-image journey
+	@$(ENV_LOADER) cd e2e && bun run test:docker
+
+e2e-docker-leak: ensure-docker-socket ## Repeat the Docker journey 20 times and assert cleanup after every run
+	@$(ENV_LOADER) cd e2e && E2E_REPEAT_EACH=20 bun run test:docker
 
 compose-check: ## Validate production and development Compose files
 	@AUTH_SECRET=compose-check-auth-secret WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" $(COMPOSE) $(COMPOSE_FILES) --profile agent config --quiet

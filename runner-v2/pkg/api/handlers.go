@@ -104,6 +104,7 @@ type Handler struct {
 	cleanupSlots     chan struct{}
 	workflowService  *WorkflowService
 	resourceCleaner  sessionResourceCleaner
+	readinessCheck   func(context.Context) error
 }
 
 type sessionResourceCleaner interface {
@@ -116,6 +117,11 @@ func (h *Handler) SetWorkflowService(service *WorkflowService) {
 
 func (h *Handler) SetSessionResourceCleaner(cleaner sessionResourceCleaner) {
 	h.resourceCleaner = cleaner
+}
+
+// SetReadinessCheck adds the runtime dependency check used by /health.
+func (h *Handler) SetReadinessCheck(check func(context.Context) error) {
+	h.readinessCheck = check
 }
 
 func NewHandler(database db.Database, appCfg config.AppConfig) *Handler {

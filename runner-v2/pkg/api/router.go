@@ -54,6 +54,12 @@ func NewRouter(handler *Handler, syncHandler *sync.Handler, tracingEnabled bool)
 			respondJson(w, http.StatusServiceUnavailable, map[string]string{"status": "unhealthy", "error": "database is unavailable"})
 			return
 		}
+		if handler.readinessCheck != nil {
+			if err := handler.readinessCheck(r.Context()); err != nil {
+				respondJson(w, http.StatusServiceUnavailable, map[string]string{"status": "unhealthy", "error": "Docker daemon is unavailable"})
+				return
+			}
+		}
 		respondJson(w, 200, map[string]string{"status": "ok"})
 	})
 

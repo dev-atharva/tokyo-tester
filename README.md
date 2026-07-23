@@ -59,10 +59,12 @@ The full matrix is intentionally opt-in through `make test-complex-e2e` because 
 
 Follow the complete [Production deployment runbook](./docs/production-deployment.md) before exposing Tokyo Tester to a network. It covers DNS/TLS, secrets, migrations, verification, agent access, backups, upgrades, rollback, and incident commands.
 
-For Kubernetes, use the transitional [Kubernetes DinD deployment runbook](./docs/kubernetes-dind-deployment.md). It deploys the runner with a privileged Docker-in-Docker sidecar while keeping the runner private and UI/MCP behind your cluster routing.
+The supported production deployment for this release is a dedicated Linux Docker host. Kubernetes execution, environment profiles, and the previous Docker-in-Docker profile are parked until a native in-cluster backend passes the same execution, cleanup, recovery, and persistence gates as Docker.
 
-- `make prod` builds the standalone UI image and runs the single-server production stack
-- `kubectl apply -k k8s/dind` deploys the Kubernetes runner + DinD profile after you set images, secrets, and domain values
+- `make prod-check` validates the host, secrets, socket access, Compose definition, and writable volumes
+- `make prod` builds the standalone UI image, migrates both databases, starts the single-server stack, and waits for readiness
+- `make prod-verify` checks public/private health, runs a minimal Docker workflow, and checks for leaked managed resources
+- `make prod-backup` creates checksummed backups of both SQLite databases during a brief maintenance window
 - `RUNNER_DB_TYPE` and `UI_DB_TYPE` accept `sqlite`, `postgres`, or `mysql`; workflow MySQL service nodes are separate from this app database setting
 - production startup detects the host Docker socket before Compose starts, then the runner checks Docker again from inside the container; a bad socket now fails startup instead of waiting until a workflow is run
 - the UI still uses Bun for app scripts, but database migration runs through `node ./src/db/migrate.mjs` because `better-sqlite3` is a Node-only runtime dependency

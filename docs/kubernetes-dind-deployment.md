@@ -1,4 +1,6 @@
-# Kubernetes DinD deployment runbook
+# Kubernetes DinD deployment runbook (parked)
+
+> This topology is not supported by the Docker stabilization release. It is retained only as historical reference. Do not deploy it where privileged DinD is unavailable. Kubernetes re-entry will use native, namespace-scoped execution after the Docker release gates pass.
 
 This runbook deploys Tokyo Tester to Kubernetes with the current Docker/Testcontainers runner architecture. The runner Pod includes a privileged Docker-in-Docker sidecar and talks to it through a shared Unix socket at `/var/run/docker.sock`.
 

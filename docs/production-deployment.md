@@ -2,7 +2,7 @@
 
 This runbook deploys Tokyo Tester to one Linux server with Docker Compose. Caddy is the only public entry point. The UI, MCP adapter, runner, app databases, and Docker socket stay on the internal Compose network.
 
-For Kubernetes, use the separate [Kubernetes DinD deployment runbook](./kubernetes-dind-deployment.md). That profile runs the current Docker/Testcontainers runner with a privileged Docker-in-Docker sidecar and keeps native Kubernetes provisioning as a future architecture change.
+The supported production topology for this release is one dedicated Linux Docker host. Kubernetes execution and the former Docker-in-Docker deployment profile are deferred until the native in-cluster backend reaches Docker feature and recovery parity.
 
 > Tokyo Tester's runner can create containers through the host Docker daemon. Treat the server and runner container as privileged infrastructure. Do not colocate unrelated, untrusted workloads on this host.
 
@@ -43,6 +43,7 @@ AUTH_TRUST_HOST=true
 AUTH_URL=https://tokyo.example.com
 
 TOKYO_TESTER_DOMAIN=tokyo.example.com
+TOKYO_TESTER_PUBLIC_URL=https://tokyo.example.com
 TOKYO_TESTER_PUBLIC_ORIGIN=https://tokyo.example.com
 CORS_ORIGIN=https://tokyo.example.com
 
@@ -59,11 +60,12 @@ For MySQL, the UI expects a normal MySQL URL such as `mysql://user:pass@host:330
 ## 3. Validate and deploy
 
 ```bash
-make compose-check
+make prod-check
 make prod
+make prod-verify
 ```
 
-`make prod` detects the Docker socket, builds the pinned source, and starts `runner`, `ui`, `mcp`, and `edge`. The runner starts with `-migrate`; the UI runs `db:migrate` before starting. Pending migrations are applied automatically. Do not reset either database during a normal deployment or upgrade.
+`make prod-check` validates required secrets, the Docker socket and daemon, Compose configuration, required host tools, and writable Docker volumes. `make prod` then builds the pinned source, applies runner and UI migrations, starts `runner`, `ui`, `mcp`, and `edge`, waits for health checks, and fails if a required service is unhealthy. `make prod-verify` checks private and public readiness, runs a Redis round-trip workflow, and fails if any managed container or network leaks. Do not reset either database during a normal deployment or upgrade.
 
 There is one startup behavior change worth calling out for operators: Docker health is now a startup gate, not a first-workflow failure. If `runner` does not become healthy, check the detected socket in `.env.docker-socket`, the Compose socket mount, and the runner logs before retrying:
 
@@ -78,9 +80,8 @@ Caddy obtains and renews the TLS certificate after DNS resolves and ports 80/443
 ## 4. First boot and verification
 
 ```bash
-docker compose --profile agent ps
+TOKYO_TESTER_PUBLIC_URL=https://tokyo.example.com make prod-verify
 docker compose --profile agent logs --tail=200 runner ui mcp edge
-curl -fsS https://tokyo.example.com/api/health
 curl -fsS https://tokyo.example.com/mcp \
   -H 'content-type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"ping"}'
@@ -107,24 +108,12 @@ Personal tokens are the current private-beta authentication path. Use this deplo
 
 ## 6. Back up SQLite deployments
 
-Create a backup before every upgrade and on a regular schedule. For a consistent SQLite copy, briefly stop writers, archive both mounted data directories, then restart:
+Create a backup before every upgrade and on a regular schedule. The supported command briefly stops writers, archives both SQLite data volumes, writes SHA-256 checksums, and waits for the stack to become healthy again:
 
 ```bash
-mkdir -p backups/$(date -u +%Y%m%dT%H%M%SZ)
-BACKUP_DIR=$(ls -dt backups/* | head -1)
-
-docker compose --profile agent stop mcp ui runner
-
-docker compose --profile agent run -T --rm --no-deps \
-  --entrypoint sh runner -c 'tar -C /app/data -czf - .' \
-  > "$BACKUP_DIR/runner-data.tgz"
-
-docker compose --profile agent run -T --rm --no-deps \
-  --entrypoint sh ui -c 'tar -C /app/data -czf - .' \
-  > "$BACKUP_DIR/ui-data.tgz"
-
-docker compose --profile agent up -d
-sha256sum "$BACKUP_DIR"/*.tgz > "$BACKUP_DIR/SHA256SUMS"
+make prod-backup
+# Optional protected destination:
+BACKUP_DIR=/mnt/encrypted/tokyo-backups make prod-backup
 ```
 
 Store the archives and matching secret values encrypted, off the server. Regularly test restoration on a separate machine. With PostgreSQL or MySQL, use the provider's snapshot/export procedure instead of copying container files.
@@ -134,7 +123,7 @@ Store the archives and matching secret values encrypted, off the server. Regular
 Restoration overwrites current data. Verify that the backup contains both archives, its checksums, the matching secrets, and the Git revision that created it. Then:
 
 ```bash
-export BACKUP_DIR=/path/to/verified-backup
+export BACKUP_DIR=/path/to/verified-backup/timestamp
 export BACKUP_COMMIT=recorded-git-commit
 cd /opt/tokyo-tester
 git checkout "$BACKUP_COMMIT"
@@ -145,36 +134,37 @@ docker compose --profile agent down
 
 docker compose --profile agent run -T --rm --no-deps \
   --entrypoint sh runner -c \
-  'find /app/data -mindepth 1 -maxdepth 1 -exec rm -rf {} +; tar -xzf - -C /app/data' \
-  < "$BACKUP_DIR/runner-data.tgz"
+  'find /app/data -mindepth 1 -maxdepth 1 -exec rm -rf {} +; tar -xf - -C /app/data' \
+  < "$BACKUP_DIR/runner-data.tar"
 
 docker compose --profile agent run -T --rm --no-deps \
   --entrypoint sh ui -c \
-  'find /app/data -mindepth 1 -maxdepth 1 -exec rm -rf {} +; tar -xzf - -C /app/data' \
-  < "$BACKUP_DIR/ui-data.tgz"
+  'find /app/data -mindepth 1 -maxdepth 1 -exec rm -rf {} +; tar -xf - -C /app/data' \
+  < "$BACKUP_DIR/ui-data.tar"
 
 make prod
+make prod-verify
 ```
 
 Run the external health checks and a smoke workflow before allowing normal use. Restore into a separate server first whenever possible.
 
 ## 7. Upgrade safely
 
-1. Record the deployed Git commit.
-2. Back up both databases and secrets.
+1. Run `make prod-capture` and store the redacted baseline securely.
+2. Run `make prod-backup` and preserve the matching secrets.
 3. Fetch and inspect the target release.
 4. Run `make check` in CI or on a suitable build machine against the exact commit.
 5. Check out the target release and run `make prod`.
-6. Watch migrations and health logs, then run the external health checks.
-7. Run a small smoke workflow before restoring normal concurrency.
+6. Run `make prod-verify` and inspect migration/health logs before restoring normal concurrency.
 
 ```bash
 git rev-parse HEAD
 git fetch --tags
 export TOKYO_TESTER_RELEASE=v1.2.3
 git checkout "$TOKYO_TESTER_RELEASE"
-make compose-check
+make prod-check
 make prod
+TOKYO_TESTER_PUBLIC_URL=https://tokyo.example.com make prod-verify
 docker compose --profile agent logs -f --tail=200 runner ui mcp edge
 ```
 

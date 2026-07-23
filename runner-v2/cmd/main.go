@@ -140,6 +140,9 @@ func main() {
 	}
 
 	handler := api.NewHandler(database, cfg.App)
+	if cfg.WorkflowWorker.Enabled || cfg.Janitor.Enabled {
+		handler.SetReadinessCheck(dockerhealth.Validate)
+	}
 	appCtx, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 	var workflowService *api.WorkflowService

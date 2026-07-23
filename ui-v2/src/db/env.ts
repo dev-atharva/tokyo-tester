@@ -16,11 +16,14 @@ export function getDatabaseConfig(): DatabaseConfig {
       : process.env.DB_TYPE === "mysql"
         ? "mysql"
         : "sqlite";
-  const sqlitePath = resolve(
-    process.env.DB_PATH || "./data/tokyo-tester-auth.db",
-  );
+  const configuredSqlitePath =
+    process.env.DB_PATH || "./data/tokyo-tester-auth.db";
+  const sqlitePath =
+    configuredSqlitePath === ":memory:"
+      ? configuredSqlitePath
+      : resolve(configuredSqlitePath);
 
-  if (type === "sqlite") {
+  if (type === "sqlite" && sqlitePath !== ":memory:") {
     mkdirSync(dirname(sqlitePath), { recursive: true });
   }
 
