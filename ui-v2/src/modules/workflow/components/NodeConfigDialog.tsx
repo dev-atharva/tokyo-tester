@@ -1,4 +1,5 @@
 "use client";
+import { IconSettings2 } from "@tabler/icons-react";
 import React, { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,16 +12,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { sanitizeName } from "../../utils/scenario-translator";
 import type {
   EnvironmentVariable,
   FlowNode,
   PortMapping,
   ServiceNodeData,
 } from "../types/react-flow-cots";
-import { sanitizeName } from "../../utils/scenario-translator";
 import { RegistryConfigForm } from "./RegistryConfigForm";
 import { ServiceConfigForm } from "./ServiceConfigForm";
-import { IconSettings2 } from "@tabler/icons-react";
 
 interface NodeConfigProps {
   isOpen: boolean;
@@ -71,6 +71,16 @@ export const NodeConfigDialog: React.FC<NodeConfigProps> = ({
 
   const handleSave = () => {
     if (editedNode) {
+      if (
+        editedNode.data.service.type === "generic" &&
+        !editedNode.data.service.image?.trim()
+      ) {
+        SetactiveTab("service");
+        requestAnimationFrame(() =>
+          document.getElementById("service-container-image")?.focus(),
+        );
+        return;
+      }
       onSave(editedNode);
       onClose();
     }
@@ -133,10 +143,19 @@ export const NodeConfigDialog: React.FC<NodeConfigProps> = ({
           </TabsContent>
         </Tabs>
         <DialogFooter className="border-t bg-muted/20 px-6 py-3">
-          <DialogClose render={<Button variant="outline" className="shadow-sm" />}>
+          <DialogClose
+            render={<Button variant="outline" className="shadow-sm" />}
+          >
             Cancel
           </DialogClose>
-          <Button onClick={handleSave} className="shadow-sm">
+          <Button
+            onClick={handleSave}
+            disabled={
+              editedNode.data.service.type === "generic" &&
+              !editedNode.data.service.image?.trim()
+            }
+            className="shadow-sm"
+          >
             Save changes
           </Button>
         </DialogFooter>

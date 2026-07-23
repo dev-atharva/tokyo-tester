@@ -1,6 +1,12 @@
 "use client";
 
+import {
+  IconAlertTriangle,
+  IconBox,
+  IconShieldCheck,
+} from "@tabler/icons-react";
 import { useEffect, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -20,12 +26,18 @@ import {
   FieldSet,
   FieldTitle,
 } from "@/components/ui/field";
-import type { Scenario } from "../types/react-flow-cots";
+import type {
+  FlowNode,
+  Scenario,
+  TranslationError,
+} from "../types/react-flow-cots";
 
 interface RunWorkflowDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  nodes: FlowNode[];
   scenarios: Scenario[];
+  validationErrors?: TranslationError[];
   isExecuting: boolean;
   onRun: (scenarioIds: string[]) => Promise<void>;
 }
@@ -33,7 +45,9 @@ interface RunWorkflowDialogProps {
 export function RunWorkflowDialog({
   open,
   onOpenChange,
+  nodes,
   scenarios,
+  validationErrors = [],
   isExecuting,
   onRun,
 }: RunWorkflowDialogProps) {
@@ -46,13 +60,54 @@ export function RunWorkflowDialog({
   const selectedCount = selectedIds.size;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Choose scenarios to run</DialogTitle>
+          <DialogTitle>Review and run in Docker</DialogTitle>
           <DialogDescription>
-            All scenarios are selected each time this dialog opens.
+            Select the scenarios for this isolated workflow run.
           </DialogDescription>
         </DialogHeader>
+        <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-2">
+          <div className="flex items-start gap-2">
+            <IconBox className="mt-0.5 size-4 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium">
+                {nodes.length} managed services
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {nodes.length > 0
+                  ? nodes.map((node) => node.data.label).join(", ")
+                  : "Add a service before running."}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <IconShieldCheck className="mt-0.5 size-4 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium">Automatic cleanup</p>
+              <p className="text-xs text-muted-foreground">
+                Managed containers and the isolated network are removed after
+                the run.
+              </p>
+            </div>
+          </div>
+        </div>
+        {validationErrors.length > 0 ? (
+          <div className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+              <IconAlertTriangle className="size-4" />
+              Fix {validationErrors.length} validation{" "}
+              {validationErrors.length === 1 ? "error" : "errors"}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {validationErrors.map((error, index) => (
+                <Badge key={`${error.field}-${index}`} variant="outline">
+                  {error.message}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <FieldSet className="max-h-[55vh] overflow-y-auto pr-1">
           <FieldGroup data-slot="checkbox-group">
             {scenarios.map((scenario) => {
@@ -90,7 +145,9 @@ export function RunWorkflowDialog({
             Cancel
           </Button>
           <Button
-            disabled={selectedCount === 0 || isExecuting}
+            disabled={
+              selectedCount === 0 || isExecuting || validationErrors.length > 0
+            }
             onClick={async () => {
               await onRun([...selectedIds]);
               onOpenChange(false);

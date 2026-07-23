@@ -122,9 +122,9 @@ export const NodeDrawer: React.FC<NodeDrawerProps> = ({
     },
     {
       type: "generic",
-      label: "Generic",
+      label: "Application",
       icon: DockerIcon,
-      description: "Any Docker image-backed service",
+      description: "Your application container image",
     },
   ];
 

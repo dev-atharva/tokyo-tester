@@ -1,19 +1,19 @@
 "use client";
 
 import {
+  closestCenter,
   DndContext,
+  type DragEndEvent,
   DragOverlay,
+  type DragStartEvent,
   KeyboardSensor,
   PointerSensor,
-  closestCenter,
   useSensor,
   useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
-  SortableContext,
   arrayMove,
+  SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
@@ -25,10 +25,10 @@ import {
   IconGripVertical,
   IconListDetails,
   IconPlus,
+  IconSparkles,
   IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import { generateId } from "@/lib/generate-id";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -40,6 +40,12 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  createScenarioRecipe,
+  recipeAvailability,
+  SCENARIO_RECIPES,
+} from "../lib/scenario-recipes";
+import { createDefaultTest } from "../lib/workflow-defaults";
 import { useScenarioStore } from "../stores/scenario.store.sync";
 import type {
   FlowNode,
@@ -62,6 +68,7 @@ interface SortableTestRowProps {
   onDelete: () => void;
   onUpdate: (updated: ScenarioTestDefinition) => void;
   availableServices: string[];
+  serviceNodes: FlowNode[];
 }
 
 function SortableTestRow({
@@ -72,6 +79,7 @@ function SortableTestRow({
   onDelete,
   onUpdate,
   availableServices,
+  serviceNodes,
 }: SortableTestRowProps) {
   const {
     attributes,
@@ -158,6 +166,7 @@ function SortableTestRow({
               <TestConfigForm
                 tests={[test]}
                 availableServices={availableServices}
+                serviceNodes={serviceNodes}
                 onChange={(updated) => {
                   if (updated[0]) onUpdate(updated[0]);
                 }}
@@ -236,6 +245,8 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
   const [expandedTests, setExpandedTests] = useState<Set<string>>(new Set());
   const [activeTestId, setActiveTestId] = useState<string | null>(null);
 
+  // The expanded rows belong to one scenario and must reset when that scenario changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the scenario identity is the reset signal.
   useEffect(() => {
     setExpandedTests(new Set());
   }, [activeScenario?.id]);
@@ -289,9 +300,9 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
     : 0;
 
   return (
-    <div className="grid h-full min-h-0 gap-5 overflow-hidden md:grid-cols-[280px_minmax(0,1fr)]">
+    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-5 overflow-hidden md:grid-cols-[280px_minmax(0,1fr)] md:grid-rows-1">
       {/* ── Scenario list ── */}
-      <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
+      <div className="flex max-h-48 min-h-0 flex-col gap-3 overflow-hidden md:max-h-none">
         <div className="flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-foreground/70">
             <IconListDetails className="size-3.5" />
@@ -387,10 +398,14 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
                 <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1 space-y-3">
                     <div className="space-y-1.5">
-                      <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <Label
+                        htmlFor={`scenario-name-${activeScenario.id}`}
+                        className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      >
                         Scenario Name
                       </Label>
                       <Input
+                        id={`scenario-name-${activeScenario.id}`}
                         value={activeScenario.name}
                         onChange={(e) =>
                           updateScenario(activeScenario.id, {
@@ -429,6 +444,48 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
 
                 <Separator className="bg-border/60" />
 
+                <div className="flex flex-col gap-2">
+                  <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-foreground/70">
+                    <IconSparkles className="size-3.5" />
+                    Start with a recipe
+                  </h4>
+                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                    {SCENARIO_RECIPES.map((recipe) => {
+                      const availability = recipeAvailability(recipe, nodes);
+                      return (
+                        <Button
+                          key={recipe.kind}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={!availability.available}
+                          title={availability.reason ?? recipe.description}
+                          className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left"
+                          onClick={() => {
+                            const recipeTests = createScenarioRecipe(
+                              recipe.kind,
+                              nodes,
+                            );
+                            const updated = [
+                              ...activeScenario.tests,
+                              ...recipeTests,
+                            ];
+                            updateScenario(activeScenario.id, {
+                              tests: updated,
+                              testOrder: updated.map((test) => test.id),
+                            });
+                            setExpandedTests(new Set());
+                          }}
+                        >
+                          {recipe.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <Separator className="bg-border/60" />
+
                 {/* Tests section */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -443,12 +500,7 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
                       variant="outline"
                       className="h-7 px-2.5 text-xs shadow-sm"
                       onClick={() => {
-                        const newTest: ScenarioTestDefinition = {
-                          id: generateId(),
-                          name: `Test ${activeScenario.tests.length + 1}`,
-                          type: "http",
-                          targetServices: [],
-                        };
+                        const newTest = createDefaultTest("http", nodes);
                         const updated = [...activeScenario.tests, newTest];
                         updateScenario(activeScenario.id, {
                           tests: updated,
@@ -508,6 +560,7 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
                                 });
                               }}
                               availableServices={availableServices}
+                              serviceNodes={nodes}
                             />
                           ))}
                         </div>

@@ -14,14 +14,18 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { createDefaultTest } from "../lib/workflow-defaults";
 import type {
+  FlowNode,
   JsonValue,
   ScenarioTestDefinition,
 } from "../types/react-flow-cots";
+import { ServiceSelector } from "./ServiceSelector";
 
 interface TestConfigFormProps {
   tests: ScenarioTestDefinition[];
   availableServices: string[];
+  serviceNodes?: FlowNode[];
   onChange: (tests: ScenarioTestDefinition[]) => void;
 }
 
@@ -33,21 +37,6 @@ function inferQueueBrokerType(serviceName?: string): "kafka" | "rabbitmq" {
     return "rabbitmq";
   }
   return "kafka";
-}
-
-function defaultTest(availableServices: string[]): ScenarioTestDefinition {
-  return {
-    id: `test-${Date.now()}`,
-    name: "New Test",
-    type: "http",
-    targetServices: availableServices[0] ? [availableServices[0]] : [],
-    httpConfig: {
-      method: "GET",
-      path: "/",
-      port: "80",
-      expectedStatus: 200,
-    },
-  };
 }
 
 function parseEnvLines(value: string): Record<string, string> {
@@ -233,95 +222,71 @@ function convertUnitToDuration(value: number, unit: DelayUnit): number {
 function withTypeDefaults(
   test: ScenarioTestDefinition,
   type: ScenarioTestDefinition["type"],
+  serviceNodes: FlowNode[],
+  availableServices: string[],
 ): ScenarioTestDefinition {
-  switch (type) {
-    case "http":
+  const defaults = createDefaultTest(
+    type,
+    serviceNodes,
+    availableServices,
+    test.id,
+  );
+  return {
+    ...defaults,
+    name: test.name,
+    dependsOnTestIds: test.dependsOnTestIds,
+  };
+}
+
+export function withPrimaryService(
+  test: ScenarioTestDefinition,
+  service: string,
+): ScenarioTestDefinition {
+  const next = { ...test, targetServices: service ? [service] : [] };
+  switch (test.type) {
+    case "cache":
       return {
-        ...test,
-        type,
-        httpConfig: {
-          method: "GET",
-          path: "/",
-          port: "80",
-          expectedStatus: 200,
-        },
-      };
-    case "database":
-      return {
-        ...test,
-        type,
-        databaseConfig: {
-          driver: "postgres",
-          database: "",
-          user: "",
-          password: "",
-          query: "",
+        ...next,
+        cacheConfig: {
+          ...(test.cacheConfig ?? {
+            cacheType: "redis",
+            operation: "ping",
+          }),
+          service,
         },
       };
     case "document":
       return {
-        ...test,
-        type,
+        ...next,
         documentConfig: {
-          service: test.targetServices[0] || "",
-          database: "testdb",
-          collection: "",
-          operation: "find_one",
-          filter: {},
-        },
-      };
-    case "shell":
-      return {
-        ...test,
-        type,
-        shellConfig: {
-          command: "",
-          env: {},
-          expectedOutput: "",
-          expectedExitCode: 0,
-        },
-      };
-    case "cache":
-      return {
-        ...test,
-        type,
-        cacheConfig: {
-          service: test.targetServices[0] || "",
-          cacheType: "redis",
-          operation: "ping",
-          db: 0,
+          ...(test.documentConfig ?? {
+            database: "testdb",
+            collection: "",
+            operation: "find_one",
+          }),
+          service,
         },
       };
     case "queue":
       return {
-        ...test,
-        type,
+        ...next,
         queueConfig: {
-          service: test.targetServices[0] || "",
-          brokerType: inferQueueBrokerType(test.targetServices[0]),
-          operation: "produce",
-          topic: "",
-          timeout: 10,
-          partition: 0,
-          expectedCount: 1,
-          expectedExists: true,
+          ...(test.queueConfig ?? {
+            operation: "produce",
+          }),
+          service,
+          brokerType: inferQueueBrokerType(service),
         },
       };
-    case "delay":
-      return {
-        ...test,
-        type,
-        targetServices: [],
-        delayConfig: {
-          durationMs: 1000,
-        },
-      };
+    default:
+      return next;
   }
 }
 
 export const TestConfigForm = ({
   tests,
   availableServices,
+  serviceNodes = [],
   onChange,
 }: TestConfigFormProps) => {
   const [localTests, setLocalTests] = useState<ScenarioTestDefinition[]>(tests);
@@ -395,7 +360,10 @@ export const TestConfigForm = ({
         </div>
         <Button
           onClick={() =>
-            updateTests([...localTests, defaultTest(availableServices)])
+            updateTests([
+              ...localTests,
+              createDefaultTest("http", serviceNodes, availableServices),
+            ])
           }
           className="shadow-sm"
         >
@@ -417,7 +385,10 @@ export const TestConfigForm = ({
           </p>
           <Button
             onClick={() =>
-              updateTests([...localTests, defaultTest(availableServices)])
+              updateTests([
+                ...localTests,
+                createDefaultTest("http", serviceNodes, availableServices),
+              ])
             }
             size="sm"
             className="shadow-sm"
@@ -457,10 +428,14 @@ export const TestConfigForm = ({
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <Label
+                  htmlFor={`test-name-${test.id}`}
+                  className="text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+                >
                   Test Name
                 </Label>
                 <Input
+                  id={`test-name-${test.id}`}
                   value={test.name}
                   onChange={(event) =>
                     updateTest(test.id, (current) => ({
@@ -487,6 +462,8 @@ export const TestConfigForm = ({
                             type: value as ScenarioTestDefinition["type"],
                           },
                           value as ScenarioTestDefinition["type"],
+                          serviceNodes,
+                          availableServices,
                         ),
                       )
                     }
@@ -495,15 +472,15 @@ export const TestConfigForm = ({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="http">HTTP Request</SelectItem>
-                      <SelectItem value="database">Database Query</SelectItem>
-                      <SelectItem value="document">
-                        Document Operation
+                      <SelectItem value="http">Call an API</SelectItem>
+                      <SelectItem value="database">Query a database</SelectItem>
+                      <SelectItem value="document">Check a document</SelectItem>
+                      <SelectItem value="shell">
+                        Run an advanced command
                       </SelectItem>
-                      <SelectItem value="shell">Shell Command</SelectItem>
-                      <SelectItem value="cache">Cache Operation</SelectItem>
-                      <SelectItem value="queue">Queue Operation</SelectItem>
-                      <SelectItem value="delay">Delay</SelectItem>
+                      <SelectItem value="cache">Check cached data</SelectItem>
+                      <SelectItem value="queue">Check a message</SelectItem>
+                      <SelectItem value="delay">Wait for something</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -512,21 +489,23 @@ export const TestConfigForm = ({
                   <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Target Services
                   </Label>
-                  <Input
-                    value={test.targetServices.join(", ")}
-                    placeholder="service-a, service-b"
-                    disabled={test.type === "delay"}
-                    onChange={(event) =>
-                      updateTest(test.id, (current) => ({
-                        ...current,
-                        targetServices: event.target.value
-                          .split(",")
-                          .map((value) => value.trim())
-                          .filter(Boolean),
-                      }))
-                    }
-                    className="shadow-sm mt-1.5"
-                  />
+                  <div className="mt-1.5">
+                    <ServiceSelector
+                      value={test.targetServices[0] || ""}
+                      services={availableServices}
+                      disabled={test.type === "delay"}
+                      invalid={
+                        test.type !== "delay" &&
+                        (!test.targetServices[0] ||
+                          !availableServices.includes(test.targetServices[0]))
+                      }
+                      onValueChange={(service) =>
+                        updateTest(test.id, (current) =>
+                          withPrimaryService(current, service),
+                        )
+                      }
+                    />
+                  </div>
                   {test.type === "delay" ? (
                     <p className="mt-1.5 text-xs text-muted-foreground">
                       Delay steps do not target a service. They pause the
@@ -591,10 +570,14 @@ export const TestConfigForm = ({
                     </div>
 
                     <div>
-                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      <Label
+                        htmlFor={`http-path-${test.id}`}
+                        className="text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+                      >
                         Path
                       </Label>
                       <Input
+                        id={`http-path-${test.id}`}
                         value={test.httpConfig?.path || "/"}
                         className="shadow-sm mt-1.5 font-mono text-sm"
                         onChange={(event) =>
@@ -616,10 +599,14 @@ export const TestConfigForm = ({
                     </div>
 
                     <div>
-                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      <Label
+                        htmlFor={`http-port-${test.id}`}
+                        className="text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+                      >
                         Port
                       </Label>
                       <Input
+                        id={`http-port-${test.id}`}
                         value={test.httpConfig?.port || "80"}
                         className="shadow-sm mt-1.5"
                         onChange={(event) =>
@@ -706,8 +693,11 @@ export const TestConfigForm = ({
 
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
-                      <Label>Expected Status</Label>
+                      <Label htmlFor={`http-expected-status-${test.id}`}>
+                        Expected Status
+                      </Label>
                       <Input
+                        id={`http-expected-status-${test.id}`}
                         type="number"
                         min={100}
                         max={599}
@@ -1179,36 +1169,17 @@ export const TestConfigForm = ({
                   <div className="grid gap-3 md:grid-cols-4">
                     <div>
                       <Label>Service</Label>
-                      <Input
+                      <ServiceSelector
                         value={
                           test.documentConfig?.service ||
                           test.targetServices[0] ||
                           ""
                         }
-                        onChange={(event) =>
-                          updateTest(test.id, (current) => ({
-                            ...current,
-                            documentConfig: {
-                              service: event.target.value,
-                              database:
-                                current.documentConfig?.database || "testdb",
-                              collection:
-                                current.documentConfig?.collection || "",
-                              operation:
-                                current.documentConfig?.operation || "find_one",
-                              document: current.documentConfig?.document,
-                              filter: current.documentConfig?.filter,
-                              update: current.documentConfig?.update,
-                              expectedDocument:
-                                current.documentConfig?.expectedDocument,
-                              expectedDocuments:
-                                current.documentConfig?.expectedDocuments,
-                              expectedCount:
-                                current.documentConfig?.expectedCount,
-                              expectedExists:
-                                current.documentConfig?.expectedExists,
-                            },
-                          }))
+                        services={availableServices}
+                        onValueChange={(service) =>
+                          updateTest(test.id, (current) =>
+                            withPrimaryService(current, service),
+                          )
                         }
                       />
                     </div>
@@ -1603,31 +1574,17 @@ export const TestConfigForm = ({
                   <div className="grid gap-3 md:grid-cols-3">
                     <div>
                       <Label>Cache Service</Label>
-                      <Input
+                      <ServiceSelector
                         value={
                           test.cacheConfig?.service ||
                           test.targetServices[0] ||
                           ""
                         }
-                        onChange={(event) =>
-                          updateTest(test.id, (current) => ({
-                            ...current,
-                            cacheConfig: {
-                              service: event.target.value,
-                              cacheType:
-                                current.cacheConfig?.cacheType || "redis",
-                              operation:
-                                current.cacheConfig?.operation || "ping",
-                              key: current.cacheConfig?.key,
-                              value: current.cacheConfig?.value,
-                              expectedValue: current.cacheConfig?.expectedValue,
-                              expectedExists:
-                                current.cacheConfig?.expectedExists,
-                              ttl: current.cacheConfig?.ttl,
-                              db: current.cacheConfig?.db,
-                              password: current.cacheConfig?.password,
-                            },
-                          }))
+                        services={availableServices}
+                        onValueChange={(service) =>
+                          updateTest(test.id, (current) =>
+                            withPrimaryService(current, service),
+                          )
                         }
                       />
                     </div>
@@ -1873,38 +1830,17 @@ export const TestConfigForm = ({
                         <div className="grid gap-3 md:grid-cols-3">
                           <div>
                             <Label>Queue Service</Label>
-                            <Input
+                            <ServiceSelector
                               value={
                                 test.queueConfig?.service ||
                                 test.targetServices[0] ||
                                 ""
                               }
-                              onChange={(event) =>
-                                updateTest(test.id, (current) => ({
-                                  ...current,
-                                  queueConfig: {
-                                    service: event.target.value,
-                                    brokerType: inferQueueBrokerType(
-                                      event.target.value,
-                                    ),
-                                    operation:
-                                      current.queueConfig?.operation ||
-                                      "produce",
-                                    topic: current.queueConfig?.topic,
-                                    message: current.queueConfig?.message,
-                                    key: current.queueConfig?.key,
-                                    partition: current.queueConfig?.partition,
-                                    timeout: current.queueConfig?.timeout,
-                                    fromBeginning:
-                                      current.queueConfig?.fromBeginning,
-                                    expectedCount:
-                                      current.queueConfig?.expectedCount,
-                                    expectedMessage:
-                                      current.queueConfig?.expectedMessage,
-                                    expectedExists:
-                                      current.queueConfig?.expectedExists,
-                                  },
-                                }))
+                              services={availableServices}
+                              onValueChange={(service) =>
+                                updateTest(test.id, (current) =>
+                                  withPrimaryService(current, service),
+                                )
                               }
                             />
                           </div>

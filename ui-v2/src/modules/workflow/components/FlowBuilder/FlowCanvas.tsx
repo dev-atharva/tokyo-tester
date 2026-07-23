@@ -2,8 +2,8 @@
 
 import {
   IconAlertTriangle,
-  IconHistory,
   IconGitBranch,
+  IconHistory,
   IconKeyboard,
   IconLayoutBoardSplit,
   IconListDetails,
@@ -55,6 +55,7 @@ interface FlowCanvasProps {
   onOpenShortcuts: () => void;
   onOpenHistory: () => void;
   onOpenVersions: () => void;
+  onOpenGuided: () => void;
   isExecuting: boolean;
   canExecute: boolean;
   canEdit: boolean;
@@ -86,6 +87,7 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
   onOpenShortcuts,
   onOpenHistory,
   onOpenVersions,
+  onOpenGuided,
   isExecuting,
   canExecute,
   canEdit,
@@ -230,6 +232,10 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
             </span>{" "}
             checks
           </div>
+          <Button size="sm" variant="secondary" onClick={onOpenGuided}>
+            <IconListDetails className="mr-1.5 size-4" />
+            Guided setup
+          </Button>
           {reviewEdgeCount > 0 ? (
             <div className="flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-background/95 px-2.5 py-1.5 text-xs text-amber-700 shadow-sm dark:text-amber-300">
               <IconAlertTriangle className="size-3.5" />

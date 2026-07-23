@@ -1,18 +1,28 @@
 "use client";
 
-import { useEffect } from "react";
+import { IconEye, IconEyeOff } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldTitle,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { useRegistrySecretStore } from "../stores/registry-secret-store";
 
 interface Props {
@@ -22,7 +32,7 @@ interface Props {
 interface RegistryFormData {
   enabled: boolean;
   url?: string;
-  auth_type?: "basic" | "token";
+  auth_type: "basic" | "token";
   username?: string;
   password?: string;
   token?: string;
@@ -30,19 +40,24 @@ interface RegistryFormData {
 
 export const RegistryConfigForm: React.FC<Props> = ({ serviceId }) => {
   const { getSecret, setSecret, clearSecret } = useRegistrySecretStore();
-
+  const [showCredential, setShowCredential] = useState(false);
   const existing = getSecret(serviceId);
-
   const form = useForm<RegistryFormData>({
     defaultValues: {
-      enabled: !!existing,
+      enabled: Boolean(existing),
+      auth_type: existing?.auth_type ?? "basic",
       ...existing,
     },
+    mode: "onBlur",
   });
 
   const { watch, control, register } = form;
   const enabled = watch("enabled");
   const authType = watch("auth_type");
+  const url = watch("url") ?? "";
+  const username = watch("username") ?? "";
+  const password = watch("password") ?? "";
+  const token = watch("token") ?? "";
 
   useEffect(() => {
     const sub = watch((value) => {
@@ -50,93 +65,149 @@ export const RegistryConfigForm: React.FC<Props> = ({ serviceId }) => {
         clearSecret(serviceId);
         return;
       }
-
       setSecret(serviceId, {
         url: value.url,
-        auth_type: value.auth_type,
+        auth_type: value.auth_type ?? "basic",
         username: value.username,
         password: value.password,
         token: value.token,
       });
     });
-
     return () => sub.unsubscribe();
   }, [watch, serviceId, setSecret, clearSecret]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-2">
+    <FieldGroup className="max-w-2xl py-4">
+      <Field orientation="horizontal">
         <Controller
           control={control}
           name="enabled"
           render={({ field }) => (
-            <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+            <Checkbox
+              id="private-registry-enabled"
+              checked={field.value}
+              onCheckedChange={field.onChange}
+            />
           )}
         />
-        <Label>Use Private Registry</Label>
-      </div>
+        <FieldContent>
+          <FieldTitle>Use a private container registry</FieldTitle>
+          <FieldDescription>
+            Leave this off for public images. Credentials stay in local secret
+            storage and are not exported with the workflow.
+          </FieldDescription>
+        </FieldContent>
+      </Field>
 
-      {!enabled && (
-        <p className="text-sm text-muted-foreground">
-          Enable this to configure private registry access.
-        </p>
-      )}
-
-      {enabled && (
+      {enabled ? (
         <>
-          <Separator />
+          <Field data-invalid={!url.trim() || undefined}>
+            <FieldLabel htmlFor="registry-url">Registry address</FieldLabel>
+            <Input
+              id="registry-url"
+              {...register("url")}
+              type="url"
+              placeholder="https://ghcr.io"
+              aria-invalid={!url.trim()}
+            />
+            <FieldDescription>
+              Include the protocol when your registry requires it.
+            </FieldDescription>
+            {!url.trim() ? (
+              <FieldError>
+                Enter the registry address used by this image.
+              </FieldError>
+            ) : null}
+          </Field>
 
-          <div className="space-y-3">
-            <div>
-              <Label>Registry URL</Label>
-              <Input
-                {...register("url")}
-                placeholder="ghcr.io / private.registry.com"
-              />
-            </div>
-
-            <div>
-              <Label>Auth Type</Label>
-              <Controller
-                control={control}
-                name="auth_type"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
+          <Field>
+            <FieldLabel>Authentication method</FieldLabel>
+            <Controller
+              control={control}
+              name="auth_type"
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
                       <SelectItem value="basic">
-                        Basic (Username/Password)
+                        Username and password
                       </SelectItem>
-                      <SelectItem value="token">Token</SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </div>
+                      <SelectItem value="token">Access token</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </Field>
 
-            {authType === "basic" && (
-              <>
-                <Input {...register("username")} placeholder="Username" />
+          {authType === "basic" ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field data-invalid={!username.trim() || undefined}>
+                <FieldLabel htmlFor="registry-username">Username</FieldLabel>
                 <Input
-                  type="password"
-                  {...register("password")}
-                  placeholder="Password"
+                  id="registry-username"
+                  {...register("username")}
+                  autoComplete="username"
+                  aria-invalid={!username.trim()}
                 />
-              </>
-            )}
-
-            {authType === "token" && (
-              <Input
-                type="password"
-                {...register("token")}
-                placeholder="Access Token"
-              />
-            )}
-          </div>
+                {!username.trim() ? (
+                  <FieldError>Enter the registry username.</FieldError>
+                ) : null}
+              </Field>
+              <Field data-invalid={!password || undefined}>
+                <FieldLabel htmlFor="registry-password">Password</FieldLabel>
+                <div className="flex gap-2">
+                  <Input
+                    id="registry-password"
+                    type={showCredential ? "text" : "password"}
+                    {...register("password")}
+                    autoComplete="current-password"
+                    aria-invalid={!password}
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    title={showCredential ? "Hide password" : "Show password"}
+                    onClick={() => setShowCredential((current) => !current)}
+                  >
+                    {showCredential ? <IconEyeOff /> : <IconEye />}
+                  </Button>
+                </div>
+                {!password ? (
+                  <FieldError>Enter the registry password.</FieldError>
+                ) : null}
+              </Field>
+            </div>
+          ) : (
+            <Field data-invalid={!token || undefined}>
+              <FieldLabel htmlFor="registry-token">Access token</FieldLabel>
+              <div className="flex gap-2">
+                <Input
+                  id="registry-token"
+                  type={showCredential ? "text" : "password"}
+                  {...register("token")}
+                  autoComplete="off"
+                  aria-invalid={!token}
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  title={showCredential ? "Hide token" : "Show token"}
+                  onClick={() => setShowCredential((current) => !current)}
+                >
+                  {showCredential ? <IconEyeOff /> : <IconEye />}
+                </Button>
+              </div>
+              {!token ? <FieldError>Enter an access token.</FieldError> : null}
+            </Field>
+          )}
         </>
-      )}
-    </div>
+      ) : null}
+    </FieldGroup>
   );
 };
