@@ -1,0 +1,64 @@
+services:
+  runner:
+    build:
+      context: ../../runner-v2
+      dockerfile: Dockerfile
+      target: runner
+    environment:
+      APP_ENV: test
+      PORT: 8080
+      LOG_LEVEL: debug
+      DB_TYPE: sqlite
+      DB_PATH: /app/data/cots.db
+      DOCKER_HOST: unix:///var/run/docker.sock
+      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
+      TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+      WORKFLOW_WORKER_ENABLED: "true"
+      WORKFLOW_WORKER_CONCURRENCY: "1"
+      WORKFLOW_SCENARIO_CONCURRENCY: "1"
+      WORKFLOW_JOB_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - runner-data:/app/data
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+    command: ["-migrate"]
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--output-document=/dev/null", "http://localhost:8080/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+      start_period: 2s
+
+  ui:
+    build:
+      context: ../../ui-v2
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      COTS_API_BASE_URL: http://runner:8080
+      DB_TYPE: sqlite
+      DB_PATH: /app/data/tokyo-tester-auth.db
+      AUTH_SECRET: tokyo-tester-e2e-auth-secret
+      AUTH_TRUST_HOST: "true"
+    volumes:
+      - ui-data:/app/data
+    depends_on:
+      runner:
+        condition: service_healthy
+    ports:
+      - 3100:3000
+    command: ["sh", "-c", "node ./src/db/migrate.mjs && exec node server.js"]
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--output-document=/dev/null", "http://localhost:3000/api/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+      start_period: 2s
+
+volumes:
+  runner-data:
+  ui-data:

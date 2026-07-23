@@ -78,9 +78,11 @@ const EnvVariableValueInput = ({
   value,
   onChange,
   availableServices,
+  ariaLabel,
 }: {
   value: string;
   onChange: (val: string) => void;
+  ariaLabel: string;
   availableServices: Array<{
     name: string;
     ports: { hostPort: string; containerPort: string }[];
@@ -132,6 +134,7 @@ const EnvVariableValueInput = ({
         onFocus={() => setShowSuggestions(true)}
         onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
         placeholder="Value or ${service.field}"
+        aria-label={ariaLabel}
         className="shadow-sm font-mono text-sm"
       />
       {showSuggestions && filteredSuggestions.length > 0 && (
@@ -568,6 +571,7 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
                       <Input
                         {...register(`env.${index}.key`)}
                         placeholder="Key"
+                        aria-label={`Environment variable ${index + 1} key`}
                         className="w-1/3 shadow-sm font-mono text-sm"
                       />
                       <Controller
@@ -578,6 +582,7 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
                             value={field.value || ""}
                             onChange={field.onChange}
                             availableServices={availableServices}
+                            ariaLabel={`Environment variable ${index + 1} value`}
                           />
                         )}
                       />

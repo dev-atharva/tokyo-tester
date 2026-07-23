@@ -1,0 +1,37 @@
+name: Nightly Docker release gates
+
+on:
+  schedule:
+    - cron: "30 18 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-docker-release-gates
+  cancel-in-progress: false
+
+jobs:
+  provider-and-leak-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install E2E dependencies
+        run: make e2e-install
+      - name: Install Chromium system dependencies
+        working-directory: e2e
+        run: bunx playwright install-deps chromium
+      - name: Run provider and executor matrix
+        run: make test-complex-e2e
+      - name: Repeat guided success and cleanup journey 20 times
+        run: make e2e-docker-leak
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: nightly-docker-artifacts
+          path: e2e/artifacts/docker
+          if-no-files-found: warn
+          retention-days: 14

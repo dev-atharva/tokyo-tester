@@ -145,6 +145,7 @@ export function RunWorkflowDialog({
             Cancel
           </Button>
           <Button
+            data-testid="submit-workflow-run"
             disabled={
               selectedCount === 0 || isExecuting || validationErrors.length > 0
             }

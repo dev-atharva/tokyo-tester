@@ -173,7 +173,12 @@ export function WorkflowLogsDrawer({
                 <span className="text-muted-foreground font-mono text-sm">
                   {execution.workflowRunId.slice(0, 8)}
                 </span>
-                {statusBadge(execution.status)}
+                <span
+                  data-testid="workflow-run-status"
+                  data-status={execution.status}
+                >
+                  {statusBadge(execution.status)}
+                </span>
               </DrawerTitle>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <IconClock className="size-4" />
@@ -286,6 +291,8 @@ export function WorkflowLogsDrawer({
                             results.map((result) => (
                               <div
                                 key={result.id}
+                                data-testid="test-result"
+                                data-status={result.status}
                                 className="rounded-lg border border-border/50 bg-background/50 transition-colors"
                               >
                                 <div className=" flex items-start justify-between gap-3 mb-2">
