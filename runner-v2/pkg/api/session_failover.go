@@ -19,14 +19,15 @@ import (
 )
 
 const (
-	sessionPhaseCreated      = "created"
-	sessionPhaseProvisioning = "provisioning"
-	sessionPhaseProvisioned  = "provisioned"
-	sessionPhaseRunningTests = "running_tests"
-	sessionPhaseTestsDone    = "tests_completed"
-	sessionPhaseCleaningUp   = "cleaning_up"
-	sessionPhaseCompleted    = "completed"
-	sessionPhaseFailed       = "failed"
+	sessionPhaseCreated       = "created"
+	sessionPhaseProvisioning  = "provisioning"
+	sessionPhaseProvisioned   = "provisioned"
+	sessionPhaseRunningTests  = "running_tests"
+	sessionPhaseTestsDone     = "tests_completed"
+	sessionPhaseCleaningUp    = "cleaning_up"
+	sessionPhaseCleanupFailed = "cleanup_failed"
+	sessionPhaseCompleted     = "completed"
+	sessionPhaseFailed        = "failed"
 )
 
 type persistedTestResult struct {
@@ -423,12 +424,12 @@ func (h *Handler) persistCheckpoint(ctx context.Context, persistedID string, che
 }
 
 func (h *Handler) getOrRecoverSession(ctx context.Context, backendSessionID string, execution *dto.ExecutionContextDTO) (*session.Session, *db.Session, error) {
-		if active, err := h.sessionManager.Get(backendSessionID); err == nil {
-			if active.PersistedID != "" && h.db != nil {
-				persisted, err := h.db.GetSession(ctx, active.PersistedID)
-				if err == nil {
-					persisted, err = h.ensureSessionLease(ctx, persisted)
-					return active, persisted, err
+	if active, err := h.sessionManager.Get(backendSessionID); err == nil {
+		if active.PersistedID != "" && h.db != nil {
+			persisted, err := h.db.GetSession(ctx, active.PersistedID)
+			if err == nil {
+				persisted, err = h.ensureSessionLease(ctx, persisted)
+				return active, persisted, err
 			}
 		}
 		return active, nil, nil

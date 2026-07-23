@@ -484,6 +484,8 @@ func (h *Handler) CleanUpSession(w http.ResponseWriter, r *http.Request) {
 	}
 	defer releaseSlot()
 
+	_, activeSessionErr := h.sessionManager.Get(sessionID)
+	activeSession := activeSessionErr == nil
 	if sess, err := h.sessionManager.Get(sessionID); err == nil {
 		ctx = withExecutionContext(ctx, executionContextFromSession(sess))
 	}
@@ -497,16 +499,33 @@ func (h *Handler) CleanUpSession(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := h.sessionManager.DeleteWithContext(cleanupCtx, sessionID); err != nil {
+		if activeSession {
+			if persisted != nil {
+				_ = h.persistCheckpoint(context.WithoutCancel(ctx), persisted.ID, persisted.CheckpointIndex, sessionPhaseCleanupFailed, "cleanup_failed", nil)
+				h.releaseSessionLease(context.WithoutCancel(ctx), persisted.ID)
+			}
+			logger.ErrorContext(ctx, "active session cleanup failed", "session_id", sessionID, "error", err)
+			http.Error(w, "cleanup failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		if persisted == nil {
 			logger.WarnContext(ctx, "session not found for cleanup", "session_id", sessionID)
 			errors.RespondNotFound(w, "session")
 			return
 		}
-		logger.WarnContext(ctx, "cleanup requested without active local runtime", "session_id", sessionID)
+		if recoveryErr := h.cleanupPersistedSessionResources(context.WithoutCancel(ctx), persisted.ID); recoveryErr != nil {
+			_ = h.persistCheckpoint(context.WithoutCancel(ctx), persisted.ID, persisted.CheckpointIndex, sessionPhaseCleanupFailed, "cleanup_failed", nil)
+			h.releaseSessionLease(context.WithoutCancel(ctx), persisted.ID)
+			logger.ErrorContext(ctx, "persisted session cleanup failed", "session_id", sessionID, "error", recoveryErr)
+			http.Error(w, "cleanup failed: "+recoveryErr.Error(), http.StatusInternalServerError)
+			return
+		}
+		logger.InfoContext(ctx, "recovered persisted session cleanup", "session_id", sessionID)
+		_ = h.persistCheckpoint(context.WithoutCancel(ctx), persisted.ID, persisted.CheckpointIndex, sessionPhaseCompleted, persisted.Status, summarizeResults(nil))
 		h.releaseSessionLease(ctx, persisted.ID)
 		respondJson(w, http.StatusOK, dto.CleanUpReponse{
 			SessionID: sessionID,
-			Message:   "Session record updated, but no active local runtime was available to clean up remote Docker resources",
+			Message:   "Persisted session resources cleaned up successfully",
 		})
 		return
 	}

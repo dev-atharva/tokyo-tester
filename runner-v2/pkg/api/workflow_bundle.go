@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/dev-atharva/cots/pkg/config"
+	"github.com/dev-atharva/cots/pkg/db"
 	"github.com/dev-atharva/cots/pkg/dto"
 	"github.com/dev-atharva/cots/pkg/errors"
 	"github.com/dev-atharva/cots/pkg/logger"
@@ -72,8 +73,8 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 	bundle *workflowbundle.Bundle,
 	scenario workflowbundle.BundleScenario,
 	execution *dto.ExecutionContextDTO,
-) dto.WorkflowBundleScenarioResponse {
-	response := dto.WorkflowBundleScenarioResponse{
+) (response dto.WorkflowBundleScenarioResponse) {
+	response = dto.WorkflowBundleScenarioResponse{
 		ScenarioName: scenario.Name,
 		Success:      false,
 	}
@@ -87,13 +88,14 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 	previous, _ := h.resolvePersistedSession(ctx, "", execution)
 	if previous != nil && previous.Phase != "" && previous.Phase != sessionPhaseCreated {
 		if err := h.cleanupPersistedSessionResources(ctx, previous.ID); err != nil {
+			response.CleanupFailed = true
 			response.Error = fmt.Sprintf("failed to clean interrupted scenario resources: %s", err)
 			if ctx.Err() == nil {
-				h.persistSessionFailure(ctx, previous.ID, err, sessionPhaseFailed)
+				h.persistSessionFailure(ctx, previous.ID, err, sessionPhaseCleanupFailed)
 			}
 			return response
 		}
-		if previous.Phase == sessionPhaseCleaningUp && previous.CheckpointIndex >= len(translated.Tests) {
+		if (previous.Phase == sessionPhaseCleaningUp || previous.Phase == sessionPhaseCleanupFailed) && previous.CheckpointIndex >= len(translated.Tests) {
 			results, _, loadErr := h.loadPersistedResults(ctx, previous, translated.Tests, nil)
 			if loadErr != nil {
 				response.Error = fmt.Sprintf("failed to restore completed test checkpoints: %s", loadErr)
@@ -124,16 +126,48 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 	sessionID := h.sessionManager.Create(orch, sessionExecution)
 	ctx = provider.WithSessionID(withExecutionContext(ctx, execution), sessionID)
 	response.SessionID = sessionID
+	cleanupDone := false
+	cleanupSession := func() error {
+		if cleanupDone {
+			return nil
+		}
+		cleanupDone = true
+		return h.cleanupWorkflowBundleSession(context.WithoutCancel(ctx), sessionID)
+	}
+	var persisted *db.Session
+	defer func() {
+		if cleanupDone {
+			return
+		}
+		cleanupErr := cleanupSession()
+		persistCtx := context.WithoutCancel(ctx)
+		if cleanupErr != nil {
+			response.CleanupFailed = true
+			if response.Error == "" {
+				response.Error = cleanupErr.Error()
+			} else {
+				response.Error = fmt.Sprintf("%s; cleanup failed: %s", response.Error, cleanupErr.Error())
+			}
+			response.Success = false
+			if persisted != nil {
+				_ = h.persistCheckpoint(persistCtx, persisted.ID, persisted.CheckpointIndex, sessionPhaseCleanupFailed, "cleanup_failed", summarizeResults(response.Results))
+			}
+		} else if persisted != nil && ctx.Err() != nil {
+			_ = h.persistCheckpoint(persistCtx, persisted.ID, persisted.CheckpointIndex, sessionPhaseFailed, "failed", summarizeResults(response.Results))
+		}
+		if persisted != nil {
+			h.releaseSessionLease(persistCtx, persisted.ID)
+		}
+	}()
 
 	sess, err := h.sessionManager.Get(sessionID)
 	if err != nil {
 		response.Error = err.Error()
 		return response
 	}
-	persisted, err := h.buildPersistedSession(ctx, sessionID, execution, translated.Services)
+	persisted, err = h.buildPersistedSession(ctx, sessionID, execution, translated.Services)
 	if err != nil {
 		response.Error = fmt.Sprintf("failed to persist scenario state: %s", err)
-		h.cleanupWorkflowBundleSession(ctx, sessionID)
 		return response
 	}
 	if persisted != nil {
@@ -143,7 +177,6 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 	releaseProvision, err := h.acquireSlot(ctx, h.provisionSlots, "provision")
 	if err != nil {
 		response.Error = err.Error()
-		h.cleanupWorkflowBundleSession(ctx, sessionID)
 		return response
 	}
 
@@ -156,14 +189,12 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 		if persisted != nil && ctx.Err() == nil {
 			h.persistSessionFailure(ctx, persisted.ID, err, sessionPhaseFailed)
 		}
-		h.cleanupWorkflowBundleSession(ctx, sessionID)
 		return response
 	}
 	if persisted != nil {
 		h.persistProvisionedState(ctx, persisted.ID, orch)
 		if err := h.ensureTestPlan(ctx, persisted.ID, translated.Tests); err != nil {
 			response.Error = fmt.Sprintf("failed to persist test plan: %s", err)
-			h.cleanupWorkflowBundleSession(ctx, sessionID)
 			return response
 		}
 	}
@@ -171,7 +202,6 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 	results, persistedByName, err := h.loadPersistedResults(ctx, persisted, translated.Tests, sess)
 	if err != nil {
 		response.Error = fmt.Sprintf("failed to restore test checkpoints: %s", err)
-		h.cleanupWorkflowBundleSession(ctx, sessionID)
 		return response
 	}
 	remaining := make([]config.TestConfig, 0, len(translated.Tests)-len(results))
@@ -224,7 +254,10 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 	if persisted != nil {
 		_ = h.persistCheckpoint(ctx, persisted.ID, len(translated.Tests), sessionPhaseCleaningUp, "", summarizeResults(results))
 	}
-	if cleanupErr := h.cleanupWorkflowBundleSession(ctx, sessionID); cleanupErr != nil {
+	cleanupFailed := false
+	if cleanupErr := cleanupSession(); cleanupErr != nil {
+		cleanupFailed = true
+		response.CleanupFailed = true
 		if response.Error == "" {
 			response.Error = cleanupErr.Error()
 		} else {
@@ -235,7 +268,9 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 	if persisted != nil {
 		phase := sessionPhaseCompleted
 		status := "completed"
-		if !response.Success {
+		if cleanupFailed {
+			phase, status = sessionPhaseCleanupFailed, "cleanup_failed"
+		} else if !response.Success {
 			phase, status = sessionPhaseFailed, "failed"
 		}
 		_ = h.persistCheckpoint(ctx, persisted.ID, len(translated.Tests), phase, status, summarizeResults(results))

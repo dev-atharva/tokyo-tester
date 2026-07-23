@@ -26,7 +26,8 @@ export function isWorkflowRunStatus(
     value === "running" ||
     value === "completed" ||
     value === "failed" ||
-    value === "partial_failed"
+    value === "partial_failed" ||
+    value === "cleanup_failed"
   );
 }
 
@@ -126,9 +127,15 @@ export function resolveScenarioLogStatus(
   current: ScenarioRunStatus,
   eventStatus: string | undefined,
 ): ScenarioRunStatus {
+  if (eventStatus === "cleanup_failed") return "cleanup_failed";
   if (eventStatus === "failed") return "failed";
   if (eventStatus === "completed") return "completed";
-  if (current === "completed" || current === "failed") return current;
+  if (
+    current === "completed" ||
+    current === "failed" ||
+    current === "cleanup_failed"
+  )
+    return current;
   return "running";
 }
 
@@ -148,7 +155,8 @@ export function resolveScenarioTestStatus(
       (result) => result.status === "running" || result.status === "pending",
     ) &&
     current !== "completed" &&
-    current !== "failed"
+    current !== "failed" &&
+    current !== "cleanup_failed"
   ) {
     return "running";
   }

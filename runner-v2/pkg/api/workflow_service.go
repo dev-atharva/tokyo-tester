@@ -290,7 +290,9 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 				return
 			}
 			status := "completed"
-			if !result.Success {
+			if result.CleanupFailed {
+				status = "cleanup_failed"
+			} else if !result.Success {
 				status = "failed"
 			}
 			if err := s.updateScenario(ctx, scenario, status, result.SessionID, result.Error); err != nil {
@@ -315,6 +317,7 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 
 	summary := dto.WorkflowBundleRunSummary{TotalScenarios: len(results)}
 	success := true
+	cleanupFailed := false
 	for _, result := range results {
 		summary.TotalTests += result.Summary.Total
 		summary.PassedTests += result.Summary.Passed
@@ -325,9 +328,12 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 			summary.FailedScenarios++
 			success = false
 		}
+		cleanupFailed = cleanupFailed || result.CleanupFailed
 	}
 	status := "completed"
-	if !success && summary.PassedScenarios > 0 {
+	if cleanupFailed {
+		status = "cleanup_failed"
+	} else if !success && summary.PassedScenarios > 0 {
 		status = "partial_failed"
 	} else if !success {
 		status = "failed"
@@ -496,10 +502,12 @@ func (s *WorkflowService) updateScenario(ctx context.Context, scenario workflowr
 	if run.StartedAt == nil {
 		run.StartedAt = &now
 	}
-	if status == "completed" || status == "failed" {
+	if status == "completed" || status == "failed" || status == "cleanup_failed" {
 		run.CompletedAt = &now
 		if status == "completed" {
 			run.Phase = sessionPhaseCompleted
+		} else if status == "cleanup_failed" {
+			run.Phase = sessionPhaseCleanupFailed
 		} else {
 			run.Phase = sessionPhaseFailed
 		}
@@ -585,7 +593,11 @@ func (s *WorkflowService) pruneEvents(ctx context.Context) {
 func scenarioSnapshots(scenarios []workflowrun.Scenario, results []dto.WorkflowBundleScenarioResponse) []map[string]any {
 	values := make([]map[string]any, len(results))
 	for i := range results {
-		values[i] = map[string]any{"scenarioId": scenarios[i].ID, "scenarioName": scenarios[i].Name, "backendSessionId": results[i].SessionID, "success": results[i].Success, "status": mapScenarioStatusValue(results[i].Success), "error": results[i].Error}
+		status := mapScenarioStatusValue(results[i].Success)
+		if results[i].CleanupFailed {
+			status = "cleanup_failed"
+		}
+		values[i] = map[string]any{"scenarioId": scenarios[i].ID, "scenarioName": scenarios[i].Name, "backendSessionId": results[i].SessionID, "success": results[i].Success, "status": status, "error": results[i].Error}
 	}
 	return values
 }
@@ -608,12 +620,18 @@ func mapScenarioStatusValue(success bool) string {
 	return "failed"
 }
 func mapScenarioStatus(status string) string {
+	if status == "cleanup_failed" {
+		return "cleanup_failed"
+	}
 	if status == "completed" {
 		return "completed"
 	}
 	return "failed"
 }
 func mapWorkflowStatus(status string) string {
+	if status == "cleanup_failed" {
+		return "cleanup_failed"
+	}
 	if status == "completed" {
 		return "completed"
 	}

@@ -270,9 +270,15 @@ export type WorkflowRunStatus =
   | "running"
   | "completed"
   | "failed"
-  | "partial_failed";
+  | "partial_failed"
+  | "cleanup_failed";
 
-export type ScenarioRunStatus = "pending" | "running" | "completed" | "failed";
+export type ScenarioRunStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cleanup_failed";
 
 export interface PortMapping {
   id: string;
@@ -449,7 +455,7 @@ export interface WorkflowLogEvent {
   scenarioName?: string;
   backendSessionId?: string;
   message: string;
-  status?: "running" | "completed" | "failed";
+  status?: "running" | "completed" | "failed" | "cleanup_failed";
   stage?:
     | "validation"
     | "translation"

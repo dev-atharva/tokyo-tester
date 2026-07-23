@@ -90,10 +90,11 @@ function statusBadge(status: string) {
       );
     case "failed":
     case "partial_failed":
+    case "cleanup_failed":
       return (
         <Badge variant="destructive" className="font-medium shadow-sm">
           <IconCircleX className="mr-1.5 size-3.5" />
-          {safeStatus}
+          {safeStatus === "cleanup_failed" ? "Cleanup failed" : safeStatus}
         </Badge>
       );
     case "pending":
