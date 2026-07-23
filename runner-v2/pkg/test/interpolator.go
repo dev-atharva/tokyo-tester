@@ -50,6 +50,14 @@ func InterpolateTestConfig(config map[string]any, sess *session.Session) (map[st
 // Resolves a single test result reference
 // Formats: testName.field ,testName.response.field, testName.result
 func resolveTestReference(ref string, sess *session.Session) (string, error) {
+	if ref == "tokyo.run_suffix" {
+		return runSuffix(sess)
+	}
+
+	if sess == nil || sess.Orchestrator == nil {
+		return "", fmt.Errorf("session runtime is unavailable")
+	}
+
 	parts := strings.Split(ref, ".")
 	if len(parts) < 1 {
 		return "", fmt.Errorf("invalid reference format: %s", ref)
@@ -111,6 +119,27 @@ func resolveTestReference(ref string, sess *session.Session) (string, error) {
 	}
 
 	return formatResult(current), nil
+}
+
+func runSuffix(sess *session.Session) (string, error) {
+	if sess == nil {
+		return "", fmt.Errorf("run suffix is unavailable")
+	}
+
+	source := sess.ID
+	if sess.Execution != nil && strings.TrimSpace(sess.Execution.WorkflowRunID) != "" {
+		source = sess.Execution.WorkflowRunID
+	}
+
+	suffix := strings.ReplaceAll(strings.TrimSpace(source), "-", "")
+	if len(suffix) > 12 {
+		suffix = suffix[:12]
+	}
+	if suffix == "" {
+		return "", fmt.Errorf("run suffix is unavailable")
+	}
+
+	return suffix, nil
 }
 
 func navigateField(data any, field string) (any, bool) {
