@@ -45,7 +45,7 @@ export const mysqlProjects = mysqlTable(
       length: 255,
     }).generatedAlwaysAs(
       sql`CASE WHEN kind = 'personal' THEN createdBy ELSE NULL END`,
-      { mode: "stored" },
+      { mode: "virtual" },
     ),
     createdAt: timestamp("createdAt", { mode: "date" })
       .notNull()
