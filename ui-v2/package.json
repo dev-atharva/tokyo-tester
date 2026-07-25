@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "biome check",
     "format": "biome format --write",
-    "db:migrate": "node ./src/db/migrate.mjs",
+    "db:migrate": "bun ./src/db/migrate.mjs",
     "db:generate": "drizzle-kit generate",
     "test": "bun test"
   },
@@ -21,7 +21,6 @@
     "@tabler/icons-react": "^3.36.0",
     "@types/crypto-js": "^4.2.2",
     "@xyflow/react": "^12.10.0",
-    "better-sqlite3": "^12.8.0",
     "boring-avatars": "^2.0.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -61,9 +60,5 @@
     "sharp",
     "unrs-resolver"
   ],
-  "trustedDependencies": [
-    "better-sqlite3",
-    "sharp",
-    "unrs-resolver"
-  ]
+  "trustedDependencies": ["sharp", "unrs-resolver"]
 }

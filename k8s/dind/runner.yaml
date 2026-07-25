@@ -52,11 +52,13 @@ spec:
                 configMapKeyRef:
                   name: tokyo-config
                   key: public-origin
-            # Use sqlite by default. For postgres/mysql, set DB_TYPE and add DATABASE_URL from a Secret.
             - name: DB_TYPE
-              value: sqlite
-            - name: DB_PATH
-              value: /app/data/cots.db
+              value: mysql
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tokyo-secrets
+                  key: runner-database-url
             - name: DOCKER_HOST
               value: unix:///var/run/docker.sock
             - name: TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE
@@ -118,8 +120,6 @@ spec:
             periodSeconds: 30
             failureThreshold: 3
           volumeMounts:
-            - name: runner-data
-              mountPath: /app/data
             - name: docker-run
               mountPath: /var/run
           resources:
@@ -150,9 +150,6 @@ spec:
               cpu: "4"
               memory: 6Gi
       volumes:
-        - name: runner-data
-          persistentVolumeClaim:
-            claimName: runner-data
         - name: docker-run
           emptyDir: {}
         - name: docker-graph

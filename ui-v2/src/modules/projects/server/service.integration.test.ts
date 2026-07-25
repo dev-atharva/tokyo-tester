@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
-import Database from "better-sqlite3";
+import {
+  closeMySQLTestDatabase,
+  resetMySQLTestDatabase,
+} from "@/db/mysql-test";
 import { createInitialAdmin, createUser } from "@/modules/auth/server/service";
 import {
   addUsersToProject,
@@ -14,35 +15,19 @@ import {
   updateProjectMemberRole,
 } from "./service";
 
-let tempDir = "";
-let dbPath = "";
-
-function resetDb() {
-  const cached = globalThis.__tokyoTesterDb;
-  if (cached?.type === "sqlite") cached.client.close();
-  globalThis.__tokyoTesterDb = undefined;
-}
+const databaseUrl =
+  process.env.UI_PROJECTS_TEST_DATABASE_URL ??
+  "mysql://root:tokyo-test-root-password@127.0.0.1:33306/ui_projects_test";
 
 describe("workspace roles", () => {
-  beforeEach(() => {
-    tempDir = mkdtempSync(join(process.cwd(), ".tmp-project-test-"));
-    dbPath = join(tempDir, "projects.db");
-    process.env.DB_TYPE = "sqlite";
-    process.env.DB_PATH = dbPath;
-    resetDb();
-    const db = new Database(dbPath);
-    const folder = resolve(process.cwd(), "src/db/migrations/sqlite");
-    for (const name of readdirSync(folder)
-      .filter((item) => item.endsWith(".sql"))
-      .sort()) {
-      db.exec(readFileSync(resolve(folder, name), "utf8"));
-    }
-    db.close();
+  beforeEach(async () => {
+    process.env.DB_TYPE = "mysql";
+    process.env.DATABASE_URL = databaseUrl;
+    await resetMySQLTestDatabase(databaseUrl);
   });
 
-  afterEach(() => {
-    resetDb();
-    rmSync(tempDir, { recursive: true, force: true });
+  afterEach(async () => {
+    await closeMySQLTestDatabase();
   });
 
   test("creates exactly one immutable personal workspace", async () => {

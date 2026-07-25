@@ -9,9 +9,6 @@ import (
 	"sort"
 )
 
-//go:embed migrations/sqlite/*.sql
-var sqliteMigrations embed.FS
-
 //go:embed migrations/postgres/*.sql
 var postgresMigrations embed.FS
 
@@ -50,9 +47,6 @@ func (m *Migrator) RunMigrations() error {
 	var migrationPath string
 
 	switch m.dbType {
-	case "sqlite":
-		fs = sqliteMigrations
-		migrationPath = "migrations/sqlite"
 	case "postgres":
 		fs = postgresMigrations
 		migrationPath = "migrations/postgres"
@@ -188,30 +182,6 @@ func (m *Migrator) columnExists(tableName, columnName string) (bool, error) {
 	ctx := context.Background()
 
 	switch m.dbType {
-	case "sqlite":
-		rows, err := m.conn.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", tableName))
-		if err != nil {
-			return false, err
-		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var (
-				cid        int
-				name       string
-				columnType string
-				notNull    int
-				defaultVal sql.NullString
-				pk         int
-			)
-			if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultVal, &pk); err != nil {
-				return false, err
-			}
-			if name == columnName {
-				return true, nil
-			}
-		}
-		return false, rows.Err()
 	case "postgres":
 		var exists bool
 		err := m.conn.QueryRowContext(ctx, `

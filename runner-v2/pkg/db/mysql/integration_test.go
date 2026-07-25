@@ -2,39 +2,36 @@ package mysql
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/dev-atharva/cots/pkg/db"
-	"github.com/testcontainers/testcontainers-go"
-	mysqlmodule "github.com/testcontainers/testcontainers-go/modules/mysql"
+	"github.com/google/uuid"
 )
 
 func newMySQLIntegrationClient(t *testing.T) *Client {
 	t.Helper()
-	if os.Getenv("RUN_MYSQL_INTEGRATION") != "1" {
-		t.Skip("set RUN_MYSQL_INTEGRATION=1 to run MySQL database integration tests")
+	adminDSN := os.Getenv("MYSQL_TEST_ADMIN_DSN")
+	if adminDSN == "" {
+		t.Skip("MYSQL_TEST_ADMIN_DSN is not set; run tests through make test")
 	}
-	testcontainers.SkipIfProviderIsNotHealthy(t)
-
-	ctx := context.Background()
-	container, err := mysqlmodule.Run(
-		ctx,
-		"mysql:8.0.36",
-		mysqlmodule.WithDatabase("tokyo_tester"),
-		mysqlmodule.WithUsername("tokyo"),
-		mysqlmodule.WithPassword("tokyo"),
-	)
-	testcontainers.CleanupContainer(t, container)
+	databaseName := "mysql_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	admin, err := sql.Open("mysql", adminDSN)
 	if err != nil {
-		t.Fatalf("start mysql container: %v", err)
+		t.Fatalf("open test MySQL administrator connection: %v", err)
 	}
-	dsn, err := container.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("mysql connection string: %v", err)
+	if _, err := admin.ExecContext(context.Background(), fmt.Sprintf("CREATE DATABASE `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci", databaseName)); err != nil {
+		_ = admin.Close()
+		t.Fatalf("create test MySQL database: %v", err)
 	}
-	client, err := NewClient(dsn)
+	t.Cleanup(func() {
+		_, _ = admin.ExecContext(context.Background(), fmt.Sprintf("DROP DATABASE IF EXISTS `%s`", databaseName))
+		_ = admin.Close()
+	})
+	client, err := NewClient(strings.TrimSuffix(adminDSN, "/mysql") + "/" + databaseName)
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}

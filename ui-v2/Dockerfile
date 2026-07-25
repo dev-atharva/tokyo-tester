@@ -2,15 +2,12 @@ FROM oven/bun:1.3.11 AS base
 WORKDIR /app
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends python3 make g++ wget nodejs npm && \
+    apt-get install -y --no-install-recommends wget && \
     rm -rf /var/lib/apt/lists/*
 
 FROM base AS deps
-COPY package.json ./
-RUN npm config set fetch-retries 5 && \
-    npm config set fetch-retry-mintimeout 20000 && \
-    npm config set fetch-retry-maxtimeout 120000 && \
-    npm install --no-audit --no-fund
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
@@ -18,14 +15,17 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
-# Next loads server modules in parallel while collecting build metadata. Give
-# each worker an isolated SQLite database instead of opening a shared build file.
-ENV DB_PATH=:memory:
 
 RUN bun run build
 
-FROM base AS runner
+FROM node:22-bookworm-slim AS runner
 WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends wget && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=base /usr/local/bin/bun /usr/local/bin/bun
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -41,7 +41,8 @@ COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/src/db ./src/db
-RUN install -d -o nextjs -g nodejs /app/data
+
+USER nextjs
 
 EXPOSE 3000
 

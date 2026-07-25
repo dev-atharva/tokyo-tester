@@ -4,9 +4,6 @@ import { getDb } from "@/db";
 async function checkDatabase() {
   const connection = getDb();
   switch (connection.type) {
-    case "sqlite":
-      connection.client.prepare("SELECT 1").get();
-      return;
     case "postgres":
       await connection.client.unsafe("SELECT 1");
       return;

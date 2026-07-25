@@ -145,51 +145,7 @@ export async function createInitialAdmin(
     return result;
   }
 
-  const user = connection.client.transaction(() => {
-    const existingUsers = connection.client
-      .prepare('SELECT count(*) as count FROM "user"')
-      .get() as { count: number };
-
-    if (Number(existingUsers.count ?? 0) > 0) {
-      throw new Error("Initial setup has already been completed.");
-    }
-
-    connection.db
-      .insert(connection.tables.users)
-      .values({
-        id: userId,
-        email: normalizedEmail,
-        name: input.name.trim(),
-        passwordHash,
-        role: ADMIN_USER_ROLE,
-        isActive: true,
-        setupCompletedAt: now,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-
-    return connection.db
-      .select()
-      .from(connection.tables.users)
-      .where(eq(connection.tables.users.id, userId))
-      .get();
-  })();
-
-  if (!user) {
-    throw new Error("Failed to create initial administrator.");
-  }
-
-  const result = {
-    id: String(user.id),
-    email: String(user.email),
-    name: user.name ? String(user.name) : null,
-    role: String(user.role),
-    isActive: Boolean(user.isActive),
-    passwordHash: user.passwordHash ? String(user.passwordHash) : null,
-  };
-  await ensurePersonalProject(result.id);
-  return result;
+  throw new Error("Unsupported database type");
 }
 
 export async function createUser(input: CreateUserInput): Promise<AuthUser> {
@@ -257,26 +213,7 @@ export async function createUser(input: CreateUserInput): Promise<AuthUser> {
     return user;
   }
 
-  connection.db
-    .insert(connection.tables.users)
-    .values({
-      id: userId,
-      email: normalizedEmail,
-      name: input.name.trim(),
-      passwordHash,
-      role: input.role || DEFAULT_USER_ROLE,
-      isActive: input.isActive ?? true,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
-
-  const user = await getUserById(userId);
-  if (!user) {
-    throw new Error("Failed to create user.");
-  }
-  await ensurePersonalProject(user.id);
-  return user;
+  throw new Error("Unsupported database type");
 }
 
 export async function setUserActiveState(

@@ -14,26 +14,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dev-atharva/cots/internal/testmysql"
 	"github.com/dev-atharva/cots/pkg/config"
 	"github.com/dev-atharva/cots/pkg/db"
-	"github.com/dev-atharva/cots/pkg/db/sqlite"
+	mysqldb "github.com/dev-atharva/cots/pkg/db/mysql"
 	"github.com/dev-atharva/cots/pkg/workflowrun"
 )
 
-func newWorkflowAPIHarness(t *testing.T) (*Handler, *WorkflowService, *sqlite.Client, []byte) {
+func newWorkflowAPIHarness(t *testing.T) (*Handler, *WorkflowService, *mysqldb.Client, []byte) {
 	return newWorkflowAPIHarnessWithSeed(t, true)
 }
 
-func newWorkflowAPIHarnessWithSeed(t *testing.T, seedWorkflow bool) (*Handler, *WorkflowService, *sqlite.Client, []byte) {
+func newWorkflowAPIHarnessWithSeed(t *testing.T, seedWorkflow bool) (*Handler, *WorkflowService, *mysqldb.Client, []byte) {
 	t.Helper()
-	client, err := sqlite.NewClient(filepath.Join(t.TempDir(), "workflow-api.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = client.Close() })
-	if err := db.NewMigrator(client, "sqlite").RunMigrations(); err != nil {
-		t.Fatal(err)
-	}
+	client := testmysql.NewClient(t, "workflow_api")
 
 	fixturePath := filepath.Join("..", "..", "..", "contracts", "workflow-run-input.json")
 	payload, err := os.ReadFile(fixturePath)

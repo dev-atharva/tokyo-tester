@@ -27,7 +27,7 @@ spec:
             - sh
             - -c
           args:
-            - bun run db:migrate && bun run start
+            - bun run db:migrate && exec node server.js
           ports:
             - name: http
               containerPort: 3000
@@ -41,11 +41,13 @@ spec:
                 configMapKeyRef:
                   name: tokyo-config
                   key: runner-url
-            # Use sqlite by default. For postgres/mysql, set DB_TYPE and add DATABASE_URL from a Secret.
             - name: DB_TYPE
-              value: sqlite
-            - name: DB_PATH
-              value: /app/data/tokyo-tester-auth.db
+              value: mysql
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tokyo-secrets
+                  key: ui-database-url
             - name: AUTH_SECRET
               valueFrom:
                 secretKeyRef:
@@ -60,20 +62,17 @@ spec:
                   key: public-origin
           readinessProbe:
             httpGet:
-              path: /health
+              path: /api/health
               port: http
             periodSeconds: 10
             failureThreshold: 6
           livenessProbe:
             httpGet:
-              path: /health
+              path: /api/health
               port: http
             initialDelaySeconds: 30
             periodSeconds: 30
             failureThreshold: 3
-          volumeMounts:
-            - name: ui-data
-              mountPath: /app/data
           resources:
             requests:
               cpu: 250m
@@ -81,7 +80,3 @@ spec:
             limits:
               cpu: "2"
               memory: 2Gi
-      volumes:
-        - name: ui-data
-          persistentVolumeClaim:
-            claimName: ui-data

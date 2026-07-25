@@ -17,14 +17,14 @@ References:
 
 The manifests live in [`k8s/dind`](../k8s/dind).
 
-- `tokyo-ui`: 1-replica Deployment, ClusterIP Service on port `3000`, PVC at `/app/data`
+- `tokyo-ui`: 1-replica Deployment and ClusterIP Service on port `3000`
 - `tokyo-mcp`: 1-replica Deployment, ClusterIP Service on port `8090`
-- `tokyo-runner`: 1-replica Deployment, private ClusterIP Service on port `8080`, PVC at `/app/data`
+- `tokyo-runner`: 1-replica Deployment and private ClusterIP Service on port `8080`
 - `docker:27-dind`: privileged sidecar inside the runner Pod
 - `docker-run`: `emptyDir` shared at `/var/run` so runner can use the DinD Unix socket
 - `docker-graph`: `emptyDir` mounted at `/var/lib/docker` for ephemeral inner Docker state
 
-Runner stays at one replica because the embedded SQLite worker and PVC are single-writer, and each runner Pod would own a separate DinD daemon.
+Runner stays at one replica because each runner Pod would own a separate DinD daemon. The parked manifests require externally managed MySQL database URLs in `tokyo-secrets`.
 
 ## Build and push images
 
@@ -58,7 +58,9 @@ Create the namespace and secrets:
 kubectl apply -f k8s/dind/namespace.yaml
 kubectl -n tokyo-tester create secret generic tokyo-secrets \
   --from-literal=auth-secret="$(openssl rand -hex 32)" \
-  --from-literal=workflow-job-encryption-key="$(openssl rand -base64 32)"
+  --from-literal=workflow-job-encryption-key="$(openssl rand -base64 32)" \
+  --from-literal=runner-database-url='<go-mysql-dsn>' \
+  --from-literal=ui-database-url='<mysql-url>'
 ```
 
 Then edit:
@@ -66,7 +68,6 @@ Then edit:
 - [`k8s/dind/configmap.yaml`](../k8s/dind/configmap.yaml): set `public-origin` to `https://<domain>`
 - [`k8s/dind/ingress.yaml`](../k8s/dind/ingress.yaml): set the host to `<domain>`
 - [`k8s/dind/kustomization.yaml`](../k8s/dind/kustomization.yaml): set image registry and tag values
-- PVC storage classes and sizes if your cluster needs explicit `storageClassName`
 
 The namespace is labeled with `pod-security.kubernetes.io/enforce: privileged` because DinD requires a privileged container. Keep this namespace dedicated to Tokyo Tester runner infrastructure.
 

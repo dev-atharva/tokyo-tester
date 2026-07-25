@@ -20,10 +20,6 @@ export async function DELETE(
     eq(connection.tables.agentTokens.id, tokenId),
     eq(connection.tables.agentTokens.userId, session.user.id),
   );
-  if (connection.type !== "sqlite") {
-    await connection.db.delete(connection.tables.agentTokens).where(where);
-  } else {
-    connection.db.delete(connection.tables.agentTokens).where(where).run();
-  }
+  await connection.db.delete(connection.tables.agentTokens).where(where);
   return new Response(null, { status: 204 });
 }

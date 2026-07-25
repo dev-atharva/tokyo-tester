@@ -76,46 +76,9 @@ export async function listProjectsForUser(
 ): Promise<ProjectMembership[]> {
   const connection = getDb();
 
-  if (connection.type !== "sqlite") {
-    const rows =
-      role === "admin"
-        ? await connection.db
-            .select()
-            .from(connection.tables.projects)
-            .where(
-              or(
-                eq(connection.tables.projects.kind, "team"),
-                eq(connection.tables.projects.createdBy, userId),
-              ),
-            )
-        : await connection.db
-            .select({
-              id: connection.tables.projects.id,
-              name: connection.tables.projects.name,
-              kind: connection.tables.projects.kind,
-              createdBy: connection.tables.projects.createdBy,
-              createdAt: connection.tables.projects.createdAt,
-              updatedAt: connection.tables.projects.updatedAt,
-              projectRole: connection.tables.projectMembers.role,
-            })
-            .from(connection.tables.projects)
-            .innerJoin(
-              connection.tables.projectMembers,
-              eq(
-                connection.tables.projects.id,
-                connection.tables.projectMembers.projectId,
-              ),
-            )
-            .where(eq(connection.tables.projectMembers.userId, userId));
-
-    return sortMemberships(
-      rows.map((row: Record<string, unknown>) => mapMembership(row, role)),
-    );
-  }
-
-  const projectRows =
+  const rows =
     role === "admin"
-      ? connection.db
+      ? await connection.db
           .select()
           .from(connection.tables.projects)
           .where(
@@ -124,8 +87,7 @@ export async function listProjectsForUser(
               eq(connection.tables.projects.createdBy, userId),
             ),
           )
-          .all()
-      : connection.db
+      : await connection.db
           .select({
             id: connection.tables.projects.id,
             name: connection.tables.projects.name,
@@ -143,11 +105,10 @@ export async function listProjectsForUser(
               connection.tables.projectMembers.projectId,
             ),
           )
-          .where(eq(connection.tables.projectMembers.userId, userId))
-          .all();
+          .where(eq(connection.tables.projectMembers.userId, userId));
 
   return sortMemberships(
-    projectRows.map((row: Record<string, unknown>) => mapMembership(row, role)),
+    rows.map((row: Record<string, unknown>) => mapMembership(row, role)),
   );
 }
 
@@ -218,38 +179,7 @@ export async function createProject(
     return mapProject(result as Record<string, unknown>);
   }
 
-  connection.client.transaction(() => {
-    connection.db
-      .insert(connection.tables.projects)
-      .values({
-        id: projectId,
-        name: name.trim(),
-        kind: "team",
-        createdBy: adminUserId,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-
-    connection.db
-      .insert(connection.tables.projectMembers)
-      .values({
-        projectId,
-        userId: adminUserId,
-        role: "owner",
-        createdAt: now,
-      })
-      .run();
-  })();
-
-  return {
-    id: projectId,
-    name: name.trim(),
-    kind: "team",
-    createdBy: adminUserId,
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-  };
+  throw new Error("Unsupported database type");
 }
 
 export async function ensurePersonalProject(
@@ -259,20 +189,7 @@ export async function ensurePersonalProject(
   const now = new Date();
 
   const findExisting = async () => {
-    if (connection.type !== "sqlite") {
-      const rows = await connection.db
-        .select()
-        .from(connection.tables.projects)
-        .where(
-          and(
-            eq(connection.tables.projects.createdBy, userId),
-            eq(connection.tables.projects.kind, "personal"),
-          ),
-        )
-        .limit(1);
-      return rows[0];
-    }
-    return connection.db
+    const rows = await connection.db
       .select()
       .from(connection.tables.projects)
       .where(
@@ -281,7 +198,8 @@ export async function ensurePersonalProject(
           eq(connection.tables.projects.kind, "personal"),
         ),
       )
-      .get();
+      .limit(1);
+    return rows[0];
   };
 
   let project = await findExisting();
@@ -307,12 +225,6 @@ export async function ensurePersonalProject(
         .onDuplicateKeyUpdate({
           set: { id: sql`${connection.tables.projects.id}` },
         });
-    } else {
-      connection.db
-        .insert(connection.tables.projects)
-        .values(values)
-        .onConflictDoNothing()
-        .run();
     }
     project = await findExisting();
   }
@@ -342,18 +254,6 @@ export async function ensurePersonalProject(
       .onDuplicateKeyUpdate({
         set: { role: "owner" },
       });
-  } else {
-    connection.db
-      .insert(connection.tables.projectMembers)
-      .values(membership)
-      .onConflictDoUpdate({
-        target: [
-          connection.tables.projectMembers.projectId,
-          connection.tables.projectMembers.userId,
-        ],
-        set: { role: "owner" },
-      })
-      .run();
   }
   return mapMembership(
     { ...(project as Record<string, unknown>), projectRole: "owner" },
@@ -365,20 +265,13 @@ export async function getProject(
   projectId: string,
 ): Promise<ProjectSummary | null> {
   const connection = getDb();
-  const row =
-    connection.type !== "sqlite"
-      ? (
-          await connection.db
-            .select()
-            .from(connection.tables.projects)
-            .where(eq(connection.tables.projects.id, projectId))
-            .limit(1)
-        )[0]
-      : connection.db
-          .select()
-          .from(connection.tables.projects)
-          .where(eq(connection.tables.projects.id, projectId))
-          .get();
+  const row = (
+    await connection.db
+      .select()
+      .from(connection.tables.projects)
+      .where(eq(connection.tables.projects.id, projectId))
+      .limit(1)
+  )[0];
   return row ? mapProject(row as Record<string, unknown>) : null;
 }
 
@@ -387,29 +280,7 @@ export async function listProjectMembers(
 ): Promise<ProjectMemberUser[]> {
   const connection = getDb();
 
-  if (connection.type !== "sqlite") {
-    const rows = await connection.db
-      .select({
-        id: connection.tables.users.id,
-        email: connection.tables.users.email,
-        name: connection.tables.users.name,
-        role: connection.tables.users.role,
-        projectRole: connection.tables.projectMembers.role,
-        isActive: connection.tables.users.isActive,
-      })
-      .from(connection.tables.projectMembers)
-      .innerJoin(
-        connection.tables.users,
-        eq(connection.tables.projectMembers.userId, connection.tables.users.id),
-      )
-      .where(eq(connection.tables.projectMembers.projectId, projectId));
-
-    return rows.sort((left: ProjectMemberUser, right: ProjectMemberUser) =>
-      left.email.localeCompare(right.email),
-    );
-  }
-
-  const rows = connection.db
+  const rows = await connection.db
     .select({
       id: connection.tables.users.id,
       email: connection.tables.users.email,
@@ -423,21 +294,11 @@ export async function listProjectMembers(
       connection.tables.users,
       eq(connection.tables.projectMembers.userId, connection.tables.users.id),
     )
-    .where(eq(connection.tables.projectMembers.projectId, projectId))
-    .all();
+    .where(eq(connection.tables.projectMembers.projectId, projectId));
 
-  return rows
-    .map((row: Record<string, unknown>) => ({
-      id: String(row.id),
-      email: String(row.email),
-      name: row.name ? String(row.name) : null,
-      role: String(row.role),
-      projectRole: row.projectRole as ProjectRole,
-      isActive: Boolean(row.isActive),
-    }))
-    .sort((left: ProjectMemberUser, right: ProjectMemberUser) =>
-      left.email.localeCompare(right.email),
-    );
+  return rows.sort((left: ProjectMemberUser, right: ProjectMemberUser) =>
+    left.email.localeCompare(right.email),
+  );
 }
 
 export async function addUsersToProject(
@@ -491,18 +352,7 @@ export async function addUsersToProject(
     return;
   }
 
-  for (const userId of userIds) {
-    connection.db
-      .insert(connection.tables.projectMembers)
-      .values({
-        projectId,
-        userId,
-        role: projectRole,
-        createdAt: now,
-      })
-      .onConflictDoNothing()
-      .run();
-  }
+  throw new Error("Unsupported database type");
 }
 
 export async function removeUserFromProject(
@@ -524,27 +374,14 @@ export async function removeUserFromProject(
     throw new Error("The final team owner cannot be removed");
   }
 
-  if (connection.type !== "sqlite") {
-    await connection.db
-      .delete(connection.tables.projectMembers)
-      .where(
-        and(
-          eq(connection.tables.projectMembers.projectId, projectId),
-          eq(connection.tables.projectMembers.userId, userId),
-        ),
-      );
-    return;
-  }
-
-  connection.db
+  await connection.db
     .delete(connection.tables.projectMembers)
     .where(
       and(
         eq(connection.tables.projectMembers.projectId, projectId),
         eq(connection.tables.projectMembers.userId, userId),
       ),
-    )
-    .run();
+    );
 }
 
 export async function updateProjectMemberRole(
@@ -572,18 +409,10 @@ export async function updateProjectMemberRole(
     eq(connection.tables.projectMembers.projectId, projectId),
     eq(connection.tables.projectMembers.userId, userId),
   );
-  if (connection.type !== "sqlite") {
-    await connection.db
-      .update(connection.tables.projectMembers)
-      .set({ role: projectRole })
-      .where(where);
-  } else {
-    connection.db
-      .update(connection.tables.projectMembers)
-      .set({ role: projectRole })
-      .where(where)
-      .run();
-  }
+  await connection.db
+    .update(connection.tables.projectMembers)
+    .set({ role: projectRole })
+    .where(where);
 }
 
 export async function getProjectMembership(
@@ -634,23 +463,7 @@ export async function listUnassignedUsersForProject(
   const members = await listProjectMembers(projectId);
   const memberIds = new Set(members.map((member) => member.id));
 
-  if (connection.type !== "sqlite") {
-    const rows = await connection.db.select().from(connection.tables.users);
-    return rows
-      .filter((row: Record<string, unknown>) => !memberIds.has(String(row.id)))
-      .map((row: Record<string, unknown>) => ({
-        id: String(row.id),
-        email: String(row.email),
-        name: row.name ? String(row.name) : null,
-        role: String(row.role),
-        isActive: Boolean(row.isActive),
-      }))
-      .sort((left: ProjectMemberUser, right: ProjectMemberUser) =>
-        left.email.localeCompare(right.email),
-      );
-  }
-
-  const rows = connection.db.select().from(connection.tables.users).all();
+  const rows = await connection.db.select().from(connection.tables.users);
   return rows
     .filter((row: Record<string, unknown>) => !memberIds.has(String(row.id)))
     .map((row: Record<string, unknown>) => ({

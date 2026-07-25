@@ -1,5 +1,3 @@
-import Database from "better-sqlite3";
-import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3";
 import { drizzle as drizzleMySQL } from "drizzle-orm/mysql2";
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
 import mysql from "mysql2/promise";
@@ -23,22 +21,12 @@ import {
   pgUsers,
   pgVerificationTokens,
 } from "./schema/postgres";
-import {
-  sqliteAccounts,
-  sqliteAgentTokens,
-  sqliteProjectMembers,
-  sqliteProjects,
-  sqliteSessions,
-  sqliteUsers,
-  sqliteVerificationTokens,
-} from "./schema/sqlite";
-
 export type DatabaseConnection = {
-  type: "sqlite" | "postgres" | "mysql";
+  type: "postgres" | "mysql";
   // Drizzle exposes incompatible structural types for each SQL dialect; callers branch by `type`.
   // biome-ignore lint/suspicious/noExplicitAny: The app stores a dialect-specific Drizzle instance behind the discriminant.
   db: any;
-  // biome-ignore lint/suspicious/noExplicitAny: SQLite, postgres-js, and mysql2 clients do not share a useful common interface.
+  // biome-ignore lint/suspicious/noExplicitAny: postgres-js and mysql2 clients do not share a useful common interface.
   client: any;
   // biome-ignore lint/suspicious/noExplicitAny: Table objects come from dialect-specific schema modules.
   tables: any;
@@ -88,52 +76,27 @@ export function getDb(): DatabaseConnection {
     return globalThis.__tokyoTesterDb;
   }
 
-  if (config.type === "mysql") {
-    const databaseUrl = config.databaseUrl;
-    if (!databaseUrl) {
-      throw new Error("DATABASE_URL must be set when DB_TYPE=mysql");
-    }
-
-    const client = mysql.createPool({ uri: databaseUrl });
-    // biome-ignore lint/suspicious/noExplicitAny: drizzle-orm/mysql2's overload is narrower than mysql2's promise pool type here.
-    const db = drizzleMySQL(client as any);
-
-    globalThis.__tokyoTesterDb = {
-      type: "mysql",
-      db,
-      client,
-      tables: {
-        users: mysqlUsers,
-        projects: mysqlProjects,
-        projectMembers: mysqlProjectMembers,
-        accounts: mysqlAccounts,
-        agentTokens: mysqlAgentTokens,
-        sessions: mysqlSessions,
-        verificationTokens: mysqlVerificationTokens,
-      },
-    };
-
-    return globalThis.__tokyoTesterDb;
+  const databaseUrl = config.databaseUrl;
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL must be set when DB_TYPE=mysql");
   }
 
-  const client = new Database(config.sqlitePath);
-  client.pragma("journal_mode = WAL");
-  const db = drizzleSqlite(client);
-
+  const client = mysql.createPool({ uri: databaseUrl });
+  // biome-ignore lint/suspicious/noExplicitAny: drizzle-orm/mysql2's overload is narrower than mysql2's promise pool type here.
+  const db = drizzleMySQL(client as any);
   globalThis.__tokyoTesterDb = {
-    type: "sqlite",
+    type: "mysql",
     db,
     client,
     tables: {
-      users: sqliteUsers,
-      projects: sqliteProjects,
-      projectMembers: sqliteProjectMembers,
-      accounts: sqliteAccounts,
-      agentTokens: sqliteAgentTokens,
-      sessions: sqliteSessions,
-      verificationTokens: sqliteVerificationTokens,
+      users: mysqlUsers,
+      projects: mysqlProjects,
+      projectMembers: mysqlProjectMembers,
+      accounts: mysqlAccounts,
+      agentTokens: mysqlAgentTokens,
+      sessions: mysqlSessions,
+      verificationTokens: mysqlVerificationTokens,
     },
   };
-
   return globalThis.__tokyoTesterDb;
 }

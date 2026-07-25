@@ -53,7 +53,7 @@ func NewConfigManager() (*ConfigManager, error) {
 	}
 
 	cm.WorkflowWorker = WorkflowWorkerConfig{
-		Enabled:             getEnvBoolOrDefault("WORKFLOW_WORKER_ENABLED", cm.Database.Type == "sqlite" || cm.Database.Type == "mysql"),
+		Enabled:             getEnvBoolOrDefault("WORKFLOW_WORKER_ENABLED", cm.Database.Type == "mysql"),
 		Concurrency:         getEnvIntOrDefault("WORKFLOW_WORKER_CONCURRENCY", 2),
 		ScenarioConcurrency: getEnvIntOrDefault("WORKFLOW_SCENARIO_CONCURRENCY", 2),
 		LeaseSeconds:        getEnvIntOrDefault("WORKFLOW_JOB_LEASE_SECONDS", 60),
@@ -103,8 +103,8 @@ func (cm *ConfigManager) Validate() error {
 		}
 	}
 	if cm.WorkflowWorker.Enabled {
-		if cm.Database.Type != "sqlite" && cm.Database.Type != "mysql" {
-			return fmt.Errorf("embedded workflow worker currently requires DB_TYPE=sqlite or DB_TYPE=mysql")
+		if cm.Database.Type != "mysql" {
+			return fmt.Errorf("embedded workflow worker requires DB_TYPE=mysql")
 		}
 		if cm.WorkflowWorker.EncryptionKey == "" {
 			return fmt.Errorf("WORKFLOW_JOB_ENCRYPTION_KEY is required when the workflow worker is enabled")

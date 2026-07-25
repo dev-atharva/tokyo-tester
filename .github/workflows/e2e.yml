@@ -28,7 +28,7 @@ jobs:
       - name: Run repository checks
         run: make check
       - name: Build production images
-        run: AUTH_SECRET=ci-production-image-check-secret WORKFLOW_JOB_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= docker compose --profile agent build
+        run: AUTH_SECRET=ci-production-image-check-secret MYSQL_ROOT_PASSWORD=ci-mysql-root-password MYSQL_PASSWORD=ci-mysql-app-password WORKFLOW_JOB_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= docker compose --profile agent build
       - name: Run Docker journey
         run: make e2e-docker
       - name: Upload Docker diagnostics

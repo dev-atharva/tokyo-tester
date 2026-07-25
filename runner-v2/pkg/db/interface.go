@@ -54,8 +54,8 @@ type Database interface {
 	Ping(ctx context.Context) error
 }
 
-// WorkflowJobStore is implemented by SQLite-backed databases that support the
-// embedded durable workflow worker. It is intentionally separate from
+// WorkflowJobStore is implemented by databases that support the embedded
+// durable workflow worker. It is intentionally separate from
 // Database so PostgreSQL installations keep working until a distributed queue
 // adapter is introduced.
 type WorkflowJobStore interface {

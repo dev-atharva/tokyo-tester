@@ -11,16 +11,6 @@ import {
 
 function getAdapter(): Adapter {
   const database = getDb();
-
-  if (database.type === "postgres" || database.type === "mysql") {
-    return DrizzleAdapter(database.db, {
-      usersTable: database.tables.users,
-      accountsTable: database.tables.accounts,
-      sessionsTable: database.tables.sessions,
-      verificationTokensTable: database.tables.verificationTokens,
-    }) as Adapter;
-  }
-
   return DrizzleAdapter(database.db, {
     usersTable: database.tables.users,
     accountsTable: database.tables.accounts,
@@ -29,7 +19,7 @@ function getAdapter(): Adapter {
   }) as Adapter;
 }
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+export const { handlers, auth, signIn, signOut } = NextAuth(() => ({
   trustHost: process.env.AUTH_TRUST_HOST !== "false",
   adapter: getAdapter(),
   session: {
@@ -93,4 +83,4 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return session;
     },
   },
-});
+}));

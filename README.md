@@ -50,9 +50,9 @@ The full matrix is intentionally opt-in through `make test-complex-e2e` because 
 - `runner-v2` is the Go service that provisions containers, runs tests, and cleans up
 - the separately deployed `mcp` process exposes agent-safe tools and has no Docker socket or database access
 - Caddy routes public `/mcp` traffic to that process while keeping the runner private
-- `docker-compose.yml` wires the UI and runner together with separate app databases; SQLite is the default, and PostgreSQL or MySQL can be selected with `DB_TYPE`/`DATABASE_URL`
+- `docker-compose.yml` wires the UI and runner to separate schemas on the same MySQL server; PostgreSQL remains available for explicitly configured non-worker installations
 - the frontend sync layer persists queued edits locally, flushes them to `POST /api/v1/sync/batch`, and hydrates from `GET /api/v1/sync/pull/{clientId}`
-- the runner's embedded durable worker coordinates execution, persists checkpoints, and streams replayable SSE updates to the UI on SQLite or MySQL app databases
+- the runner's embedded durable worker coordinates execution, persists checkpoints, and streams replayable SSE updates to the UI from MySQL
 - when workflow execution or cleanup is enabled, the runner validates Docker reachability during startup and fails before serving if the daemon or socket is unavailable
 
 ## Production Notes
@@ -64,10 +64,10 @@ The supported production deployment for this release is a dedicated Linux Docker
 - `make prod-check` validates the host, secrets, socket access, Compose definition, and writable volumes
 - `make prod` builds the standalone UI image, migrates both databases, starts the single-server stack, and waits for readiness
 - `make prod-verify` checks public/private health, runs a minimal Docker workflow, and checks for leaked managed resources
-- `make prod-backup` creates checksummed backups of both SQLite databases during a brief maintenance window
-- `RUNNER_DB_TYPE` and `UI_DB_TYPE` accept `sqlite`, `postgres`, or `mysql`; workflow MySQL service nodes are separate from this app database setting
+- `make prod-backup` creates one checksummed, transactionally consistent dump of both MySQL databases
+- MySQL is the supported default for the runner and UI; workflow MySQL service nodes are separate from this app database setting
 - production startup detects the host Docker socket before Compose starts, then the runner checks Docker again from inside the container; a bad socket now fails startup instead of waiting until a workflow is run
-- the UI still uses Bun for app scripts, but database migration runs through `node ./src/db/migrate.mjs` because `better-sqlite3` is a Node-only runtime dependency
+- the UI keeps Bun for installation, development, builds, and tests; the standalone production server follows Next.js's Node entrypoint, and migrations use the native MySQL path
 - workflow definitions are synced from the browser, while execution-owned records like workflow runs, scenario runs, and test results are treated as backend-owned during execution
 - if you have an old UI image cached, rebuild the service before retesting production behavior:
 
@@ -146,7 +146,7 @@ Before opening MCP registration broadly, replace private-beta tokens with an OAu
 - Next.js
 - React
 - Zustand
-- SQLite/MySQL durable worker
+- MySQL durable worker
 - Go
 - Chi
 - Docker

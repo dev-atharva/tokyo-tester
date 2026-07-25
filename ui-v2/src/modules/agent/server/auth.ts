@@ -63,11 +63,7 @@ export async function createAgentToken(input: {
     expiresAt: input.expiresAt,
     createdAt: new Date(),
   };
-  if (connection.type !== "sqlite") {
-    await connection.db.insert(connection.tables.agentTokens).values(record);
-  } else {
-    connection.db.insert(connection.tables.agentTokens).values(record).run();
-  }
+  await connection.db.insert(connection.tables.agentTokens).values(record);
   return { id, token: secret, expiresAt: input.expiresAt.toISOString() };
 }
 
@@ -86,19 +82,11 @@ export async function authenticateAgentRequest(
     eq(connection.tables.agentTokens.tokenHash, tokenHash(token)),
     gt(connection.tables.agentTokens.expiresAt, new Date()),
   );
-  const rows =
-    connection.type !== "sqlite"
-      ? await connection.db
-          .select()
-          .from(connection.tables.agentTokens)
-          .where(where)
-          .limit(1)
-      : connection.db
-          .select()
-          .from(connection.tables.agentTokens)
-          .where(where)
-          .limit(1)
-          .all();
+  const rows = await connection.db
+    .select()
+    .from(connection.tables.agentTokens)
+    .where(where)
+    .limit(1);
   const record = rows[0];
   if (!record) return null;
 

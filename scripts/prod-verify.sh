@@ -12,6 +12,7 @@ fail() {
 "${compose[@]}" ps --status running --services | grep -qx runner || fail "runner is not running"
 "${compose[@]}" ps --status running --services | grep -qx ui || fail "UI is not running"
 "${compose[@]}" ps --status running --services | grep -qx mcp || fail "MCP server is not running"
+"${compose[@]}" ps --status running --services | grep -qx mysql || fail "MySQL is not running"
 
 "${compose[@]}" exec -T runner wget -q --spider http://localhost:8080/health || fail "private runner health check failed"
 "${compose[@]}" exec -T ui wget -q --spider http://localhost:3000/api/health || fail "private UI readiness check failed"

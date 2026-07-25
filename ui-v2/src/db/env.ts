@@ -1,35 +1,20 @@
-import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-
-export type DatabaseType = "sqlite" | "postgres" | "mysql";
+export type DatabaseType = "postgres" | "mysql";
 
 export interface DatabaseConfig {
   type: DatabaseType;
-  sqlitePath: string;
   databaseUrl?: string;
 }
 
 export function getDatabaseConfig(): DatabaseConfig {
-  const type =
-    process.env.DB_TYPE === "postgres"
-      ? "postgres"
-      : process.env.DB_TYPE === "mysql"
-        ? "mysql"
-        : "sqlite";
-  const configuredSqlitePath =
-    process.env.DB_PATH || "./data/tokyo-tester-auth.db";
-  const sqlitePath =
-    configuredSqlitePath === ":memory:"
-      ? configuredSqlitePath
-      : resolve(configuredSqlitePath);
-
-  if (type === "sqlite" && sqlitePath !== ":memory:") {
-    mkdirSync(dirname(sqlitePath), { recursive: true });
+  const configuredType = process.env.DB_TYPE?.trim() || "mysql";
+  if (configuredType !== "mysql" && configuredType !== "postgres") {
+    throw new Error(
+      `Unsupported DB_TYPE=${configuredType}; expected mysql or postgres`,
+    );
   }
 
   return {
-    type,
-    sqlitePath,
+    type: configuredType,
     databaseUrl: process.env.DATABASE_URL,
   };
 }
@@ -37,10 +22,7 @@ export function getDatabaseConfig(): DatabaseConfig {
 export function assertDatabaseConfig(
   config = getDatabaseConfig(),
 ): DatabaseConfig {
-  if (
-    (config.type === "postgres" || config.type === "mysql") &&
-    !config.databaseUrl
-  ) {
+  if (!config.databaseUrl) {
     throw new Error(`DATABASE_URL must be set when DB_TYPE=${config.type}`);
   }
 

@@ -29,6 +29,7 @@ git checkout "$TOKYO_TESTER_RELEASE"
 cp .env.example .env
 chmod 600 .env
 openssl rand -hex 32
+openssl rand -hex 24
 openssl rand -base64 32
 ```
 
@@ -42,6 +43,9 @@ AUTH_SECRET=<openssl-rand-hex-value>
 AUTH_TRUST_HOST=true
 AUTH_URL=https://tokyo.example.com
 
+MYSQL_ROOT_PASSWORD=<first-openssl-rand-hex-value>
+MYSQL_PASSWORD=<second-openssl-rand-hex-value>
+
 TOKYO_TESTER_DOMAIN=tokyo.example.com
 TOKYO_TESTER_PUBLIC_URL=https://tokyo.example.com
 TOKYO_TESTER_PUBLIC_ORIGIN=https://tokyo.example.com
@@ -51,9 +55,9 @@ WORKFLOW_WORKER_ENABLED=true
 WORKFLOW_JOB_ENCRYPTION_KEY=<openssl-rand-base64-value>
 ```
 
-Keep `AUTH_SECRET` and `WORKFLOW_JOB_ENCRYPTION_KEY` in a protected password manager or secret store in addition to `.env`. Losing the workflow encryption key can make queued execution payloads unreadable. Changing either secret is an intentional rotation procedure, not a routine deployment step.
+Keep the MySQL passwords, `AUTH_SECRET`, and `WORKFLOW_JOB_ENCRYPTION_KEY` in a protected password manager or secret store in addition to `.env`. Losing the workflow encryption key can make queued execution payloads unreadable. Changing these values is an intentional rotation procedure, not a routine deployment step.
 
-The default deployment uses `runner_data` for workflows, revisions, executions, and results, and `ui_data` for authentication, projects, memberships, and agent tokens. SQLite is the default app database. PostgreSQL or MySQL can be selected separately with `RUNNER_DB_TYPE`, `RUNNER_DATABASE_URL`, `UI_DB_TYPE`, and `UI_DATABASE_URL`; use `postgres` or `mysql` as the `*_DB_TYPE` value. Workflow MySQL service nodes are separate from this app database setting.
+The default deployment uses one persistent `mysql_data` volume with separate `tokyo_runner` and `tokyo_ui` schemas. MySQL is the supported app database for the durable workflow worker and the default for the UI. Workflow MySQL service nodes are separate from this app database setting.
 
 For MySQL, the UI expects a normal MySQL URL such as `mysql://user:pass@host:3306/tokyo_ui`. The runner accepts either that URL shape or the Go MySQL DSN shape such as `user:pass@tcp(host:3306)/tokyo_runner`; it enables `parseTime=true` and `multiStatements=true` automatically.
 
@@ -106,9 +110,9 @@ Effective scopes are checked against current workspace membership on every reque
 
 Personal tokens are the current private-beta authentication path. Use this deployment with trusted users. OAuth 2.1 protected-resource discovery remains required before presenting the MCP endpoint as a broadly public integration.
 
-## 6. Back up SQLite deployments
+## 6. Back up MySQL
 
-Create a backup before every upgrade and on a regular schedule. The supported command briefly stops writers, archives both SQLite data volumes, writes SHA-256 checksums, and waits for the stack to become healthy again:
+Create a backup before every upgrade and on a regular schedule. The supported command uses `mysqldump --single-transaction` to export both application schemas into one file and writes its SHA-256 checksum:
 
 ```bash
 make prod-backup
@@ -116,11 +120,11 @@ make prod-backup
 BACKUP_DIR=/mnt/encrypted/tokyo-backups make prod-backup
 ```
 
-Store the archives and matching secret values encrypted, off the server. Regularly test restoration on a separate machine. With PostgreSQL or MySQL, use the provider's snapshot/export procedure instead of copying container files.
+Store the dump and matching secret values encrypted, off the server. Regularly test restoration on a separate machine.
 
 ### Restore a backup
 
-Restoration overwrites current data. Verify that the backup contains both archives, its checksums, the matching secrets, and the Git revision that created it. Then:
+Restoration overwrites current data. Verify the dump checksum, matching secrets, and recorded Git revision first. Then:
 
 ```bash
 export BACKUP_DIR=/path/to/verified-backup/timestamp
@@ -131,22 +135,18 @@ install -m 600 /path/to/protected/production.env .env
 (cd "$BACKUP_DIR" && sha256sum -c SHA256SUMS)
 
 docker compose --profile agent down
-
-docker compose --profile agent run -T --rm --no-deps \
-  --entrypoint sh runner -c \
-  'find /app/data -mindepth 1 -maxdepth 1 -exec rm -rf {} +; tar -xf - -C /app/data' \
-  < "$BACKUP_DIR/runner-data.tar"
-
-docker compose --profile agent run -T --rm --no-deps \
-  --entrypoint sh ui -c \
-  'find /app/data -mindepth 1 -maxdepth 1 -exec rm -rf {} +; tar -xf - -C /app/data' \
-  < "$BACKUP_DIR/ui-data.tar"
+docker compose up -d --wait mysql
+docker compose exec -T mysql sh -c \
+  'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql --user=root' \
+  < "$BACKUP_DIR/tokyo-mysql.sql"
 
 make prod
 make prod-verify
 ```
 
 Run the external health checks and a smoke workflow before allowing normal use. Restore into a separate server first whenever possible.
+
+The MySQL transition does not delete legacy database volumes. If an existing deployment still contains data from an older database backend, stop before the first MySQL deployment and migrate a verified copy of that data; starting MySQL creates empty application schemas and does not convert legacy records automatically. `make prod-check` blocks the first MySQL deployment when it detects the former application volumes without a MySQL volume.
 
 ## 7. Upgrade safely
 

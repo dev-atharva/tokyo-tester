@@ -1,4 +1,21 @@
 services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: tokyo-e2e-root-password
+      MYSQL_DATABASE: tokyo_runner
+      MYSQL_USER: tokyo
+      MYSQL_PASSWORD: tokyo-e2e-password
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ../../scripts/mysql-init.sh:/docker-entrypoint-initdb.d/001-tokyo-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping --host=127.0.0.1 --user=root --silent"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+
   runner:
     build:
       context: ../../runner-v2
@@ -8,8 +25,8 @@ services:
       APP_ENV: test
       PORT: 8080
       LOG_LEVEL: debug
-      DB_TYPE: sqlite
-      DB_PATH: /app/data/cots.db
+      DB_TYPE: mysql
+      DATABASE_URL: tokyo:tokyo-e2e-password@tcp(mysql:3306)/tokyo_runner
       DOCKER_HOST: unix:///var/run/docker.sock
       TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
       TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
@@ -21,8 +38,10 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     volumes:
-      - runner-data:/app/data
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+    depends_on:
+      mysql:
+        condition: service_healthy
     command: ["-migrate"]
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--output-document=/dev/null", "http://localhost:8080/health"]
@@ -40,18 +59,18 @@ services:
       PORT: 3000
       HOSTNAME: 0.0.0.0
       COTS_API_BASE_URL: http://runner:8080
-      DB_TYPE: sqlite
-      DB_PATH: /app/data/tokyo-tester-auth.db
+      DB_TYPE: mysql
+      DATABASE_URL: mysql://tokyo:tokyo-e2e-password@mysql:3306/tokyo_ui
       AUTH_SECRET: tokyo-tester-e2e-auth-secret
       AUTH_TRUST_HOST: "true"
-    volumes:
-      - ui-data:/app/data
     depends_on:
+      mysql:
+        condition: service_healthy
       runner:
         condition: service_healthy
     ports:
       - 3100:3000
-    command: ["sh", "-c", "node ./src/db/migrate.mjs && exec node server.js"]
+    command: ["sh", "-c", "bun run db:migrate && exec node server.js"]
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--output-document=/dev/null", "http://localhost:3000/api/health"]
       interval: 2s
@@ -60,5 +79,4 @@ services:
       start_period: 2s
 
 volumes:
-  runner-data:
-  ui-data:
+  mysql-data:

@@ -13,7 +13,6 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.10.9
 	github.com/lmittmann/tint v1.1.3
-	github.com/mattn/go-sqlite3 v1.14.33
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/redis/go-redis/v9 v9.17.3
 	github.com/segmentio/kafka-go v0.4.50

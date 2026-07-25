@@ -73,6 +73,8 @@ else
 fi
 
 if AUTH_SECRET=doctor-auth-secret \
+    MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-tokyo-dev-root-password}" \
+    MYSQL_PASSWORD="${MYSQL_PASSWORD:-tokyo-dev-password}" \
     WORKFLOW_JOB_ENCRYPTION_KEY="${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" \
     docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet >/dev/null 2>&1; then
     pass "development Compose configuration is valid"
@@ -82,6 +84,7 @@ fi
 
 check_port "${RUNNER_PORT:-8080}" runner
 check_port 3000 UI
+check_port "${MYSQL_PORT:-3306}" MySQL
 
 if [ "$failures" -ne 0 ]; then
     printf 'doctor found %d problem(s)\n' "$failures" >&2

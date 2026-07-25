@@ -79,7 +79,7 @@ type HTTPTestConfig struct {
 type DatabaseTestConfig struct {
 	Query          string `json:"query" validate:"required"`
 	Service        string `json:"service" validate:"required"`
-	Driver         string `json:"driver" validate:"reqiured,oneof=postgres mysql sqlite"`
+	Driver         string `json:"driver" validate:"required,oneof=postgres mysql"`
 	Database       string `json:"database" validate:"required"`
 	User           string `json:"user,omitempty"`
 	Password       string `json:"password,omitempty"`

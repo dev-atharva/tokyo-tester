@@ -25,20 +25,11 @@ function mapUser(record: Record<string, unknown> | undefined): AuthUser | null {
 async function countUsersWithConnection(
   connection: DatabaseConnection,
 ): Promise<number> {
-  if (connection.type !== "sqlite") {
-    const result = await connection.db
-      .select({ count: sql<number>`count(*)` })
-      .from(connection.tables.users);
-
-    return Number(result[0]?.count ?? 0);
-  }
-
-  const result = connection.db
+  const result = await connection.db
     .select({ count: sql<number>`count(*)` })
-    .from(connection.tables.users)
-    .get();
+    .from(connection.tables.users);
 
-  return Number(result?.count ?? 0);
+  return Number(result[0]?.count ?? 0);
 }
 
 export async function countUsers(): Promise<number> {
@@ -48,71 +39,37 @@ export async function countUsers(): Promise<number> {
 export async function getUserByEmail(email: string): Promise<AuthUser | null> {
   const connection = getDb();
 
-  if (connection.type !== "sqlite") {
-    const rows = await connection.db
-      .select()
-      .from(connection.tables.users)
-      .where(eq(connection.tables.users.email, email))
-      .limit(1);
-
-    return mapUser(rows[0] as Record<string, unknown> | undefined);
-  }
-
-  const row = connection.db
+  const rows = await connection.db
     .select()
     .from(connection.tables.users)
     .where(eq(connection.tables.users.email, email))
-    .get();
+    .limit(1);
 
-  return mapUser(row as Record<string, unknown> | undefined);
+  return mapUser(rows[0] as Record<string, unknown> | undefined);
 }
 
 export async function getUserById(id: string): Promise<AuthUser | null> {
   const connection = getDb();
 
-  if (connection.type !== "sqlite") {
-    const rows = await connection.db
-      .select()
-      .from(connection.tables.users)
-      .where(eq(connection.tables.users.id, id))
-      .limit(1);
-
-    return mapUser(rows[0] as Record<string, unknown> | undefined);
-  }
-
-  const row = connection.db
+  const rows = await connection.db
     .select()
     .from(connection.tables.users)
     .where(eq(connection.tables.users.id, id))
-    .get();
+    .limit(1);
 
-  return mapUser(row as Record<string, unknown> | undefined);
+  return mapUser(rows[0] as Record<string, unknown> | undefined);
 }
 
 export async function listUsers(): Promise<UserListItem[]> {
   const connection = getDb();
 
-  if (connection.type !== "sqlite") {
-    const rows = await connection.db.select().from(connection.tables.users);
-
-    return rows
-      .map((row: UserRow) => ({
-        ...(mapUser(row as Record<string, unknown>) as AuthUser),
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt,
-      }))
-      .sort((left: UserListItem, right: UserListItem) =>
-        String(left.email).localeCompare(String(right.email)),
-      );
-  }
-
-  const rows = connection.db.select().from(connection.tables.users).all();
+  const rows = await connection.db.select().from(connection.tables.users);
 
   return rows
     .map((row: UserRow) => ({
       ...(mapUser(row as Record<string, unknown>) as AuthUser),
-      createdAt: row.createdAt ? Number(row.createdAt) : null,
-      updatedAt: row.updatedAt ? Number(row.updatedAt) : null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
     }))
     .sort((left: UserListItem, right: UserListItem) =>
       String(left.email).localeCompare(String(right.email)),
@@ -122,19 +79,10 @@ export async function listUsers(): Promise<UserListItem[]> {
 export async function updateUserTimestamp(id: string): Promise<void> {
   const connection = getDb();
 
-  if (connection.type !== "sqlite") {
-    await connection.db
-      .update(connection.tables.users)
-      .set({ updatedAt: new Date() })
-      .where(eq(connection.tables.users.id, id));
-    return;
-  }
-
-  connection.db
+  await connection.db
     .update(connection.tables.users)
     .set({ updatedAt: new Date() })
-    .where(eq(connection.tables.users.id, id))
-    .run();
+    .where(eq(connection.tables.users.id, id));
 }
 
 export async function updateUserStatus(
@@ -144,19 +92,10 @@ export async function updateUserStatus(
   const connection = getDb();
   const payload = { isActive, updatedAt: new Date() };
 
-  if (connection.type !== "sqlite") {
-    await connection.db
-      .update(connection.tables.users)
-      .set(payload)
-      .where(eq(connection.tables.users.id, id));
-    return;
-  }
-
-  connection.db
+  await connection.db
     .update(connection.tables.users)
     .set(payload)
-    .where(eq(connection.tables.users.id, id))
-    .run();
+    .where(eq(connection.tables.users.id, id));
 }
 
 export { countUsersWithConnection };

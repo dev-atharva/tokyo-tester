@@ -372,13 +372,13 @@ function ProductionDeploymentDocs({
         <StepCard
           number="03"
           title="Durable data"
-          description="Runner and identity data live in separate persistent volumes and must be backed up as one deployment set."
+          description="Runner and identity data live in separate schemas on the MySQL volume and must be backed up as one deployment set."
           icon={IconDatabase}
         >
           <Checklist
             items={[
-              "runner_data: workflows, runs, results",
-              "ui_data: users, teams, tokens",
+              "tokyo_runner: workflows, runs, results",
+              "tokyo_ui: users, teams, tokens",
               "Retain matching encryption secrets",
             ]}
           />
@@ -405,6 +405,8 @@ AUTH_URL=https://tokyo.example.com
 TOKYO_TESTER_DOMAIN=tokyo.example.com
 TOKYO_TESTER_PUBLIC_ORIGIN=https://tokyo.example.com
 CORS_ORIGIN=https://tokyo.example.com
+MYSQL_ROOT_PASSWORD=<root-password>
+MYSQL_PASSWORD=<url-safe-app-password>
 WORKFLOW_JOB_ENCRYPTION_KEY=<base64-secret>`}</pre>
             </div>
           </CardContent>
@@ -441,22 +443,21 @@ WORKFLOW_JOB_ENCRYPTION_KEY=<base64-secret>`}</pre>
               Backup before every upgrade
             </CardTitle>
             <CardDescription>
-              Stop writers briefly and archive both SQLite volumes from the same
-              point in time. Store the archives and secrets encrypted off-host.
+              Create a transactionally consistent dump of both MySQL schemas.
+              Store the dump and secrets encrypted off-host.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <Checklist
               items={[
-                "Stop MCP, UI, and runner writers",
-                "Archive runner_data and ui_data",
+                "Dump tokyo_runner and tokyo_ui together",
                 "Create and verify SHA-256 checksums",
                 "Test restoration on another machine",
               ]}
             />
             <p className="text-xs leading-5 text-muted-foreground">
-              PostgreSQL installations must use provider snapshots or
-              `pg_dump`/`pg_restore`, not copied container files.
+              The backup records the deployed Git commit so code, data, and
+              secrets can be restored as one matching set.
             </p>
           </CardContent>
         </Card>
