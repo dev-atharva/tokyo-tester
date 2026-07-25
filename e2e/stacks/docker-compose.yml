@@ -70,7 +70,7 @@ services:
         condition: service_healthy
     ports:
       - 3100:3000
-    command: ["sh", "-c", "bun run db:migrate && exec node server.js"]
+    command: ["sh", "-c", "bun run db:migrate && exec bun server.js"]
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--output-document=/dev/null", "http://localhost:3000/api/health"]
       interval: 2s

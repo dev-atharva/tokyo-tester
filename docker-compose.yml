@@ -77,7 +77,7 @@ services:
         condition: service_healthy
     networks:
       - tokyo-tester
-    command: ["sh", "-c", "bun run db:migrate && exec node server.js"]
+    command: ["sh", "-c", "bun run db:migrate && exec bun server.js"]
     restart: unless-stopped
 
   mcp:

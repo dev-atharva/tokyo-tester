@@ -151,7 +151,7 @@ When a terminal workflow SSE event arrives, the UI updates immediately and then 
 
 ## Runtime notes
 
-- the UI keeps Bun for installation, development, builds, and tests; its standalone production server uses Next.js's Node entrypoint, while MySQL is the default app database
+- the UI uses Bun across development and production, including the generated standalone server, while MySQL is the default app database
 - DB-backed routes are forced to render dynamically in the production build so auth and workflow pages are not incorrectly treated as static at build time
 - in development, `make dev` auto-selects Docker Compose or host-runner mode based on the detected Docker socket; `make dev-local` runs both UI and runner on the host for socket or volume edge cases
 - in production, `make prod` still starts the Compose stack, but the runner now fails fast when Docker is unreachable instead of accepting workflow submissions that cannot run

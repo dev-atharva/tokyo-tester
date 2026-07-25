@@ -18,14 +18,8 @@ ENV NODE_ENV=production
 
 RUN bun run build
 
-FROM node:22-bookworm-slim AS runner
+FROM base AS runner
 WORKDIR /app
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends wget && \
-    rm -rf /var/lib/apt/lists/*
-
-COPY --from=base /usr/local/bin/bun /usr/local/bin/bun
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -48,4 +42,4 @@ EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
 
-CMD ["node", "server.js"]
+CMD ["bun", "server.js"]
