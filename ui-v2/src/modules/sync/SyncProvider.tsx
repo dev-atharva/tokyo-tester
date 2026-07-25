@@ -40,6 +40,7 @@ import type { ConflictInfo, ScenarioData, WorkflowData } from "./sync-types";
 
 interface SyncContextValue {
   isInitialized: boolean;
+  isHydrating: boolean;
   syncStatus: "healthy" | "degraded" | "down" | "error" | "unknown";
   queueSize: number;
   forceSync: () => Promise<void>;
@@ -280,6 +281,7 @@ export function SyncProvider({
 
   const contextValue: SyncContextValue = {
     isInitialized,
+    isHydrating,
     syncStatus,
     queueSize,
     forceSync,

@@ -34,7 +34,7 @@ export function translateReactFlowToCotsConfig(
     string,
     {
       url?: string;
-      auth_type: "basic" | "token";
+      auth_type: "none" | "basic" | "token";
       username?: string;
       password?: string;
       token?: string;
@@ -59,7 +59,11 @@ export function translateReactFlowToCotsConfig(
     ? Array.from(customTestOrder.values()).flat()
     : tests.map((test) => test.id);
 
-  const graph = translateWorkflowGraphToServiceGraph(nodes, edges, registrySecrets);
+  const graph = translateWorkflowGraphToServiceGraph(
+    nodes,
+    edges,
+    registrySecrets,
+  );
   const scenario = {
     id: "legacy-node-tests",
     name: "Legacy Node Tests",

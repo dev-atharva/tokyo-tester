@@ -502,6 +502,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
 
         {canEdit ? (
           <NodeConfigDialog
+            workflowId={workflowId}
             isOpen={isNodeConfigOpen}
             node={selectedNode}
             nodes={nodes}

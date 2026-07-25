@@ -5,9 +5,17 @@ export class GuidedWorkflowPage {
 
   async createWorkflow(name: string) {
     await this.page.goto("/workflow");
-    await this.page
-      .getByRole("button", { name: "Create Workflow", exact: true })
-      .click();
+    await expect(this.page.getByTestId("workflow-list")).toHaveAttribute(
+      "data-hydrated",
+      "true",
+    );
+    const emptyState = this.page.getByText("No workflows yet", { exact: true });
+    const workflowCard = this.page.getByTestId("workflow-card").first();
+    await emptyState.or(workflowCard).waitFor({ state: "visible" });
+    const createAction = await emptyState.isVisible()
+      ? this.page.getByRole("button", { name: "Create Workflow", exact: true })
+      : this.page.getByRole("button", { name: "New Workflow", exact: true });
+    await createAction.click();
     await expect(this.page).toHaveURL(/\/workflow\/[^/]+$/);
     await expect(this.page.getByText("Guided", { exact: true })).toBeVisible();
 
@@ -48,6 +56,23 @@ export class GuidedWorkflowPage {
       .fill("fault-lab");
     await this.page.getByRole("button", { name: "Save changes" }).click();
     await expect(this.page.getByText(label, { exact: true })).toBeVisible();
+  }
+
+  async configureCustomRegistry(
+    serviceLabel: string,
+    registryHost: string,
+    username: string,
+    password: string,
+    expectedResolvedImage: string,
+  ) {
+    await this.page.getByTitle(`Edit ${serviceLabel}`).click();
+    await this.page.getByRole("tab", { name: "Registry", exact: true }).click();
+    await this.page.getByRole("checkbox").check();
+    await this.page.getByLabel("Registry host").fill(registryHost);
+    await this.page.getByLabel("Username").fill(username);
+    await this.page.getByLabel("Password or pull token").fill(password);
+    await expect(this.page.getByText(expectedResolvedImage, { exact: true })).toBeVisible();
+    await this.page.getByRole("button", { name: "Save changes" }).click();
   }
 
   async addRedisRoundTripScenario(name: string) {

@@ -1,4 +1,15 @@
 services:
+  registry:
+    image: registry:2.8.3
+    environment:
+      REGISTRY_AUTH: htpasswd
+      REGISTRY_AUTH_HTPASSWD_REALM: Tokyo Tester E2E Registry
+      REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
+    ports:
+      - 5100:5000
+    volumes:
+      - ../fixtures/registry/htpasswd:/auth/htpasswd:ro
+
   mysql:
     image: mysql:8.4
     environment:

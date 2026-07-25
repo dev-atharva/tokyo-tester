@@ -12,6 +12,10 @@ const artifactRoot = path.resolve(
   process.env.E2E_ARTIFACT_DIR ?? path.join("artifacts", target),
 );
 const authFile = path.resolve(".auth", `${target}.json`);
+const webServerTimeout = Number.parseInt(
+  process.env.E2E_WEB_SERVER_TIMEOUT_MS ?? String(30 * 60_000),
+  10,
+);
 
 export default defineConfig({
   testDir: "./tests",
@@ -41,7 +45,7 @@ export default defineConfig({
     : {
         command: `bun run stack:${target}`,
         url: `${baseURL}/api/health`,
-        timeout: 10 * 60_000,
+        timeout: webServerTimeout,
         reuseExistingServer: false,
         stdout: "pipe",
         stderr: "pipe",

@@ -42,6 +42,26 @@ docker info >/dev/null
 docker build --tag tokyo-test-api:latest "$ROOT_DIR/test-api"
 
 compose down --volumes --remove-orphans --timeout 5 >/dev/null 2>&1 || true
+compose up --detach registry
+for _ in {1..60}; do
+  if curl --fail --silent --user 'e2e-runner:tokyo-e2e-registry-password' \
+    http://127.0.0.1:5100/v2/ >/dev/null; then
+    break
+  fi
+  sleep 1
+done
+curl --fail --silent --user 'e2e-runner:tokyo-e2e-registry-password' \
+  http://127.0.0.1:5100/v2/ >/dev/null
+
+REGISTRY_DOCKER_CONFIG="$ARTIFACT_DIR/registry-docker-config"
+mkdir -p "$REGISTRY_DOCKER_CONFIG"
+printf '%s' 'tokyo-e2e-registry-password' | docker --config "$REGISTRY_DOCKER_CONFIG" \
+  login 127.0.0.1:5100 --username e2e-runner --password-stdin >/dev/null
+docker tag tokyo-test-api:latest 127.0.0.1:5100/team/platform/api:e2e
+docker --config "$REGISTRY_DOCKER_CONFIG" push \
+  127.0.0.1:5100/team/platform/api:e2e >/dev/null
+docker image rm 127.0.0.1:5100/team/platform/api:e2e >/dev/null
+
 compose up --detach --build --wait
 printf 'Docker E2E stack is ready at http://127.0.0.1:3100\n'
 

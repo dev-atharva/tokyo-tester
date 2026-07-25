@@ -19,12 +19,10 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@tabler/icons-react": "^3.36.0",
-    "@types/crypto-js": "^4.2.2",
     "@xyflow/react": "^12.10.0",
     "boring-avatars": "^2.0.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "crypto-js": "^4.2.0",
     "drizzle-orm": "^0.45.2",
     "elkjs": "^0.11.1",
     "idb-keyval": "^6.2.2",
@@ -60,5 +58,8 @@
     "sharp",
     "unrs-resolver"
   ],
-  "trustedDependencies": ["sharp", "unrs-resolver"]
+  "trustedDependencies": [
+    "sharp",
+    "unrs-resolver"
+  ]
 }

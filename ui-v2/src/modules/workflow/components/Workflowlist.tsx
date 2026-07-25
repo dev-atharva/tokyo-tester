@@ -7,6 +7,7 @@ import {
   IconFileImport,
   IconFileOff,
   IconFolderOpen,
+  IconLoader2,
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
@@ -33,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useProjectContext } from "@/modules/projects/project-context";
+import { useSyncContext } from "@/modules/sync/SyncProvider";
 import { syncService } from "@/modules/sync/sync-service";
 import {
   createClonedWorkflowBundle,
@@ -49,6 +51,9 @@ import { useWorkflowStore } from "../stores/workflow.store.sync";
 export const WorkflowList = () => {
   const router = useRouter();
   const workflows = useWorkflowStore((s) => s.workflows);
+  const hydrated = useWorkflowStore((s) => s.hydrated);
+  const { isHydrating } = useSyncContext();
+  const isReady = hydrated && !isHydrating;
   const executions = useExecutionStore((s) => s.executions);
   const clearExecution = useExecutionStore((s) => s.clearExecution);
   const createWorkflow = useWorkflowStore((s) => s.createWorkflow);
@@ -353,7 +358,11 @@ export const WorkflowList = () => {
         }
       }}
     >
-      <div className="flex flex-col gap-6 p-6">
+      <div
+        className="flex flex-col gap-6 p-6"
+        data-testid="workflow-list"
+        data-hydrated={isReady}
+      >
         <input
           ref={fileInputRef}
           type="file"
@@ -399,7 +408,14 @@ export const WorkflowList = () => {
           ) : null}
         </div>
 
-        {!hasProject ? (
+        {!isReady ? (
+          <div className="flex min-h-64 items-center justify-center rounded-xl border-2 border-dashed border-border/60 bg-muted/20">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <IconLoader2 className="size-4 animate-spin" />
+              Loading workflows…
+            </div>
+          </div>
+        ) : !hasProject ? (
           <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border/60 bg-muted/20 px-4 py-16">
             <div className="mb-4 rounded-full bg-muted/50 p-4">
               <IconFileOff className="size-8 text-muted-foreground" />

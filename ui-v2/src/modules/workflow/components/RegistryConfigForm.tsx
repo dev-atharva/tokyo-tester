@@ -1,8 +1,7 @@
 "use client";
 
-import { IconEye, IconEyeOff } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
-import { Controller, useForm } from "react-hook-form";
+import { IconEye, IconEyeOff, IconShieldLock } from "@tabler/icons-react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -23,189 +22,246 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useRegistrySecretStore } from "../stores/registry-secret-store";
+import {
+  type RegistryAuthType,
+  type RegistryFormValue,
+  resolveRegistryImage,
+  validateRegistryForm,
+} from "../lib/registry-config";
 
 interface Props {
   serviceId: string;
+  image?: string;
+  value: RegistryFormValue;
+  onChange: (value: RegistryFormValue) => void;
 }
 
-interface RegistryFormData {
-  enabled: boolean;
-  url?: string;
-  auth_type: "basic" | "token";
-  username?: string;
-  password?: string;
-  token?: string;
-}
-
-export const RegistryConfigForm: React.FC<Props> = ({ serviceId }) => {
-  const { getSecret, setSecret, clearSecret } = useRegistrySecretStore();
+export const RegistryConfigForm: React.FC<Props> = ({
+  serviceId,
+  image,
+  value,
+  onChange,
+}) => {
   const [showCredential, setShowCredential] = useState(false);
-  const existing = getSecret(serviceId);
-  const form = useForm<RegistryFormData>({
-    defaultValues: {
-      enabled: Boolean(existing),
-      auth_type: existing?.auth_type ?? "basic",
-      ...existing,
-    },
-    mode: "onBlur",
-  });
-
-  const { watch, control, register } = form;
-  const enabled = watch("enabled");
-  const authType = watch("auth_type");
-  const url = watch("url") ?? "";
-  const username = watch("username") ?? "";
-  const password = watch("password") ?? "";
-  const token = watch("token") ?? "";
-
-  useEffect(() => {
-    const sub = watch((value) => {
-      if (!value.enabled) {
-        clearSecret(serviceId);
-        return;
-      }
-      setSecret(serviceId, {
-        url: value.url,
-        auth_type: value.auth_type ?? "basic",
-        username: value.username,
-        password: value.password,
-        token: value.token,
-      });
+  const validation = validateRegistryForm(value);
+  const resolvedImage = useMemo(() => {
+    if (!value.enabled || !value.url.trim() || !image?.trim()) return null;
+    try {
+      return { value: resolveRegistryImage(value.url, image) };
+    } catch (error) {
+      return {
+        error:
+          error instanceof Error ? error.message : "Unable to resolve image.",
+      };
+    }
+  }, [image, value.enabled, value.url]);
+  const fieldId = (name: string) => `${name}-${serviceId}`;
+  const update = (change: Partial<RegistryFormValue>) =>
+    onChange({ ...value, ...change });
+  const changeAuthType = (authType: RegistryAuthType) =>
+    update({
+      auth_type: authType,
+      username: authType === "basic" ? value.username : "",
+      password: authType === "basic" ? value.password : "",
+      token: authType === "token" ? value.token : "",
     });
-    return () => sub.unsubscribe();
-  }, [watch, serviceId, setSecret, clearSecret]);
 
   return (
     <FieldGroup className="max-w-2xl py-4">
       <Field orientation="horizontal">
-        <Controller
-          control={control}
-          name="enabled"
-          render={({ field }) => (
-            <Checkbox
-              id="private-registry-enabled"
-              checked={field.value}
-              onCheckedChange={field.onChange}
-            />
-          )}
+        <Checkbox
+          id={fieldId("private-registry-enabled")}
+          checked={value.enabled}
+          onCheckedChange={(checked) => update({ enabled: checked === true })}
         />
         <FieldContent>
-          <FieldTitle>Use a private container registry</FieldTitle>
+          <FieldTitle>Use a custom container registry</FieldTitle>
           <FieldDescription>
-            Leave this off for public images. Credentials stay in local secret
-            storage and are not exported with the workflow.
+            Enable this for private registries or public images hosted outside
+            Docker Hub.
           </FieldDescription>
         </FieldContent>
       </Field>
 
-      {enabled ? (
+      {value.enabled ? (
         <>
-          <Field data-invalid={!url.trim() || undefined}>
-            <FieldLabel htmlFor="registry-url">Registry address</FieldLabel>
+          <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 text-sm">
+            <div className="flex gap-3">
+              <IconShieldLock className="mt-0.5 size-4 shrink-0 text-blue-600 dark:text-blue-400" />
+              <div className="space-y-1">
+                <p className="font-medium">Credentials are session-only</p>
+                <p className="text-muted-foreground">
+                  The registry host and method are saved, but passwords and
+                  tokens stay only in browser memory and must be entered again
+                  after a reload. Prefer a short-lived, pull-only token.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <Field
+            data-invalid={validation?.field === "registry-url" || undefined}
+          >
+            <FieldLabel htmlFor="registry-url">Registry host</FieldLabel>
             <Input
               id="registry-url"
-              {...register("url")}
-              type="url"
-              placeholder="https://ghcr.io"
-              aria-invalid={!url.trim()}
+              value={value.url}
+              onChange={(event) => update({ url: event.target.value })}
+              type="text"
+              placeholder="registry.example.com:5000"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              aria-invalid={validation?.field === "registry-url"}
             />
             <FieldDescription>
-              Include the protocol when your registry requires it.
+              Host and optional port only—do not include a protocol, repository
+              path, or username.
             </FieldDescription>
-            {!url.trim() ? (
-              <FieldError>
-                Enter the registry address used by this image.
-              </FieldError>
+            {validation?.field === "registry-url" ? (
+              <FieldError>{validation.message}</FieldError>
             ) : null}
           </Field>
 
           <Field>
             <FieldLabel>Authentication method</FieldLabel>
-            <Controller
-              control={control}
-              name="auth_type"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="basic">
-                        Username and password
-                      </SelectItem>
-                      <SelectItem value="token">Access token</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              )}
-            />
+            <Select
+              value={value.auth_type}
+              onValueChange={(next) => changeAuthType(next as RegistryAuthType)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="none">No credentials</SelectItem>
+                  <SelectItem value="basic">
+                    Username and password / pull token
+                  </SelectItem>
+                  <SelectItem value="token">
+                    Docker identity token (advanced)
+                  </SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </Field>
 
-          {authType === "basic" ? (
+          {value.auth_type === "basic" ? (
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field data-invalid={!username.trim() || undefined}>
+              <Field
+                data-invalid={
+                  validation?.field === "registry-username" || undefined
+                }
+              >
                 <FieldLabel htmlFor="registry-username">Username</FieldLabel>
                 <Input
                   id="registry-username"
-                  {...register("username")}
-                  autoComplete="username"
-                  aria-invalid={!username.trim()}
+                  value={value.username}
+                  onChange={(event) => update({ username: event.target.value })}
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  aria-invalid={validation?.field === "registry-username"}
                 />
-                {!username.trim() ? (
-                  <FieldError>Enter the registry username.</FieldError>
+                {validation?.field === "registry-username" ? (
+                  <FieldError>{validation.message}</FieldError>
                 ) : null}
               </Field>
-              <Field data-invalid={!password || undefined}>
-                <FieldLabel htmlFor="registry-password">Password</FieldLabel>
+              <Field
+                data-invalid={
+                  validation?.field === "registry-password" || undefined
+                }
+              >
+                <FieldLabel htmlFor="registry-password">
+                  Password or pull token
+                </FieldLabel>
                 <div className="flex gap-2">
                   <Input
                     id="registry-password"
                     type={showCredential ? "text" : "password"}
-                    {...register("password")}
-                    autoComplete="current-password"
-                    aria-invalid={!password}
+                    value={value.password}
+                    onChange={(event) =>
+                      update({ password: event.target.value })
+                    }
+                    autoComplete="new-password"
+                    aria-invalid={validation?.field === "registry-password"}
                   />
                   <Button
                     type="button"
                     size="icon"
                     variant="outline"
-                    title={showCredential ? "Hide password" : "Show password"}
+                    title={
+                      showCredential ? "Hide credential" : "Show credential"
+                    }
+                    aria-label={
+                      showCredential ? "Hide credential" : "Show credential"
+                    }
                     onClick={() => setShowCredential((current) => !current)}
                   >
                     {showCredential ? <IconEyeOff /> : <IconEye />}
                   </Button>
                 </div>
-                {!password ? (
-                  <FieldError>Enter the registry password.</FieldError>
+                {validation?.field === "registry-password" ? (
+                  <FieldError>{validation.message}</FieldError>
                 ) : null}
               </Field>
             </div>
-          ) : (
-            <Field data-invalid={!token || undefined}>
-              <FieldLabel htmlFor="registry-token">Access token</FieldLabel>
+          ) : null}
+
+          {value.auth_type === "token" ? (
+            <Field
+              data-invalid={validation?.field === "registry-token" || undefined}
+            >
+              <FieldLabel htmlFor="registry-token">
+                Docker identity token
+              </FieldLabel>
               <div className="flex gap-2">
                 <Input
                   id="registry-token"
                   type={showCredential ? "text" : "password"}
-                  {...register("token")}
+                  value={value.token}
+                  onChange={(event) => update({ token: event.target.value })}
                   autoComplete="off"
-                  aria-invalid={!token}
+                  aria-invalid={validation?.field === "registry-token"}
                 />
                 <Button
                   type="button"
                   size="icon"
                   variant="outline"
                   title={showCredential ? "Hide token" : "Show token"}
+                  aria-label={showCredential ? "Hide token" : "Show token"}
                   onClick={() => setShowCredential((current) => !current)}
                 >
                   {showCredential ? <IconEyeOff /> : <IconEye />}
                 </Button>
               </div>
-              {!token ? <FieldError>Enter an access token.</FieldError> : null}
+              <FieldDescription>
+                This is the identity token returned by a Docker registry auth
+                service. GitHub or GitLab personal access tokens normally belong
+                in the password field above.
+              </FieldDescription>
+              {validation?.field === "registry-token" ? (
+                <FieldError>{validation.message}</FieldError>
+              ) : null}
             </Field>
-          )}
+          ) : null}
+
+          {resolvedImage ? (
+            <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm">
+              <p className="font-medium">Resolved image</p>
+              {resolvedImage.value ? (
+                <code className="mt-1 block break-all text-xs text-muted-foreground">
+                  {resolvedImage.value}
+                </code>
+              ) : (
+                <p className="mt-1 text-destructive">{resolvedImage.error}</p>
+              )}
+              <p className="mt-2 text-xs text-muted-foreground">
+                Repository subfolders are supported. For example,
+                team/platform/api:v1 is appended to the registry host as-is.
+              </p>
+            </div>
+          ) : null}
         </>
       ) : null}
     </FieldGroup>

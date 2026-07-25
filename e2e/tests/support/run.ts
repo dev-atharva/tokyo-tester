@@ -5,6 +5,16 @@ export interface WorkflowRunPayload {
   projectId: string;
   workflowId: string;
   executionOptions?: { continueOnFailure?: boolean };
+  registrySecrets?: Record<
+    string,
+    {
+      url?: string;
+      auth_type?: string;
+      username?: string;
+      password?: string;
+      token?: string;
+    }
+  >;
 }
 
 export interface WorkflowRunSnapshot {
@@ -48,8 +58,23 @@ export async function waitForTerminalRun(
     .toMatch(/^(completed|failed|partial_failed|cleanup_failed|cancelled)$/);
 
   if (!latest) throw new Error("Runner reached no observable state.");
+  const safePayload = {
+    ...payload,
+    registrySecrets: payload.registrySecrets
+      ? Object.fromEntries(
+          Object.entries(payload.registrySecrets).map(([service, registry]) => [
+            service,
+            {
+              ...registry,
+              password: registry.password ? "[REDACTED]" : undefined,
+              token: registry.token ? "[REDACTED]" : undefined,
+            },
+          ]),
+        )
+      : undefined,
+  };
   await testInfo.attach("workflow-run-payload", {
-    body: JSON.stringify(payload, null, 2),
+    body: JSON.stringify(safePayload, null, 2),
     contentType: "application/json",
   });
   await testInfo.attach("workflow-run-snapshot", {

@@ -97,6 +97,26 @@ If `runner` is unhealthy and logs mention Docker reachability, fix Docker or the
 
 Open `https://tokyo.example.com/setup` and create the initial platform administrator. After setup, use `/login`. Create Team workspaces and assign `owner`, `editor`, or `runner` roles according to least privilege.
 
+### Pull images from a custom registry
+
+In Expert mode, open a service, select **Registry**, and enable the custom registry option. Enter only the registry host and optional port, such as `ghcr.io` or `registry.example.com:5000`. Do not enter `https://` and do not put a repository path in this field.
+
+The service image field contains the repository path, tag, or digest. Nested paths are supported and are appended without modification:
+
+```text
+Registry host: registry.example.com:5000
+Service image: team/platform/payments/api:v1
+Pulled image:  registry.example.com:5000/team/platform/payments/api:v1
+```
+
+An already-qualified image is also accepted when its host matches the configured registry. A host mismatch fails validation and the runner never falls back to Docker Hub.
+
+For most registries, select **Username and password / pull token**. Put the robot/user name in the username field and a short-lived, read-only registry token in the password field. GitHub and GitLab personal access tokens are passwords for Docker basic authentication; the advanced identity-token option is only for a token returned by a Docker registry authorization service.
+
+The registry host and authentication method are saved with the workflow. Passwords and tokens are not persisted in browser storage or workflow exports: they remain in browser memory, are submitted only for services in the active workflow, and must be re-entered after a page reload. The queued job payload is protected by the runner's workflow encryption key and its ciphertext is cleared after the terminal job transition.
+
+Use a TLS-enabled registry with a certificate trusted by the Docker host. Configuring Docker daemon `insecure-registries` is an operator-level host change and is not performed by Tokyo Tester.
+
 ## 5. Connect production coding agents
 
 From the in-app **Docs** page, select the Personal or Team workspace and generate a project-scoped token. The token is shown only once.
