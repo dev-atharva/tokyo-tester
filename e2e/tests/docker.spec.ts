@@ -16,7 +16,10 @@ test("guided application and Redis workflow executes, persists, and cleans up th
   await workflow.addApplicationService("tokyo-test-api:latest", "Test API");
   await workflow.addRedisService();
   await workflow.addRedisRoundTripScenario("Redis round trip journey");
-  await workflow.addHttpScenario("Application health journey", "/health", 200);
+  await workflow.addHttpScenario("Application health journey", "/health", 200, {
+    status: "healthy",
+    role: "fault-lab",
+  });
   await workflow.sync();
   await workflow.openRunDialog();
 

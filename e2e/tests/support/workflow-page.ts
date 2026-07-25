@@ -61,14 +61,44 @@ export class GuidedWorkflowPage {
     await expect(this.page.getByText("Read the Redis value")).toBeVisible();
   }
 
-  async addHttpScenario(name: string, path: string, expectedStatus: number) {
+  async addHttpScenario(
+    name: string,
+    path: string,
+    expectedStatus: number,
+    expectedBody?: Record<string, unknown>,
+  ) {
     await this.openStage("Scenarios");
     await this.page.getByRole("button", { name: "New Scenario" }).click();
     await this.page.getByLabel("Scenario Name").fill(name);
     await this.page.getByRole("button", { name: "Add test" }).click();
-    await this.page.getByLabel("Path").fill(path);
-    await this.page.getByLabel("Port").fill("8080");
-    await this.page.getByLabel("Expected Status").fill(String(expectedStatus));
+    const pathInput = this.page.getByLabel("Path");
+    await pathInput.fill("");
+    await expect(pathInput).toHaveValue("");
+    await pathInput.fill(path);
+    const portInput = this.page.getByLabel("Port");
+    await portInput.fill("");
+    await expect(portInput).toHaveValue("");
+    await portInput.fill("8080");
+    const expectedStatusInput = this.page.getByLabel("Expected Status");
+    await expectedStatusInput.fill("");
+    await expect(expectedStatusInput).toHaveValue("");
+    await expectedStatusInput.fill(String(expectedStatus));
+    if (expectedBody) {
+      await this.page.getByLabel("Expected Body Mode").click();
+      await this.page
+        .getByRole("option", { name: "JSON partial", exact: true })
+        .click();
+      const expectedBodyEditor = this.page.getByLabel("Expected Body JSON");
+      await expectedBodyEditor.fill("{");
+      await expect(expectedBodyEditor).toHaveValue("{");
+      await expect(
+        this.page.getByText("Enter valid JSON to save this field."),
+      ).toBeVisible();
+      await expectedBodyEditor.fill(JSON.stringify(expectedBody, null, 2));
+      await expect(
+        this.page.getByText("Enter valid JSON to save this field."),
+      ).toBeHidden();
+    }
   }
 
   async sync() {
