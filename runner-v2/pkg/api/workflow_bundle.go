@@ -13,7 +13,6 @@ import (
 	"github.com/dev-atharva/cots/pkg/logger"
 	"github.com/dev-atharva/cots/pkg/middleware"
 	"github.com/dev-atharva/cots/pkg/orchestrator"
-	"github.com/dev-atharva/cots/pkg/provider"
 	"github.com/dev-atharva/cots/pkg/session"
 	"github.com/dev-atharva/cots/pkg/telemetry"
 	"github.com/dev-atharva/cots/pkg/test"
@@ -84,6 +83,7 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 		response.Error = err.Error()
 		return response
 	}
+	translated.Services = h.withContainerResources(translated.Services)
 	response.Summary.Total = len(translated.Tests)
 	previous, _ := h.resolvePersistedSession(ctx, "", execution)
 	if previous != nil && previous.Phase != "" && previous.Phase != sessionPhaseCreated {
@@ -124,7 +124,7 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 		sessionExecution = &session.ExecutionContext{WorkflowID: bundle.Workflow.Name, ScenarioName: scenario.Name}
 	}
 	sessionID := h.sessionManager.Create(orch, sessionExecution)
-	ctx = provider.WithSessionID(withExecutionContext(ctx, execution), sessionID)
+	ctx = withWorkflowResourceMetadata(withExecutionContext(ctx, execution), execution, sessionID)
 	response.SessionID = sessionID
 	cleanupDone := false
 	cleanupSession := func() error {
@@ -153,7 +153,11 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 				_ = h.persistCheckpoint(persistCtx, persisted.ID, persisted.CheckpointIndex, sessionPhaseCleanupFailed, "cleanup_failed", summarizeResults(response.Results))
 			}
 		} else if persisted != nil && ctx.Err() != nil {
-			_ = h.persistCheckpoint(persistCtx, persisted.ID, persisted.CheckpointIndex, sessionPhaseFailed, "failed", summarizeResults(response.Results))
+			if context.Cause(ctx) == db.ErrWorkflowCancellationRequested {
+				_ = h.persistCheckpoint(persistCtx, persisted.ID, persisted.CheckpointIndex, "cancelled", "cancelled", summarizeResults(response.Results))
+			} else {
+				h.persistInterruptedSession(persistCtx, persisted.ID)
+			}
 		}
 		if persisted != nil {
 			h.releaseSessionLease(persistCtx, persisted.ID)
@@ -172,14 +176,18 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 	}
 	if persisted != nil {
 		sess.PersistedID = persisted.ID
+		heartbeatCtx, stopHeartbeat := context.WithCancel(ctx)
+		defer stopHeartbeat()
+		go h.heartbeatSession(heartbeatCtx, persisted.ID)
 	}
 
-	releaseProvision, err := h.acquireSlot(ctx, h.provisionSlots, "provision")
+	releaseProvision, err := acquireDurableSlot(ctx, h.provisionSlots)
 	if err != nil {
 		response.Error = err.Error()
 		return response
 	}
 
+	reportWorkflowProgress(ctx, "provision", fmt.Sprintf("Provisioning %d services", len(translated.Services)))
 	provisionCtx, cancel := withOperationTimeout(ctx, h.provisionTimeout)
 	err = orch.ProvisionServices(logger.WithContext(provisionCtx, logger.FromContext(ctx)), translated.Services)
 	cancel()
@@ -191,6 +199,7 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 		}
 		return response
 	}
+	reportWorkflowProgress(ctx, "provision", "All scenario services are ready")
 	if persisted != nil {
 		h.persistProvisionedState(ctx, persisted.ID, orch)
 		if err := h.ensureTestPlan(ctx, persisted.ID, translated.Tests); err != nil {
@@ -254,6 +263,7 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 	if persisted != nil {
 		_ = h.persistCheckpoint(ctx, persisted.ID, len(translated.Tests), sessionPhaseCleaningUp, "", summarizeResults(results))
 	}
+	reportWorkflowProgress(ctx, "cleanup", "Cleaning up scenario containers and network")
 	cleanupFailed := false
 	if cleanupErr := cleanupSession(); cleanupErr != nil {
 		cleanupFailed = true
@@ -275,6 +285,9 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 		}
 		_ = h.persistCheckpoint(ctx, persisted.ID, len(translated.Tests), phase, status, summarizeResults(results))
 		h.releaseSessionLease(ctx, persisted.ID)
+	}
+	if !cleanupFailed {
+		reportWorkflowProgress(ctx, "cleanup", "Scenario resources cleaned up")
 	}
 
 	return response
@@ -326,7 +339,7 @@ func (h *Handler) executeWorkflowBundleTestsWithCallback(
 	testsToRun []config.TestConfig,
 	onResult func(config.TestConfig, dto.TestResult, any),
 ) ([]dto.TestResult, dto.TestSummary) {
-	releaseTests, err := h.acquireSlot(ctx, h.testRunSlots, "test execution")
+	releaseTests, err := acquireDurableSlot(ctx, h.testRunSlots)
 	if err != nil {
 		return []dto.TestResult{{
 			Name:   "bundle-execution",
@@ -345,6 +358,7 @@ func (h *Handler) executeWorkflowBundleTestsWithCallback(
 	summary := dto.TestSummary{Total: len(testsToRun)}
 
 	for _, testCfg := range testsToRun {
+		reportWorkflowProgress(ctx, "execution", fmt.Sprintf("Running test %q", testCfg.Name))
 		interpolated, err := test.InterpolateTestConfig(testCfg.Config, sess)
 		if err != nil {
 			result := dto.TestResult{
@@ -358,6 +372,7 @@ func (h *Handler) executeWorkflowBundleTestsWithCallback(
 			if onResult != nil {
 				onResult(testCfg, result, asPersistedInterpolationData(result))
 			}
+			reportWorkflowProgress(ctx, "execution", fmt.Sprintf("Test %q failed during configuration", testCfg.Name))
 			continue
 		}
 		testCfg.Config = interpolated
@@ -375,6 +390,7 @@ func (h *Handler) executeWorkflowBundleTestsWithCallback(
 			if onResult != nil {
 				onResult(testCfg, result, asPersistedInterpolationData(result))
 			}
+			reportWorkflowProgress(ctx, "execution", fmt.Sprintf("Test %q could not start", testCfg.Name))
 			continue
 		}
 
@@ -395,6 +411,7 @@ func (h *Handler) executeWorkflowBundleTestsWithCallback(
 			if onResult != nil {
 				onResult(testCfg, result, asPersistedInterpolationData(result))
 			}
+			reportWorkflowProgress(ctx, "execution", fmt.Sprintf("Test %q failed", testCfg.Name))
 			continue
 		}
 
@@ -413,13 +430,14 @@ func (h *Handler) executeWorkflowBundleTestsWithCallback(
 		if onResult != nil {
 			onResult(testCfg, result, map[string]any{"status": "passed", "name": testCfg.Name, "type": testCfg.Type})
 		}
+		reportWorkflowProgress(ctx, "execution", fmt.Sprintf("Test %q passed", testCfg.Name))
 	}
 
 	return results, summary
 }
 
 func (h *Handler) cleanupWorkflowBundleSession(ctx context.Context, sessionID string) error {
-	releaseCleanup, err := h.acquireSlot(ctx, h.cleanupSlots, "cleanup")
+	releaseCleanup, err := acquireDurableSlot(ctx, h.cleanupSlots)
 	if err != nil {
 		return h.sessionManager.DeleteWithContext(ctx, sessionID)
 	}

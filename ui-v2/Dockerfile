@@ -6,14 +6,18 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 FROM base AS deps
-COPY package.json bun.lock ./
+COPY ui-v2/package.json ui-v2/bun.lock ./
 RUN bun install --frozen-lockfile
 
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY ui-v2/. .
+COPY .agents/skills/tokyo-tester /tmp/tokyo-tester-skill
+
+RUN mkdir -p public/downloads && \
+    tar -czf public/downloads/tokyo-tester-skill.tar.gz -C /tmp tokyo-tester-skill
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production

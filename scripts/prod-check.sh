@@ -31,6 +31,20 @@ fi
 : "${WORKFLOW_JOB_ENCRYPTION_KEY:?WORKFLOW_JOB_ENCRYPTION_KEY must be set in .env}"
 : "${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set in .env}"
 : "${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set in .env}"
+: "${TOKYO_TESTER_PUBLIC_ORIGIN:?TOKYO_TESTER_PUBLIC_ORIGIN must be set in .env}"
+: "${MCP_INTERNAL_SECRET:?MCP_INTERNAL_SECRET must be set in .env}"
+
+case "${TOKYO_TESTER_PUBLIC_ORIGIN}" in
+  https://*) ;;
+  *) fail "TOKYO_TESTER_PUBLIC_ORIGIN must use HTTPS in production" ;;
+esac
+
+MCP_PUBLIC_URL=${MCP_PUBLIC_URL:-${TOKYO_TESTER_PUBLIC_ORIGIN%/}/mcp}
+export MCP_PUBLIC_URL
+case "${MCP_PUBLIC_URL}" in
+  https://*/mcp) ;;
+  *) fail "MCP_PUBLIC_URL must be an HTTPS URL ending in /mcp" ;;
+esac
 
 if [ "${AUTH_SECRET}" = "replace-with-a-long-random-secret" ] || [ "${#AUTH_SECRET}" -lt 32 ]; then
   fail "AUTH_SECRET must be a non-placeholder value of at least 32 characters"
@@ -43,6 +57,26 @@ fi
 if [ "${MYSQL_PASSWORD}" = "replace-with-a-long-url-safe-app-password" ] || [ "${#MYSQL_PASSWORD}" -lt 16 ]; then
   fail "MYSQL_PASSWORD must be a non-placeholder value of at least 16 characters"
 fi
+
+if [ "${MCP_INTERNAL_SECRET}" = "replace-with-a-separate-long-random-secret" ] || [ "${#MCP_INTERNAL_SECRET}" -lt 32 ]; then
+  fail "MCP_INTERNAL_SECRET must be a separate non-placeholder value of at least 32 characters"
+fi
+if [ "${MCP_INTERNAL_SECRET}" = "${AUTH_SECRET}" ]; then
+  fail "MCP_INTERNAL_SECRET must be different from AUTH_SECRET"
+fi
+
+case "${MCP_AUTH_MODE:-personal_token}" in
+  personal_token) ;;
+  oauth)
+    : "${MCP_OAUTH_ISSUER:?MCP_OAUTH_ISSUER must be set when MCP_AUTH_MODE=oauth}"
+    : "${MCP_OAUTH_INTROSPECTION_URL:?MCP_OAUTH_INTROSPECTION_URL must be set when MCP_AUTH_MODE=oauth}"
+    : "${MCP_OAUTH_CLIENT_ID:?MCP_OAUTH_CLIENT_ID must be set when MCP_AUTH_MODE=oauth}"
+    : "${MCP_OAUTH_CLIENT_SECRET:?MCP_OAUTH_CLIENT_SECRET must be set when MCP_AUTH_MODE=oauth}"
+    case "${MCP_OAUTH_ISSUER}" in https://*) ;; *) fail "MCP_OAUTH_ISSUER must use HTTPS" ;; esac
+    case "${MCP_OAUTH_INTROSPECTION_URL}" in https://*) ;; *) fail "MCP_OAUTH_INTROSPECTION_URL must use HTTPS" ;; esac
+    ;;
+  *) fail "MCP_AUTH_MODE must be personal_token or oauth" ;;
+esac
 
 if [ -z "${RUNNER_DATABASE_URL:-}" ] || [ -z "${UI_DATABASE_URL:-}" ]; then
   case "${MYSQL_PASSWORD}" in

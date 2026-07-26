@@ -5,14 +5,17 @@ COMPOSE_FILES := -f docker-compose.yml
 DEV_COMPOSE_FILES := -f docker-compose.yml -f docker-compose.dev.yml
 TEST_COMPOSE_FILES := --project-name tokyo-tester-tests -f docker-compose.test.yml
 SOCKET_ENV_FILE := .env.docker-socket
-DEV_SECRETS = AUTH_SECRET="$${AUTH_SECRET:-local-dev-auth-secret}" WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" MYSQL_ROOT_PASSWORD="$${MYSQL_ROOT_PASSWORD:-tokyo-dev-root-password}" MYSQL_PASSWORD="$${MYSQL_PASSWORD:-tokyo-dev-password}"
+DEV_SECRETS = AUTH_SECRET="$${AUTH_SECRET:-local-dev-auth-secret}" MCP_INTERNAL_SECRET="$${MCP_INTERNAL_SECRET:-local-dev-mcp-internal-secret-32-bytes}" WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" MYSQL_ROOT_PASSWORD="$${MYSQL_ROOT_PASSWORD:-tokyo-dev-root-password}" MYSQL_PASSWORD="$${MYSQL_PASSWORD:-tokyo-dev-password}"
 UI_RUNNER_CHECK_PATHS := proxy.ts package.json src/app/layout.tsx src/app/globals.css src/app/api/v1/workflow-runs src/modules/sync/sync-hydration.tsx src/modules/workflow/hooks/useRealtimeLogs.tsx src/modules/workflow/hooks/useWorkflowExecution.tsx src/modules/workflow/lib src/modules/workflow/server src/modules/workflow/stores/execution.store.sync.ts src/modules/workflow/types/workflow-run-input.contract.test.ts
 ENV_LOADER = set -a; \
 	if [ -f ./$(SOCKET_ENV_FILE) ]; then . ./$(SOCKET_ENV_FILE); fi; \
 	if [ -f ./.env ]; then . ./.env; fi; \
 	set +a;
 
-.PHONY: help ensure-docker-socket doctor dev dev-docker dev-mysql dev-host-runner dev-local dev-support runner-dev ui-dev agent-dev prod prod-check prod-verify prod-backup prod-capture e2e e2e-install e2e-docker e2e-docker-leak down reset test test-mysql-up test-mysql-down test-go test-ui test-test-api test-api-build test-complex-e2e check compose-check
+.PHONY: help package-skill ensure-docker-socket doctor dev dev-docker dev-mysql dev-host-runner dev-local dev-support runner-dev ui-dev agent-dev prod prod-check prod-verify prod-backup prod-capture e2e e2e-install e2e-docker e2e-docker-leak down reset test test-mysql-up test-mysql-down test-go test-ui test-test-api test-api-build test-complex-e2e test-soak check compose-check
+
+package-skill: ## Package the installable Tokyo Tester skill for local UI downloads
+	@bash ./scripts/package-skill.sh
 
 help: ## Show available commands
 	@printf "Tokyo Tester commands\n\n"
@@ -26,7 +29,7 @@ ensure-docker-socket: ## Detect the Docker socket and write .env.docker-socket
 doctor: ensure-docker-socket ## Check Docker, Compose, host tools, configuration, and development ports
 	@bash ./scripts/dev-doctor.sh
 
-dev: doctor ## Run the dev stack; auto-falls back to a host runner for non-standard Docker Sockets
+dev: package-skill doctor ## Run the dev stack; auto-falls back to a host runner for non-standard Docker Sockets
 	@$(ENV_LOADER) \
 	if [ "$${DOCKER_SOCKET_PATH:-/var/run/docker.sock}" = "/var/run/docker.sock" ]; then \
 		printf "Using fully dockerized dev stack.\n"; \
@@ -71,7 +74,7 @@ dev-host-runner: dev-support ## Run the UI in Docker and the runner on the host
 	@printf "Runner logs will stream below. Stop with Ctrl+C, then use 'make down' to stop docker Services.\n\n"
 	@$(MAKE) runner-dev
 
-ui-dev: dev-mysql ## Run the Next.js UI on the host against the local runner
+ui-dev: package-skill dev-mysql ## Run the Next.js UI on the host against the local runner
 	@$(ENV_LOADER) \
 		cd ui-v2 && \
 		COTS_API_BASE_URL="$${COTS_API_BASE_URL:-http://localhost:8080}" \
@@ -79,12 +82,18 @@ ui-dev: dev-mysql ## Run the Next.js UI on the host against the local runner
 		DATABASE_URL="$${UI_DATABASE_URL:-mysql://tokyo:$${MYSQL_PASSWORD:-tokyo-dev-password}@127.0.0.1:$${MYSQL_PORT:-3306}/tokyo_ui}" \
 		AUTH_SECRET="$${AUTH_SECRET:-local-dev-auth-secret}" \
 		AUTH_TRUST_HOST="$${AUTH_TRUST_HOST:-true}" \
+		MCP_INTERNAL_SECRET="$${MCP_INTERNAL_SECRET:-local-dev-mcp-internal-secret-32-bytes}" \
+		MCP_AUTH_MODE="$${MCP_AUTH_MODE:-personal_token}" \
+		MCP_PUBLIC_URL="$${MCP_PUBLIC_URL:-http://localhost:8090/mcp}" \
 		bun run db:migrate && \
 		COTS_API_BASE_URL="$${COTS_API_BASE_URL:-http://localhost:8080}" \
 		DB_TYPE="$${UI_DB_TYPE:-mysql}" \
 		DATABASE_URL="$${UI_DATABASE_URL:-mysql://tokyo:$${MYSQL_PASSWORD:-tokyo-dev-password}@127.0.0.1:$${MYSQL_PORT:-3306}/tokyo_ui}" \
 		AUTH_SECRET="$${AUTH_SECRET:-local-dev-auth-secret}" \
 		AUTH_TRUST_HOST="$${AUTH_TRUST_HOST:-true}" \
+		MCP_INTERNAL_SECRET="$${MCP_INTERNAL_SECRET:-local-dev-mcp-internal-secret-32-bytes}" \
+		MCP_AUTH_MODE="$${MCP_AUTH_MODE:-personal_token}" \
+		MCP_PUBLIC_URL="$${MCP_PUBLIC_URL:-http://localhost:8090/mcp}" \
 		bun run dev
 
 dev-local: doctor dev-mysql ## Run both the UI and runner on the host for Docker socket or volume edge cases
@@ -143,6 +152,9 @@ test-api-build: ensure-docker-socket ## Build both compatible tags for the workf
 test-complex-e2e: test-api-build ## Run the opt-in, resource-heavy payment provider matrix
 	@cd runner-v2 && RUN_COMPLEX_PAYMENT_E2E=1 GOCACHE="$${GOCACHE:-/tmp/tokyo-tester-go-cache}" go test -count=1 -timeout=60m ./e2e -run TestComplexPaymentFixturesE2E
 
+test-soak: test-mysql-up ## Exercise renewable leases for TOKYO_SOAK_DURATION (default 10m; use 24h before beta)
+	@cd runner-v2 && MYSQL_TEST_ADMIN_DSN="$${MYSQL_TEST_ADMIN_DSN:-root:tokyo-test-root-password@tcp(127.0.0.1:$${MYSQL_TEST_PORT:-33306})/mysql}" TOKYO_SOAK_DURATION="$${TOKYO_SOAK_DURATION:-10m}" GOCACHE="$${GOCACHE:-/tmp/tokyo-tester-go-cache}" go test -tags=soak -count=1 -timeout="$${TOKYO_SOAK_TIMEOUT:-25h}" ./pkg/api -run TestLongRunningSessionLeaseSoak
+
 e2e-install: ## Install the pinned Playwright harness and Chromium
 	@cd e2e && bun install --frozen-lockfile && bunx playwright install chromium
 
@@ -151,8 +163,11 @@ e2e: e2e-docker ## Run the supported whole-product Docker journey
 e2e-docker: ensure-docker-socket ## Run the guided Docker production-image journey
 	@$(ENV_LOADER) cd e2e && bun run test:docker
 
-e2e-docker-leak: ensure-docker-socket ## Repeat the Docker journey 20 times and assert cleanup after every run
-	@$(ENV_LOADER) cd e2e && E2E_REPEAT_EACH=20 bun run test:docker
+e2e-docker-leak: ensure-docker-socket ## Repeat the Docker cleanup journey 20 times and assert cleanup after every run
+	@$(ENV_LOADER) cd e2e && \
+		E2E_REPEAT_EACH=20 \
+		E2E_WORKFLOW_SUBMISSIONS_PER_MINUTE_USER=100 \
+		bun run test:docker --grep "guided application and Redis workflow executes"
 
 compose-check: ## Validate production, development, and test Compose files
 	@AUTH_SECRET=compose-check-auth-secret MYSQL_ROOT_PASSWORD=compose-check-root-password MYSQL_PASSWORD=compose-check-app-password WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" $(COMPOSE) $(COMPOSE_FILES) --profile agent config --quiet

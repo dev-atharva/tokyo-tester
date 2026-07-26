@@ -24,6 +24,8 @@ export function isWorkflowRunStatus(
   return (
     value === "pending" ||
     value === "running" ||
+    value === "cancelling" ||
+    value === "cancelled" ||
     value === "completed" ||
     value === "failed" ||
     value === "partial_failed" ||
@@ -32,7 +34,9 @@ export function isWorkflowRunStatus(
 }
 
 export function isWorkflowRunActive(status: WorkflowRunStatus | undefined) {
-  return status === "pending" || status === "running";
+  return (
+    status === "pending" || status === "running" || status === "cancelling"
+  );
 }
 
 export function shouldPollExecutionFallback({

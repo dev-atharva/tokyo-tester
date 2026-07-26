@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -118,9 +119,10 @@ func (s *WorkflowService) Submit(ctx context.Context, request *workflowrun.Reque
 	now := time.Now().UTC()
 	job := &db.WorkflowJob{
 		ID: uuid.NewString(), WorkflowRunID: request.WorkflowRunID,
-		ProjectID: request.ProjectID, RequestHash: workflowrun.HashPayload(payload),
+		ProjectID: request.ProjectID, UserID: firstNonEmpty(request.UserID, "demo-user"),
+		RequestHash:       workflowrun.HashPayload(payload),
 		PayloadCiphertext: ciphertext, PayloadNonce: nonce,
-		Status: "pending", CreatedAt: now, UpdatedAt: now,
+		Status: "pending", EstimatedCost: estimateWorkflowCost(request), CreatedAt: now, UpdatedAt: now,
 	}
 
 	metadata, _ := json.Marshal(map[string]any{
@@ -145,7 +147,7 @@ func (s *WorkflowService) Submit(ctx context.Context, request *workflowrun.Reque
 			ClientID: firstNonEmpty(scenario.ClientID, request.ClientID), UserID: userID,
 		})
 	}
-	job, created, err := s.store.EnqueueWorkflowJob(ctx, job, run, sessions)
+	job, created, err := s.store.AdmitWorkflowJob(ctx, job, run, sessions, s.admissionPolicy())
 	if err != nil || !created {
 		return job, created, err
 	}
@@ -209,7 +211,7 @@ func (s *WorkflowService) worker(ctx context.Context, index int) {
 		case <-s.wake:
 		}
 		for {
-			job, err := s.store.ClaimWorkflowJob(ctx, owner, time.Now().UTC(), time.Duration(s.config.LeaseSeconds)*time.Second, s.config.MaxRecoveries)
+			job, err := s.store.ClaimWorkflowJobFair(ctx, owner, time.Now().UTC(), time.Duration(s.config.LeaseSeconds)*time.Second, s.config.MaxRecoveries, s.admissionPolicy())
 			if err != nil {
 				logger.ErrorContext(ctx, "failed to claim workflow job", "error", err)
 				break
@@ -221,9 +223,83 @@ func (s *WorkflowService) worker(ctx context.Context, index int) {
 				s.reconcileExhaustedJob(ctx, job)
 				continue
 			}
+			if job.CancelRequestedAt != nil {
+				if err := s.store.CancelWorkflowJob(ctx, job.ID, owner, time.Now().UTC()); err != nil {
+					logger.ErrorContext(ctx, "failed to finalize recovered workflow cancellation", "workflow_run_id", job.WorkflowRunID, "error", err)
+				}
+				continue
+			}
 			s.executeJob(ctx, owner, job)
 		}
 	}
+}
+
+func (s *WorkflowService) Cancel(ctx context.Context, workflowRunID, projectID, reason string) (*db.WorkflowJob, bool, error) {
+	return s.store.RequestWorkflowJobCancellation(ctx, workflowRunID, projectID, reason, time.Now().UTC())
+}
+
+func (s *WorkflowService) admissionPolicy() db.WorkflowAdmissionPolicy {
+	return db.WorkflowAdmissionPolicy{
+		MaxQueuedGlobal: s.config.MaxQueuedGlobal, MaxQueuedPerUser: s.config.MaxQueuedPerUser,
+		MaxQueuedPerProject: s.config.MaxQueuedPerProject, MaxRunningPerUser: s.config.MaxRunningPerUser,
+		SubmissionsPerMinuteUser:    s.config.SubmissionsPerMinuteUser,
+		SubmissionsPerMinuteProject: s.config.SubmissionsPerMinuteProject,
+		MaxRunningPerProject:        s.config.MaxRunningPerProject,
+	}
+}
+
+func (s *WorkflowService) QueueInfo(ctx context.Context, workflowRunID string) (*db.WorkflowQueueInfo, error) {
+	info, err := s.store.GetWorkflowJobQueueInfo(ctx, workflowRunID)
+	if info != nil {
+		info.WorkerConcurrency = s.config.Concurrency
+		if info.Status == "pending" && info.EstimatedRun != nil && info.Position > 1 {
+			waves := (info.Position - 1 + maxIntAPI(s.config.Concurrency, 1) - 1) / maxIntAPI(s.config.Concurrency, 1)
+			info.EstimatedWait = scaleWorkflowEstimate(info.EstimatedRun, waves)
+			info.EstimatedTotal = addWorkflowEstimates(info.EstimatedWait, info.EstimatedRun)
+		} else if info.EstimatedRun != nil {
+			info.EstimatedTotal = scaleWorkflowEstimate(info.EstimatedRun, 1)
+		}
+	}
+	return info, err
+}
+
+func scaleWorkflowEstimate(estimate *db.WorkflowTimeEstimate, multiplier int) *db.WorkflowTimeEstimate {
+	if estimate == nil {
+		return nil
+	}
+	return &db.WorkflowTimeEstimate{
+		P50Seconds: estimate.P50Seconds * multiplier,
+		P90Seconds: estimate.P90Seconds * multiplier,
+		SampleSize: estimate.SampleSize,
+	}
+}
+
+func addWorkflowEstimates(left, right *db.WorkflowTimeEstimate) *db.WorkflowTimeEstimate {
+	if left == nil {
+		return scaleWorkflowEstimate(right, 1)
+	}
+	if right == nil {
+		return scaleWorkflowEstimate(left, 1)
+	}
+	return &db.WorkflowTimeEstimate{
+		P50Seconds: left.P50Seconds + right.P50Seconds,
+		P90Seconds: left.P90Seconds + right.P90Seconds,
+		SampleSize: min(left.SampleSize, right.SampleSize),
+	}
+}
+
+func estimateWorkflowCost(request *workflowrun.Request) int {
+	if request == nil {
+		return 1
+	}
+	cost := len(request.Nodes)
+	for _, scenario := range request.Scenarios {
+		cost += 1 + len(scenario.Tests)
+	}
+	if cost < 1 {
+		return 1
+	}
+	return cost
 }
 
 func (s *WorkflowService) executeJob(parent context.Context, owner string, job *db.WorkflowJob) {
@@ -279,7 +355,10 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 				return
 			}
 			s.emitLog(ctx, &request, fmt.Sprintf("Running scenario %q", scenario.Name), "running", &scenario, nil)
-			result := s.handler.runWorkflowBundleScenarioForRun(ctx, bundle, bundle.Scenarios[index], &dto.ExecutionContextDTO{
+			scenarioCtx := withWorkflowProgressReporter(ctx, func(stage, message string) {
+				s.emitActivity(ctx, &request, scenario, stage, message)
+			})
+			result := s.handler.runWorkflowBundleScenarioForRun(scenarioCtx, bundle, bundle.Scenarios[index], &dto.ExecutionContextDTO{
 				SessionID: scenario.ScenarioRunID, ProjectID: firstNonEmpty(scenario.ProjectID, request.ProjectID),
 				UserID: firstNonEmpty(scenario.UserID, request.UserID, "demo-user"), ClientID: firstNonEmpty(scenario.ClientID, request.ClientID),
 				WorkflowID: request.WorkflowID, WorkflowRunID: request.WorkflowRunID,
@@ -309,6 +388,12 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 	}
 	wg.Wait()
 	if ctx.Err() != nil {
+		if errors.Is(context.Cause(ctx), db.ErrWorkflowCancellationRequested) {
+			if err := s.store.CancelWorkflowJob(context.WithoutCancel(ctx), job.ID, owner, time.Now().UTC()); err != nil {
+				logger.Error("failed to finalize cancelled workflow job", "workflow_run_id", job.WorkflowRunID, "error", err)
+			}
+			return
+		}
 		if err := s.store.ReleaseWorkflowJob(context.WithoutCancel(ctx), job.ID, owner, time.Now().UTC()); err != nil {
 			logger.Error("failed to release interrupted workflow job", "workflow_run_id", job.WorkflowRunID, "error", err)
 		}
@@ -358,7 +443,7 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 
 func (s *WorkflowService) completedScenario(ctx context.Context, scenario workflowrun.Scenario) (dto.WorkflowBundleScenarioResponse, bool) {
 	persisted, err := s.db.GetSession(ctx, scenario.ScenarioRunID)
-	if err != nil || (persisted.Status != "completed" && persisted.Status != "failed") {
+	if err != nil || !isTerminalScenarioCheckpoint(persisted) {
 		return dto.WorkflowBundleScenarioResponse{}, false
 	}
 	response := dto.WorkflowBundleScenarioResponse{
@@ -392,6 +477,14 @@ func (s *WorkflowService) completedScenario(ctx context.Context, scenario workfl
 	return response, true
 }
 
+func isTerminalScenarioCheckpoint(persisted *db.Session) bool {
+	if persisted == nil {
+		return false
+	}
+	return (persisted.Status == "completed" && persisted.Phase == sessionPhaseCompleted) ||
+		(persisted.Status == "failed" && persisted.Phase == sessionPhaseFailed)
+}
+
 func (s *WorkflowService) heartbeat(ctx context.Context, owner, jobID string, cancel context.CancelCauseFunc) {
 	ticker := time.NewTicker(time.Duration(s.config.HeartbeatSeconds) * time.Second)
 	defer ticker.Stop()
@@ -401,6 +494,11 @@ func (s *WorkflowService) heartbeat(ctx context.Context, owner, jobID string, ca
 			return
 		case now := <-ticker.C:
 			if err := s.store.HeartbeatWorkflowJob(ctx, jobID, owner, now.UTC(), time.Duration(s.config.LeaseSeconds)*time.Second); err != nil {
+				if errors.Is(err, db.ErrWorkflowCancellationRequested) {
+					logger.InfoContext(ctx, "workflow cancellation observed", "job_id", jobID)
+					cancel(db.ErrWorkflowCancellationRequested)
+					return
+				}
 				logger.ErrorContext(ctx, "workflow lease heartbeat failed; cancelling execution", "job_id", jobID, "error", err)
 				cancel(fmt.Errorf("workflow lease heartbeat failed: %w", err))
 				return
@@ -519,6 +617,7 @@ func (s *WorkflowService) updateScenario(ctx context.Context, scenario workflowr
 }
 
 func (s *WorkflowService) emitLog(ctx context.Context, request *workflowrun.Request, message, status string, scenario *workflowrun.Scenario, result any) {
+	message = boundedWorkflowLogMessage(message)
 	now := time.Now().UTC()
 	payload := map[string]any{"workflowRunId": request.WorkflowRunID, "projectId": request.ProjectID, "workflowId": request.WorkflowID, "message": message, "status": status, "timestamp": now.UnixMilli(), "sequence": now.UnixNano()}
 	scenarioRunID := ""
@@ -541,6 +640,33 @@ func (s *WorkflowService) emitLog(ctx context.Context, request *workflowrun.Requ
 	if _, err := s.store.AppendWorkflowLogEvent(ctx, &db.WorkflowRunEvent{WorkflowRunID: request.WorkflowRunID, EventType: "workflowlog", Payload: string(encoded), CreatedAt: now}, message, scenarioRunID); err != nil {
 		logger.ErrorContext(ctx, "failed to persist workflow log event", "workflow_run_id", request.WorkflowRunID, "error", err)
 	}
+}
+
+func (s *WorkflowService) emitActivity(ctx context.Context, request *workflowrun.Request, scenario workflowrun.Scenario, stage, message string) {
+	message = boundedWorkflowLogMessage(message)
+	now := time.Now().UTC()
+	payload := map[string]any{
+		"workflowRunId": request.WorkflowRunID, "projectId": request.ProjectID,
+		"workflowId": request.WorkflowID, "scenarioId": scenario.ID,
+		"scenarioName": scenario.Name, "message": message, "status": "running",
+		"stage": stage, "timestamp": now.UnixMilli(), "sequence": now.UnixNano(),
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		logger.ErrorContext(ctx, "failed to encode workflow activity event", "error", err)
+		return
+	}
+	if _, err := s.store.AppendWorkflowLogEvent(ctx, &db.WorkflowRunEvent{WorkflowRunID: request.WorkflowRunID, EventType: "workflowlog", Payload: string(encoded), CreatedAt: now}, message, scenario.ScenarioRunID); err != nil {
+		logger.ErrorContext(ctx, "failed to persist workflow activity event", "workflow_run_id", request.WorkflowRunID, "error", err)
+	}
+}
+
+func boundedWorkflowLogMessage(message string) string {
+	const maxWorkflowLogBytes = 16 << 10
+	if len(message) <= maxWorkflowLogBytes {
+		return message
+	}
+	return strings.ToValidUTF8(message[:maxWorkflowLogBytes], "�") + "… [truncated]"
 }
 
 func (s *WorkflowService) emitTestResults(ctx context.Context, request *workflowrun.Request, scenario workflowrun.Scenario, response dto.WorkflowBundleScenarioResponse) {

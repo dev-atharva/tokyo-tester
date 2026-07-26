@@ -12,10 +12,9 @@ export class GuidedWorkflowPage {
     const emptyState = this.page.getByText("No workflows yet", { exact: true });
     const workflowCard = this.page.getByTestId("workflow-card").first();
     await emptyState.or(workflowCard).waitFor({ state: "visible" });
-    const createAction = await emptyState.isVisible()
-      ? this.page.getByRole("button", { name: "Create Workflow", exact: true })
-      : this.page.getByRole("button", { name: "New Workflow", exact: true });
-    await createAction.click();
+    await this.page
+      .getByRole("button", { name: "New Workflow", exact: true })
+      .click();
     await expect(this.page).toHaveURL(/\/workflow\/[^/]+$/);
     await expect(this.page.getByText("Guided", { exact: true })).toBeVisible();
 

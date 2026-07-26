@@ -2,7 +2,7 @@
 
 import { ReactFlowProvider } from "@xyflow/react";
 import type React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "@xyflow/react/dist/style.css";
 import { toast } from "sonner";
 import { useProjectContext } from "@/modules/projects/project-context";
@@ -16,6 +16,7 @@ import { useRealtimeLogs } from "../../hooks/useRealtimeLogs";
 import { useWorkflowExecution } from "../../hooks/useWorkflowExecution";
 import { useWorkflowGraph } from "../../hooks/useWorkflowGraph";
 import { shouldPollExecutionFallback } from "../../lib/realtime-events";
+import { cancelWorkflowRun } from "../../lib/runner-client";
 import { createDefaultServiceNode } from "../../lib/workflow-defaults";
 import { useExecutionStore } from "../../stores/execution.store.sync";
 import { useScenarioStore } from "../../stores/scenario.store.sync";
@@ -59,12 +60,34 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   const activeWorkflowRunId = useExecutionStore((s) => s.activeWorkflowRunId);
   const executions = useExecutionStore((s) => s.executions);
   const scenariosMap = useScenarioStore((s) => s.scenarios);
+  const updateExecutionStatus = useExecutionStore(
+    (s) => s.updateExecutionStatus,
+  );
   const hydrated = useWorkflowStore((s) => s.hydrated);
   const activeExecution = useMemo(
     () =>
       activeWorkflowRunId ? (executions[activeWorkflowRunId] ?? null) : null,
     [activeWorkflowRunId, executions],
   );
+  const cancelActiveExecution = useCallback(async () => {
+    if (!activeExecution) return;
+    try {
+      const result = await cancelWorkflowRun(
+        activeExecution.workflowRunId,
+        activeExecution.projectId,
+      );
+      updateExecutionStatus(activeExecution.workflowRunId, result.status);
+      toast.info(
+        result.status === "cancelled"
+          ? "Workflow cancelled"
+          : "Cancellation requested; cleaning up resources",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to cancel workflow",
+      );
+    }
+  }, [activeExecution, updateExecutionStatus]);
   // UI State
   const {
     isDrawerOpen,
@@ -177,7 +200,10 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   );
 
   // Realtime logs
-  const { isConnected: isRunnerRealtimeConnected } = useRealtimeLogs({
+  const {
+    isConnected: isRunnerRealtimeConnected,
+    lastActivityAt: runnerLastActivityAt,
+  } = useRealtimeLogs({
     onComplete: onWorkComplete,
     onError,
   });
@@ -543,6 +569,9 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           open={isLogsOpen}
           onOpenChange={closeLogs}
           execution={activeExecution}
+          realtimeConnected={isRunnerRealtimeConnected}
+          lastActivityAt={runnerLastActivityAt}
+          onCancel={cancelActiveExecution}
         />
 
         <ShortcutsDialog

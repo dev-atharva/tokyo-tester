@@ -22,6 +22,37 @@ fail() {
 public_url=${TOKYO_TESTER_PUBLIC_URL}
 curl --fail --silent --show-error --max-time 10 "${public_url%/}/api/health" >/dev/null || fail "public UI readiness check failed"
 
+mcp_url=${MCP_PUBLIC_URL:-${public_url%/}/mcp}
+mcp_token=${MCP_PROD_VERIFY_TOKEN:-}
+mcp_token_id=""
+mcp_config_file=$(mktemp)
+cleanup_mcp_verification() {
+  rm -f "$mcp_config_file"
+  if [ -n "$mcp_token_id" ]; then
+    printf 'DELETE FROM `tokyo_ui`.`agent_token` WHERE `id` = "%s";\n' "$mcp_token_id" |
+      "${compose[@]}" exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --user=root' >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_mcp_verification EXIT
+
+if [ "${MCP_AUTH_MODE:-personal_token}" = "oauth" ]; then
+  : "${MCP_PROD_VERIFY_TOKEN:?MCP_PROD_VERIFY_TOKEN must contain an OAuth access token for production verification}"
+  : "${MCP_VERIFY_PROJECT_ID:?MCP_VERIFY_PROJECT_ID must identify the token audience project}"
+  mcp_url="${mcp_url%/}/projects/${MCP_VERIFY_PROJECT_ID}"
+else
+  mcp_token="tt_pat_$(openssl rand -hex 32)"
+  mcp_token_hash=$(printf '%s' "$mcp_token" | openssl dgst -sha256 -r | awk '{print $1}')
+  mcp_token_id="prod-verify-$(openssl rand -hex 12)"
+  inserted=$(printf 'INSERT INTO `tokyo_ui`.`agent_token` (`id`,`name`,`tokenHash`,`userId`,`projectId`,`scopes`,`expiresAt`,`createdAt`) SELECT "%s","Production verification","%s",pm.`userId`,pm.`projectId`,"[\\"read\\"]",DATE_ADD(NOW(), INTERVAL 10 MINUTE),NOW() FROM `tokyo_ui`.`project_member` pm JOIN `tokyo_ui`.`user` u ON u.`id`=pm.`userId` WHERE u.`isActive`=1 ORDER BY FIELD(pm.`role`,"owner","editor","runner") LIMIT 1; SELECT ROW_COUNT();\n' "$mcp_token_id" "$mcp_token_hash" |
+    "${compose[@]}" exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --batch --skip-column-names --user=root' | tail -n 1)
+  [ "$inserted" = "1" ] || fail "no active project member is available for authenticated MCP verification"
+fi
+
+chmod 600 "$mcp_config_file"
+printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\nheader = "MCP-Protocol-Version: 2025-11-25"\n' "$mcp_token" >"$mcp_config_file"
+mcp_response=$(curl --fail --silent --show-error --max-time 15 --config "$mcp_config_file" --request POST --data '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"tokyo_list_projects","arguments":{}}}' "$mcp_url")
+printf '%s' "$mcp_response" | grep -Eq '"isError"[[:space:]]*:[[:space:]]*false' || fail "authenticated MCP read check failed"
+
 smoke_response=$("${compose[@]}" exec -T runner sh -c 'payload=/tmp/tokyo-prod-smoke.json; trap '\''rm -f "$payload"'\'' EXIT; cat >"$payload"; wget -qO- --header="Content-Type: application/json" --post-file="$payload" http://localhost:8080/workflow-bundles/run' < scripts/prod-smoke.json)
 printf '%s' "$smoke_response" | grep -Eq '"success"[[:space:]]*:[[:space:]]*true' || fail "minimal Docker workflow failed"
 
@@ -30,4 +61,4 @@ managed_networks=$(docker network ls -q --filter label=cots.managed=true | wc -l
 [ "$managed_containers" = "0" ] || fail "$managed_containers managed containers leaked after smoke verification"
 [ "$managed_networks" = "0" ] || fail "$managed_networks managed networks leaked after smoke verification"
 
-printf 'prod-verify: Compose, public/private health, Docker workflow execution, and cleanup passed.\n'
+printf 'prod-verify: Compose, public/private health, authenticated MCP, Docker workflow execution, and cleanup passed.\n'

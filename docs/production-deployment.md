@@ -53,11 +53,36 @@ CORS_ORIGIN=https://tokyo.example.com
 
 WORKFLOW_WORKER_ENABLED=true
 WORKFLOW_JOB_ENCRYPTION_KEY=<openssl-rand-base64-value>
+
+# Start conservatively and increase only after a load test on this host.
+WORKFLOW_WORKER_CONCURRENCY=2
+WORKFLOW_SCENARIO_CONCURRENCY=1
+WORKFLOW_MAX_QUEUED_GLOBAL=100
+WORKFLOW_MAX_QUEUED_PER_USER=3
+WORKFLOW_MAX_QUEUED_PER_PROJECT=10
+WORKFLOW_SUBMISSIONS_PER_MINUTE_USER=10
+WORKFLOW_SUBMISSIONS_PER_MINUTE_PROJECT=60
+WORKFLOW_MAX_RUNNING_PER_USER=1
+WORKFLOW_MAX_RUNNING_PER_PROJECT=2
+
+# Hard limits applied to every workflow-created container.
+WORKFLOW_CONTAINER_MEMORY_MB=1024
+WORKFLOW_CONTAINER_CPU_MILLI=1000
+WORKFLOW_CONTAINER_PIDS=256
+
+# Zero means no fixed test-execution deadline; cancellation remains available.
+TEST_RUN_TIMEOUT_SEC=0
 ```
 
 Keep the MySQL passwords, `AUTH_SECRET`, and `WORKFLOW_JOB_ENCRYPTION_KEY` in a protected password manager or secret store in addition to `.env`. Losing the workflow encryption key can make queued execution payloads unreadable. Changing these values is an intentional rotation procedure, not a routine deployment step.
 
 The default deployment uses one persistent `mysql_data` volume with separate `tokyo_runner` and `tokyo_ui` schemas. MySQL is the supported app database for the durable workflow worker and the default for the UI. Workflow MySQL service nodes are separate from this app database setting.
+
+Workflow submissions are admitted transactionally. Duplicate submissions with the same run ID remain idempotent, while durable per-user and per-project rate limits and queue limits return `429` with `Retry-After`; the global queue cap returns `503`. Pending work is scheduled FIFO within priority while reserving running capacity across users and projects. The UI displays approximate queue position and historical p50/p90 duration ranges once enough completed-run history exists. Workflow and scenario leases are renewed independently of the browser connection, so closing the page does not stop a run.
+
+Every workflow-created container receives runner-owned CPU, memory, swap, and PID cgroup limits. Workflow payloads cannot override them. Tune the defaults only after observing real service requirements and host headroom; the aggregate worst case is the per-container limit multiplied by the maximum services across every concurrently running scenario.
+
+Workflow progress is stored in an append-only event journal. Workflow and scenario rows retain only a bounded recent tail; older logs remain available through cursor pagination in the execution drawer. Cancellation is durable: pending jobs stop immediately, while running jobs transition through cleanup before becoming `cancelled`.
 
 For MySQL, the UI expects a normal MySQL URL such as `mysql://user:pass@host:3306/tokyo_ui`. The runner accepts either that URL shape or the Go MySQL DSN shape such as `user:pass@tcp(host:3306)/tokyo_runner`; it enables `parseTime=true` and `multiStatements=true` automatically.
 
@@ -119,16 +144,20 @@ Use a TLS-enabled registry with a certificate trusted by the Docker host. Config
 
 ## 5. Connect production coding agents
 
-From the in-app **Docs** page, select the Personal or Team workspace and generate a project-scoped token. The token is shown only once.
+Open **Docs → Agent setup** and select the Personal or Team workspace. The page shows the correct Streamable HTTP URL and provides the packaged `tokyo-tester` skill.
 
-Configure the coding agent with:
+For an internet-facing deployment, use `MCP_AUTH_MODE=oauth`. Configure the issuer, RFC 7662 introspection endpoint, and confidential client credentials from `.env.example`. The authorization server must:
 
-- Streamable HTTP URL: `https://tokyo.example.com/mcp`
-- Header: `Authorization: Bearer <tt_pat_token>`
+- expose its standard OAuth authorization-server metadata;
+- use TLS and issue an access token containing `sub`, `email`, scopes, and an audience;
+- issue the exact per-project MCP URL as the token audience, such as `https://tokyo.example.com/mcp/projects/<project-id>`;
+- support the `read`, `workflow:write`, and `run` scopes.
 
-Effective scopes are checked against current workspace membership on every request, so a role downgrade immediately removes disallowed operations. Revoke a token with `DELETE /api/v1/agent/tokens/<token-id>` from its owning authenticated account.
+Tokyo Tester exposes RFC 9728 protected-resource metadata at `/.well-known/oauth-protected-resource/mcp/projects/<project-id>`. The MCP server introspects the access token and replaces it with a signed, 60-second internal assertion before calling UI APIs. The client token is never forwarded.
 
-Personal tokens are the current private-beta authentication path. Use this deployment with trusted users. OAuth 2.1 protected-resource discovery remains required before presenting the MCP endpoint as a broadly public integration.
+For a controlled self-hosted deployment with trusted users, `MCP_AUTH_MODE=personal_token` remains supported. Generate the project token in Agent setup, store the one-time value in the MCP client's secret storage, and revoke it from the same page when it is no longer needed. Effective scopes are checked against current workspace membership on every request.
+
+Run `make prod-verify` after setup. Personal-token mode creates and removes a 10-minute verification credential automatically. OAuth mode requires `MCP_PROD_VERIFY_TOKEN` and `MCP_VERIFY_PROJECT_ID` for an audience-bound read check.
 
 ## 6. Back up MySQL
 
@@ -176,6 +205,15 @@ The MySQL transition does not delete legacy database volumes. If an existing dep
 4. Run `make check` in CI or on a suitable build machine against the exact commit.
 5. Check out the target release and run `make prod`.
 6. Run `make prod-verify` and inspect migration/health logs before restoring normal concurrency.
+
+Before promoting a beta release, run the renewable-lease soak gate and the repeated Docker cleanup journey on the candidate host:
+
+```bash
+TOKYO_SOAK_DURATION=24h make test-soak
+make e2e-docker-leak
+```
+
+The soak test fails if a long-running session ever loses its renewable lease. The repeated journey fails on workflow errors or leaked managed containers and networks.
 
 ```bash
 git rev-parse HEAD

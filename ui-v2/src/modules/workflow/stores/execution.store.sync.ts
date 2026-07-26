@@ -7,7 +7,8 @@ import {
   syncMiddleware,
   trackSync,
 } from "@/modules/sync/sync-middleware";
-import { isNewerEventId } from "../lib/realtime-events";
+import { isNewerEventId, isWorkflowRunActive } from "../lib/realtime-events";
+import type { WorkflowTimeEstimate } from "../lib/runner-client";
 import type { WorkflowRunStatus } from "../types/react-flow-cots";
 
 const indexedDBStorage = {
@@ -35,6 +36,12 @@ export interface WorkflowExecution {
   finishedAt?: number;
   scenarioRunIds: string[];
   lastEventId?: string;
+  queuePosition?: number;
+  queuedAt?: string;
+  workerConcurrency?: number;
+  estimatedRun?: WorkflowTimeEstimate;
+  estimatedWait?: WorkflowTimeEstimate;
+  estimatedTotal?: WorkflowTimeEstimate;
 
   version: number;
   created_at: string;
@@ -64,6 +71,17 @@ interface ExecutionStore {
     error?: string,
   ) => void;
   updateReplayCursor: (workflowRunId: string, eventId: string) => void;
+  updateQueueInfo: (
+    workflowRunId: string,
+    queue?: {
+      position?: number;
+      queuedAt?: string;
+      workerConcurrency?: number;
+      estimatedRun?: WorkflowTimeEstimate;
+      estimatedWait?: WorkflowTimeEstimate;
+      estimatedTotal?: WorkflowTimeEstimate;
+    },
+  ) => void;
   getExecution: (workflowRunId: string) => WorkflowExecution | null;
   getActiveExecution: () => WorkflowExecution | null;
   getWorkflowExecutions: (workflowId: string) => WorkflowExecution[];
@@ -119,7 +137,7 @@ export const useExecutionStore = create<ExecutionStore>()(
                 ...state.executions,
                 [workflowRunId]: addSyncMetadata({
                   ...execution,
-                  logs: [...execution.logs, message],
+                  logs: [...execution.logs, message].slice(-500),
                   version: execution.version + 1,
                 }),
               },
@@ -170,8 +188,9 @@ export const useExecutionStore = create<ExecutionStore>()(
                   status,
                   result: result ?? execution.result,
                   error: error ?? execution.error,
-                  finishedAt:
-                    status === "running" ? execution.finishedAt : Date.now(),
+                  finishedAt: isWorkflowRunActive(status)
+                    ? execution.finishedAt
+                    : Date.now(),
                   version: execution.version + 1,
                 }),
               },
@@ -190,6 +209,28 @@ export const useExecutionStore = create<ExecutionStore>()(
               executions: {
                 ...state.executions,
                 [workflowRunId]: { ...execution, lastEventId: eventId },
+              },
+            };
+          });
+        },
+
+        updateQueueInfo: (workflowRunId, queue) => {
+          if (!queue) return;
+          set((state) => {
+            const execution = state.executions[workflowRunId];
+            if (!execution) return state;
+            return {
+              executions: {
+                ...state.executions,
+                [workflowRunId]: {
+                  ...execution,
+                  queuePosition: queue.position,
+                  queuedAt: queue.queuedAt,
+                  workerConcurrency: queue.workerConcurrency,
+                  estimatedRun: queue.estimatedRun,
+                  estimatedWait: queue.estimatedWait,
+                  estimatedTotal: queue.estimatedTotal,
+                },
               },
             };
           });
@@ -240,6 +281,17 @@ export const useExecutionStore = create<ExecutionStore>()(
                 ...execution,
                 lastEventId:
                   state.executions[execution.workflowRunId]?.lastEventId,
+                queuePosition:
+                  state.executions[execution.workflowRunId]?.queuePosition,
+                queuedAt: state.executions[execution.workflowRunId]?.queuedAt,
+                workerConcurrency:
+                  state.executions[execution.workflowRunId]?.workerConcurrency,
+                estimatedRun:
+                  state.executions[execution.workflowRunId]?.estimatedRun,
+                estimatedWait:
+                  state.executions[execution.workflowRunId]?.estimatedWait,
+                estimatedTotal:
+                  state.executions[execution.workflowRunId]?.estimatedTotal,
               },
             },
           }));

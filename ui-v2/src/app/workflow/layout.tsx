@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { Toaster } from "@/components/ui/sonner";
 import { isSetupComplete } from "@/modules/auth/server/service";
 
 export const dynamic = "force-dynamic";
@@ -23,10 +22,5 @@ export default async function WorkflowLayout({
     redirect("/login?redirectTo=/workflow");
   }
 
-  return (
-    <>
-      {children}
-      <Toaster />
-    </>
-  );
+  return children;
 }

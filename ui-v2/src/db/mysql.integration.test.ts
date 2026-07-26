@@ -6,6 +6,8 @@ import mysql from "mysql2/promise";
 import {
   authenticateAgentRequest,
   createAgentToken,
+  listAgentTokens,
+  revokeAgentToken,
 } from "@/modules/agent/server/auth";
 import {
   countUsers,
@@ -125,5 +127,18 @@ describe("mysql database integration", { skip: !mysqlTestUrl }, () => {
     );
     assert.equal(identity?.userId, admin.id);
     assert.equal(identity?.projectId, project.id);
+    const listed = await listAgentTokens(admin.id);
+    assert.equal(listed[0]?.id, token.id);
+    assert.ok(listed[0]?.lastUsedAt);
+
+    await revokeAgentToken(admin.id, token.id);
+    const revokedIdentity = await authenticateAgentRequest(
+      new Request("http://localhost", {
+        headers: { authorization: `Bearer ${token.token}` },
+      }) as never,
+      "read",
+    );
+    assert.equal(revokedIdentity, null);
+    assert.ok((await listAgentTokens(admin.id))[0]?.revokedAt);
   });
 });

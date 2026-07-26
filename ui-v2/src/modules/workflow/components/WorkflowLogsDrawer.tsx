@@ -7,8 +7,10 @@ import {
   IconLoader,
   IconTerminal,
 } from "@tabler/icons-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Drawer,
   DrawerContent,
@@ -16,14 +18,18 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { fetchWorkflowRunLogs } from "../lib/runner-client";
+import type { WorkflowExecution } from "../stores/execution.store.sync";
 import { useScenarioRunStore } from "../stores/scenario-run.store.sync";
 import { useTestResultStore } from "../stores/test-result.store";
-import type { WorkflowExecution } from "../stores/execution.store.sync";
 
 interface WorkflowLogsDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   execution: WorkflowExecution | null;
+  realtimeConnected?: boolean;
+  lastActivityAt?: number | null;
+  onCancel?: () => Promise<void>;
 }
 
 function getBackendError(resultData: unknown): string | null {
@@ -76,6 +82,17 @@ function deriveScenarioStatus(statuses: string[], fallback?: string): string {
   return "running";
 }
 
+function formatEstimateSeconds(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.ceil(seconds / 60)}m`;
+  const hours = seconds / 3600;
+  return hours < 10 ? `${hours.toFixed(1)}h` : `${Math.ceil(hours)}h`;
+}
+
+function formatEstimateRange(p50Seconds: number, p90Seconds: number): string {
+  return `${formatEstimateSeconds(p50Seconds)}–${formatEstimateSeconds(p90Seconds)}`;
+}
+
 function statusBadge(status: string) {
   const safeStatus = status || "unknown";
 
@@ -99,12 +116,19 @@ function statusBadge(status: string) {
       );
     case "pending":
     case "running":
+    case "cancelling":
       return (
         <Badge className="bg-blue-500 hover:bg-blue-500 text-white font-medium shadow-sm">
           <IconLoader className="mr-1.5 size-3.5 animate-spin" />
-          {safeStatus === "pending" ? "Pending" : "Running"}
+          {safeStatus === "pending"
+            ? "Pending"
+            : safeStatus === "cancelling"
+              ? "Cancelling"
+              : "Running"}
         </Badge>
       );
+    case "cancelled":
+      return <Badge variant="outline">Cancelled</Badge>;
     default:
       return (
         <Badge variant="outline" className="font-medium">
@@ -118,9 +142,32 @@ export function WorkflowLogsDrawer({
   open,
   onOpenChange,
   execution,
+  realtimeConnected = false,
+  lastActivityAt,
+  onCancel,
 }: WorkflowLogsDrawerProps) {
   const scenarioRunsMap = useScenarioRunStore((state) => state.scenarioRuns);
   const allResults = useTestResultStore((state) => state.testResults);
+  const [now, setNow] = useState(() => Date.now());
+  const isActive =
+    execution?.status === "pending" ||
+    execution?.status === "running" ||
+    execution?.status === "cancelling";
+  const [cancelPending, setCancelPending] = useState(false);
+  const [storedHistory, setStoredHistory] = useState<
+    Array<{ id: number; message: string }>
+  >([]);
+  const [historyRunId, setHistoryRunId] = useState<string | null>(null);
+  const [historyBefore, setHistoryBefore] = useState<number | undefined>();
+  const [historyHasMore, setHistoryHasMore] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open || !isActive) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [isActive, open]);
 
   const scenarioRuns = useMemo(() => {
     if (!execution) {
@@ -159,9 +206,50 @@ export function WorkflowLogsDrawer({
     return null;
   }
 
+  const visibleStoredHistory =
+    historyRunId === execution.workflowRunId ? storedHistory : [];
+  const visibleHistoryHasMore =
+    historyRunId === execution.workflowRunId ? historyHasMore : true;
+  const displayedLogs =
+    visibleStoredHistory.length > 0
+      ? [...visibleStoredHistory].reverse().map((entry) => entry.message)
+      : execution.logs;
+
+  const loadStoredHistory = async () => {
+    const sameRun = historyRunId === execution.workflowRunId;
+    setHistoryLoading(true);
+    try {
+      const page = await fetchWorkflowRunLogs(
+        execution.workflowRunId,
+        execution.projectId,
+        sameRun ? historyBefore : undefined,
+      );
+      const parsed = page.events.map((event) => {
+        try {
+          const payload = JSON.parse(event.payload) as { message?: string };
+          return { id: event.id, message: payload.message || event.payload };
+        } catch {
+          return { id: event.id, message: event.payload };
+        }
+      });
+      setHistoryRunId(execution.workflowRunId);
+      setStoredHistory((current) =>
+        sameRun ? [...current, ...parsed] : parsed,
+      );
+      setHistoryBefore(page.nextBefore);
+      setHistoryHasMore(page.hasMore);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to load stored logs",
+      );
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   const duration = execution.finishedAt
     ? execution.finishedAt - execution.startedAt
-    : Date.now() - execution.startedAt;
+    : now - execution.startedAt;
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -186,8 +274,90 @@ export function WorkflowLogsDrawer({
                   {Math.max(0, Math.floor(duration / 1000))}s
                 </span>
                 <span className="text-xs">elapsed</span>
+                <span className="text-border">•</span>
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium">
+                  <span
+                    className={`size-2 rounded-full ${
+                      !isActive
+                        ? "bg-muted-foreground"
+                        : realtimeConnected
+                          ? "bg-emerald-500 animate-pulse"
+                          : "bg-amber-500"
+                    }`}
+                  />
+                  {!isActive
+                    ? "Finished"
+                    : realtimeConnected
+                      ? "Live"
+                      : "Reconnecting"}
+                </span>
+                {isActive && lastActivityAt ? (
+                  <span className="text-xs">
+                    activity{" "}
+                    {Math.max(0, Math.floor((now - lastActivityAt) / 1000))}s
+                    ago
+                  </span>
+                ) : null}
               </div>
+              {execution.status === "pending" ? (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span>
+                    Accepted and waiting for runner capacity
+                    {execution.queuePosition
+                      ? ` · approximately #${execution.queuePosition} in queue`
+                      : ""}
+                  </span>
+                  {execution.workerConcurrency ? (
+                    <Badge variant="outline" className="font-mono text-[10px]">
+                      {execution.workerConcurrency} worker slots
+                    </Badge>
+                  ) : null}
+                  {execution.estimatedTotal ? (
+                    <Badge
+                      variant="secondary"
+                      className="font-mono text-[10px]"
+                      title={`Based on ${execution.estimatedTotal.sampleSize} completed runs`}
+                    >
+                      estimated{" "}
+                      {formatEstimateRange(
+                        execution.estimatedTotal.p50Seconds,
+                        execution.estimatedTotal.p90Seconds,
+                      )}
+                    </Badge>
+                  ) : null}
+                </div>
+              ) : null}
+              {execution.status === "running" && execution.estimatedRun ? (
+                <div className="text-xs text-muted-foreground">
+                  Typical total duration:{" "}
+                  {formatEstimateRange(
+                    execution.estimatedRun.p50Seconds,
+                    execution.estimatedRun.p90Seconds,
+                  )}{" "}
+                  from {execution.estimatedRun.sampleSize} completed runs
+                </div>
+              ) : null}
             </div>
+            {isActive && onCancel ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={cancelPending || execution.status === "cancelling"}
+                onClick={async () => {
+                  setCancelPending(true);
+                  try {
+                    await onCancel();
+                  } finally {
+                    setCancelPending(false);
+                  }
+                }}
+              >
+                {cancelPending || execution.status === "cancelling"
+                  ? "Cancelling…"
+                  : "Cancel run"}
+              </Button>
+            ) : null}
           </div>
         </DrawerHeader>
 
@@ -198,15 +368,26 @@ export function WorkflowLogsDrawer({
                 Workflow Logs
               </h3>
               <div className="rounded-lg border border-border/60 bg-muted/30 shadow-sm">
-                {execution.logs.length === 0 ? (
+                {displayedLogs.length === 0 ? (
                   <div className="flex items-center justify-center py-8">
-                    <p className="text-sm text-muted-foreground italic">
-                      No logs yet.
-                    </p>
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                      {isActive ? (
+                        <IconLoader className="size-4 animate-spin" />
+                      ) : (
+                        <IconTerminal className="size-4" />
+                      )}
+                      <span>
+                        {execution.status === "pending"
+                          ? "Request accepted. Waiting for an available runner…"
+                          : isActive
+                            ? "Runner is active. Detailed events will appear here…"
+                            : "No recent log entries. Browse stored history below."}
+                      </span>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-1 py-4 font-mono text-xs leading-relaxed max-h-48 overflow-y-auto">
-                    {execution.logs.map((log, index) => (
+                    {displayedLogs.map((log, index) => (
                       <div
                         key={`${execution.workflowRunId}-${index}-${log.slice(0, 12)}`}
                         className="text-foreground/80 hover:text-foreground hover:bg-muted/50 px-2 py-1 rounded transition-colors"
@@ -216,6 +397,25 @@ export function WorkflowLogsDrawer({
                     ))}
                   </div>
                 )}
+                {!isActive ? (
+                  <div className="border-t border-border/60 px-4 py-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={historyLoading || !visibleHistoryHasMore}
+                      onClick={loadStoredHistory}
+                    >
+                      {historyLoading
+                        ? "Loading stored logs…"
+                        : visibleStoredHistory.length === 0
+                          ? "Browse stored log history"
+                          : visibleHistoryHasMore
+                            ? "Load earlier logs"
+                            : "All stored logs loaded"}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
               {execution.error &&
                 renderErrorPanel("Workflow Error", execution.error)}
@@ -240,8 +440,6 @@ export function WorkflowLogsDrawer({
                       results.map((result) => result.status),
                       scenarioRun.status,
                     );
-                    const scenarioError = scenarioRun.error?.trim() || null;
-
                     return (
                       <div
                         key={scenarioRun.id}
@@ -259,7 +457,7 @@ export function WorkflowLogsDrawer({
                               <span className="font-medium">Session:</span>
                               <code className="px-1.5 py-0.5 rounded bg-muted/60 font-mono">
                                 {scenarioRun.backendSessionId
-                                  ? scenarioRun.backendSessionId.slice(0,8)
+                                  ? scenarioRun.backendSessionId.slice(0, 8)
                                   : "pending"}
                               </code>
                             </div>

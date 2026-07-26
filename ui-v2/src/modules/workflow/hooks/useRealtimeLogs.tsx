@@ -82,6 +82,7 @@ export function useRealtimeLogs({
     }>
   >([]);
   const [runnerConnected, setRunnerConnected] = useState(false);
+  const [lastActivityAt, setLastActivityAt] = useState<number | null>(null);
   const activeExecutionStatus = activeExecution?.status;
   const activeProjectId = activeExecution?.projectId;
   const updateReplayCursor = useExecutionStore(
@@ -97,6 +98,7 @@ export function useRealtimeLogs({
     processedEventIds.current.clear();
     setRunnerLogQueue([]);
     setRunnerResultQueue([]);
+    setLastActivityAt(null);
   }, [activeWorkflowRunId]);
 
   useEffect(() => {
@@ -104,7 +106,8 @@ export function useRealtimeLogs({
       !activeWorkflowRunId ||
       !activeProjectId ||
       (activeExecutionStatus !== "pending" &&
-        activeExecutionStatus !== "running")
+        activeExecutionStatus !== "running" &&
+        activeExecutionStatus !== "cancelling")
     ) {
       setRunnerConnected(false);
       return;
@@ -115,32 +118,49 @@ export function useRealtimeLogs({
     const source = new EventSource(
       buildWorkflowEventsUrl(activeWorkflowRunId, activeProjectId, cursor),
     );
-    source.onopen = () => setRunnerConnected(true);
+    source.onopen = () => {
+      setRunnerConnected(true);
+      setLastActivityAt(Date.now());
+    };
     source.onerror = () => setRunnerConnected(false);
+    source.addEventListener("heartbeat", (event) => {
+      try {
+        const heartbeat = JSON.parse(event.data) as { timestamp?: number };
+        setLastActivityAt(heartbeat.timestamp || Date.now());
+      } catch {
+        setLastActivityAt(Date.now());
+      }
+    });
     source.addEventListener("workflowlog", (event) => {
       try {
-        setRunnerLogQueue((queued) => [
-          ...queued,
-          {
-            topic: "workflowlog",
-            data: JSON.parse(event.data) as WorkflowLogEvent,
-            eventId: event.lastEventId,
-          },
-        ]);
+        setLastActivityAt(Date.now());
+        setRunnerLogQueue((queued) =>
+          [
+            ...queued,
+            {
+              topic: "workflowlog" as const,
+              data: JSON.parse(event.data) as WorkflowLogEvent,
+              eventId: event.lastEventId,
+            },
+          ].slice(-500),
+        );
       } catch (error) {
         console.error("Failed to parse runner workflow event", error);
       }
     });
     source.addEventListener("testresult", (event) => {
       try {
-        setRunnerResultQueue((queued) => [
-          ...queued,
-          {
-            topic: "testresult",
-            data: JSON.parse(event.data) as ScenarioTestResultEvent,
-            eventId: event.lastEventId,
-          },
-        ]);
+        setLastActivityAt(Date.now());
+        setRunnerResultQueue((queued) =>
+          [
+            ...queued,
+            {
+              topic: "testresult" as const,
+              data: JSON.parse(event.data) as ScenarioTestResultEvent,
+              eventId: event.lastEventId,
+            },
+          ].slice(-500),
+        );
       } catch (error) {
         console.error("Failed to parse runner test result event", error);
       }
@@ -260,6 +280,15 @@ export function useRealtimeLogs({
       updateExecutionStatus(workflowRunId, "running");
     }
 
+    if (workflowStatus === "cancelling") {
+      updateExecutionStatus(workflowRunId, "cancelling");
+    }
+
+    if (workflowStatus === "cancelled") {
+      updateExecutionStatus(workflowRunId, "cancelled", result, error);
+      reconcileWorkflowRunSnapshot(workflowRunId, projectId || activeProjectId);
+    }
+
     if (workflowStatus === "completed") {
       updateExecutionStatus(workflowRunId, "completed", result);
       reconcileWorkflowRunSnapshot(workflowRunId, projectId || activeProjectId);
@@ -357,5 +386,6 @@ export function useRealtimeLogs({
 
   return {
     isConnected: runnerConnected,
+    lastActivityAt,
   };
 }

@@ -33,6 +33,8 @@ services:
       DATABASE_URL: ${UI_DATABASE_URL:-mysql://tokyo:${MYSQL_PASSWORD:-tokyo-dev-password}@mysql:3306/tokyo_ui}
       AUTH_SECRET: ${AUTH_SECRET:-local-dev-auth-secret}
       AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
+      MCP_INTERNAL_SECRET: ${MCP_INTERNAL_SECRET:-local-dev-mcp-internal-secret-32-bytes}
+      MCP_AUTH_MODE: personal_token
     extra_hosts:
       - "host.docker.internal=host-gateway"
     ports:
@@ -45,8 +47,11 @@ services:
 
   mcp:
     ports:
-      - "8090:8090"
+      - "127.0.0.1:8090:8090"
     environment:
       PORT: 8090
       TOKYO_TESTER_APP_URL: http://ui:3000
-      MCP_ALLOWED_ORIGIN: ${MCP_ALLOWED_ORIGIN:-}
+      MCP_ALLOWED_ORIGIN: ${MCP_ALLOWED_ORIGIN:-http://localhost:3000}
+      MCP_PUBLIC_URL: http://localhost:8090/mcp
+      MCP_AUTH_MODE: personal_token
+      MCP_INTERNAL_SECRET: ${MCP_INTERNAL_SECRET:-local-dev-mcp-internal-secret-32-bytes}

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "next-themes";
 import { auth } from "@/auth";
+import { Toaster } from "@/components/ui/sonner";
 import { AppShell } from "@/modules/auth/components/app-shell";
 import { getUserById } from "@/modules/auth/server/service";
 import {
@@ -52,6 +53,7 @@ export default async function RootLayout({
           >
             {children}
           </AppShell>
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>

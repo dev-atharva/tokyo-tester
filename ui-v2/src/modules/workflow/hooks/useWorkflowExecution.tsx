@@ -75,6 +75,7 @@ export function useWorkflowExecution({
 
   const startExecution = useExecutionStore((state) => state.startExecution);
   const failExecution = useExecutionStore((state) => state.failExecution);
+  const updateQueueInfo = useExecutionStore((state) => state.updateQueueInfo);
   const activeWorkflowRunId = useExecutionStore(
     (state) => state.activeWorkflowRunId,
   );
@@ -290,7 +291,8 @@ export function useWorkflowExecution({
           },
         };
 
-        await submitWorkflowRun(data);
+        const submission = await submitWorkflowRun(data);
+        updateQueueInfo(workflowRunId, submission.queue);
 
         openLogsDrawer();
       } catch (error) {
@@ -317,6 +319,7 @@ export function useWorkflowExecution({
       normalizedSecrets,
       openLogsDrawer,
       failExecution,
+      updateQueueInfo,
     ],
   );
 

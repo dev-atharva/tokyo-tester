@@ -104,9 +104,10 @@ func (p *RabbitMQProvider) createContainerWithFallback(ctx context.Context, cfg 
 			tcprabbitmq.WithAdminPassword(password),
 			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 				ContainerRequest: testcontainers.ContainerRequest{
-					Name:     provider.ContainerName(ctx, cfg.Name),
-					Labels:   provider.ResourceLabels(ctx, provider.ResourceTypeContainer),
-					Networks: []string{network.Name},
+					Name:               provider.ContainerName(ctx, cfg.Name),
+					HostConfigModifier: provider.ResourceHostConfigModifier(cfg.Resources),
+					Labels:             provider.ResourceLabels(ctx, provider.ResourceTypeContainer),
+					Networks:           []string{network.Name},
 					NetworkAliases: map[string][]string{
 						network.Name: {cfg.Name},
 					},

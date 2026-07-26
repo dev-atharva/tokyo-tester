@@ -125,7 +125,9 @@ For local development, run `make dev`, then run `make agent-dev` in another term
 
 The production Compose stack exposes a remote MCP endpoint at `https://<TOKYO_TESTER_DOMAIN>/mcp`. The MCP process forwards project-scoped operations to the authenticated UI/API and never receives filesystem or Docker access.
 
-The current authentication path is an explicitly private-beta personal token. While signed in, create one with `POST /api/v1/agent/tokens`:
+For internet-facing deployments, set `MCP_AUTH_MODE=oauth` and configure an OAuth 2.1 authorization server that supports RFC 7662 token introspection. It must issue access tokens for the exact per-project resource URL shown in **Docs → Agent setup**. Tokyo Tester publishes protected-resource metadata and exchanges the external identity for a 60-second internal assertion; it never forwards the client access token to application APIs.
+
+Controlled self-hosted deployments can set `MCP_AUTH_MODE=personal_token`. While signed in, create a project token from **Docs → Agent setup** or with `POST /api/v1/agent/tokens`:
 
 ```json
 {
@@ -136,11 +138,11 @@ The current authentication path is an explicitly private-beta personal token. Wh
 }
 ```
 
-The raw `tt_pat_...` token is returned once. Configure the MCP client to send it as `Authorization: Bearer <token>`. Use the repository skill at [`.agents/skills/tokyo-tester`](./.agents/skills/tokyo-tester) to guide repository inspection, workflow authoring, validation, execution, and repair.
+The raw `tt_pat_...` token is returned once and stored only as a hash. Configure the MCP client to send it as `Authorization: Bearer <token>`. The Agent setup page lists last-use and expiry information and supports immediate revocation.
 
-Revoke a token with `DELETE /api/v1/agent/tokens/<token-id>` from an authenticated session.
+Download the packaged skill from the Agent setup page. The skill guides local repository inspection, workflow authoring, approval, validation, execution, and repair; it does not grant access or upload source files.
 
-Before opening MCP registration broadly, replace private-beta tokens with an OAuth 2.1 authorization server and MCP protected-resource discovery. The MCP adapter is intentionally isolated so that authentication transport can change without touching workflow execution.
+Revoke a token with `DELETE /api/v1/agent/tokens/<token-id>` from an authenticated session. Personal-token creation and direct personal-token API authentication are disabled when OAuth mode is active.
 
 ## Built With
 

@@ -8,14 +8,15 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestMCPListsTools(t *testing.T) {
-	server, _ := New("http://ui:3000", "")
-	request := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	server := newTestServer(t)
+	request := newMCPRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "tokyo_validate_workflow") || !strings.Contains(recorder.Body.String(), "tokyo_review_workflow_plan") {
@@ -24,15 +25,15 @@ func TestMCPListsTools(t *testing.T) {
 }
 
 func TestMCPListsAndReadsLeanAuthoringResources(t *testing.T) {
-	server, _ := New("http://ui:3000", "")
-	listRequest := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"resources/list"}`))
+	server := newTestServer(t)
+	listRequest := newMCPRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"resources/list"}`))
 	listRecorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(listRecorder, listRequest)
 	if listRecorder.Code != http.StatusOK || !strings.Contains(listRecorder.Body.String(), "tokyo://authoring") || !strings.Contains(listRecorder.Body.String(), "tokyo://quality-rubric") {
 		t.Fatalf("unexpected resources response: %d %s", listRecorder.Code, listRecorder.Body.String())
 	}
 
-	readRequest := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"tokyo://scenario-patterns"}}`))
+	readRequest := newMCPRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"tokyo://scenario-patterns"}}`))
 	readRecorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(readRecorder, readRequest)
 	body := readRecorder.Body.String()
@@ -42,9 +43,11 @@ func TestMCPListsAndReadsLeanAuthoringResources(t *testing.T) {
 }
 
 func TestMCPReviewWorkflowPlanWarnsWithoutBlocking(t *testing.T) {
-	server, _ := New("http://ui:3000", "")
+	server := newTestServer(t)
+	server.client.Transport = authenticatedTransport(t, nil)
 	requestBody := `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"tokyo_review_workflow_plan","arguments":{"repositories":[{"path":"./api"}],"serviceInventory":[{"name":"api","type":"generic","repository":"./api"},{"name":"worker","type":"generic"},{"name":"postgres","type":"postgres","repository":"./infra"}],"dependencyMap":[],"scenarioMatrix":[{"scenario":"smoke","servicesTouched":["api"]}],"evidenceNotes":[],"openQuestions":["Which topic does the worker consume?"]}}}`
-	request := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(requestBody))
+	request := newMCPRequest(http.MethodPost, "/mcp", bytes.NewBufferString(requestBody))
+	request.Header.Set("Authorization", "Bearer tt_pat_test")
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
@@ -93,17 +96,46 @@ func TestMCPToolAnnotationsAndSchemaDescriptions(t *testing.T) {
 	if properties["repositories"].(map[string]any)["description"] == "" {
 		t.Fatal("review schema is missing field descriptions")
 	}
+	validate := byName["tokyo_validate_workflow"]["inputSchema"].(map[string]any)
+	bundle := validate["properties"].(map[string]any)["bundle"].(map[string]any)
+	scenarios := bundle["properties"].(map[string]any)["scenarios"].(map[string]any)
+	testSchema := scenarios["items"].(map[string]any)["properties"].(map[string]any)["tests"].(map[string]any)["items"].(map[string]any)
+	httpConfig := testSchema["properties"].(map[string]any)["httpConfig"].(map[string]any)
+	if httpConfig["additionalProperties"] != false || !containsString(httpConfig["required"], "method") || !containsString(httpConfig["required"], "path") {
+		t.Fatalf("HTTP tool config is not strict: %+v", httpConfig)
+	}
+	queueConfig := testSchema["properties"].(map[string]any)["queueConfig"].(map[string]any)
+	operation := queueConfig["properties"].(map[string]any)["operation"].(map[string]any)
+	if !containsString(operation["enum"], "produce_and_consume") {
+		t.Fatalf("queue tool config is missing supported operations: %+v", operation)
+	}
 }
 
-func TestMCPForwardsAuthorizationWithoutFilesystemAccess(t *testing.T) {
-	server, _ := New("http://ui:3000", "")
-	server.client.Transport = roundTripper(func(r *http.Request) (*http.Response, error) {
-		if r.Header.Get("Authorization") != "Bearer tt_pat_test" {
-			t.Fatal("authorization was not forwarded")
+func containsString(value any, expected string) bool {
+	items, ok := value.([]string)
+	if !ok {
+		return false
+	}
+	for _, item := range items {
+		if item == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func TestMCPExchangesAuthorizationForInternalAssertion(t *testing.T) {
+	server := newTestServer(t)
+	server.client.Transport = authenticatedTransport(t, func(r *http.Request) (*http.Response, error) {
+		if r.Header.Get("Authorization") != "" {
+			t.Fatal("client authorization must not be forwarded to the application API")
+		}
+		if r.Header.Get("X-Tokyo-Agent-Assertion") == "" {
+			t.Fatal("internal assertion was not forwarded")
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"projects":[]}`))}, nil
 	})
-	request := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"tokyo_list_projects","arguments":{}}}`))
+	request := newMCPRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"tokyo_list_projects","arguments":{}}}`))
 	request.Header.Set("Authorization", "Bearer tt_pat_test")
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, request)
@@ -113,8 +145,8 @@ func TestMCPForwardsAuthorizationWithoutFilesystemAccess(t *testing.T) {
 }
 
 func TestMCPRunsSelectedExistingScenarios(t *testing.T) {
-	server, _ := New("http://ui:3000", "")
-	server.client.Transport = roundTripper(func(r *http.Request) (*http.Response, error) {
+	server := newTestServer(t)
+	server.client.Transport = authenticatedTransport(t, func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path != "/api/v1/agent/workflows/workflow-1/runs" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -127,7 +159,8 @@ func TestMCPRunsSelectedExistingScenarios(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusAccepted, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"workflowRunId":"run-1"}`))}, nil
 	})
-	request := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"tokyo_run_existing_workflow","arguments":{"workflowId":"workflow-1","scenarioIds":["scenario-2"],"idempotencyKey":"retry-key-123"}}}`))
+	request := newMCPRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"tokyo_run_existing_workflow","arguments":{"workflowId":"workflow-1","scenarioIds":["scenario-2"],"idempotencyKey":"retry-key-123"}}}`))
+	request.Header.Set("Authorization", "Bearer tt_pat_test")
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, request)
 	if !strings.Contains(recorder.Body.String(), `"isError":false`) {
@@ -136,8 +169,8 @@ func TestMCPRunsSelectedExistingScenarios(t *testing.T) {
 }
 
 func TestMCPRestoresWorkflowRevisionWithVersionGuard(t *testing.T) {
-	server, _ := New("http://ui:3000", "")
-	server.client.Transport = roundTripper(func(r *http.Request) (*http.Response, error) {
+	server := newTestServer(t)
+	server.client.Transport = authenticatedTransport(t, func(r *http.Request) (*http.Response, error) {
 		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/agent/workflows/workflow-1/revisions/revision-2/restore" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -147,11 +180,180 @@ func TestMCPRestoresWorkflowRevisionWithVersionGuard(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"revision_number":8}`))}, nil
 	})
-	request := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"tokyo_restore_workflow_revision","arguments":{"workflowId":"workflow-1","revisionId":"revision-2","expectedVersion":7}}}`))
+	request := newMCPRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"tokyo_restore_workflow_revision","arguments":{"workflowId":"workflow-1","revisionId":"revision-2","expectedVersion":7}}}`))
+	request.Header.Set("Authorization", "Bearer tt_pat_test")
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, request)
 	if !strings.Contains(recorder.Body.String(), `"isError":false`) {
 		t.Fatalf("unexpected response: %s", recorder.Body.String())
+	}
+}
+
+func TestMCPReturnsInsufficientScopeBeforeCallingApplication(t *testing.T) {
+	server := newTestServer(t)
+	server.client.Transport = roundTripper(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/api/v1/agent/introspect" {
+			t.Fatalf("application must not be called without run scope: %s", r.URL.Path)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"active":true,"sub":"user-1","user_id":"user-1","email":"user@example.com","project_id":"project-1","scopes":["read"]}`))}, nil
+	})
+	request := newMCPRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"tokyo_run_existing_workflow","arguments":{"workflowId":"workflow-1","idempotencyKey":"retry-key-123"}}}`))
+	request.Header.Set("Authorization", "Bearer tt_pat_test")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, received %d: %s", recorder.Code, recorder.Body.String())
+	}
+	challenge := recorder.Header().Get("WWW-Authenticate")
+	if !strings.Contains(challenge, `error="insufficient_scope"`) || !strings.Contains(challenge, `scope="run"`) {
+		t.Fatalf("unexpected challenge: %s", challenge)
+	}
+}
+
+func TestMCPRejectsUnexpectedBrowserOriginAndProtocolVersion(t *testing.T) {
+	server, err := New(Config{
+		AppBaseURL: "http://ui:3000", PublicMCPURL: "http://localhost:8090/mcp",
+		AllowedOrigins: "https://tokyo.example", AuthMode: "personal_token", InternalSecret: "test-internal-secret-at-least-32-bytes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	originRequest := newMCPRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	originRequest.Header.Set("Origin", "https://attacker.example")
+	originRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(originRecorder, originRequest)
+	if originRecorder.Code != http.StatusForbidden {
+		t.Fatalf("unexpected origin status: %d", originRecorder.Code)
+	}
+
+	protocolRequest := newMCPRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`))
+	protocolRequest.Header.Set("MCP-Protocol-Version", "2024-01-01")
+	protocolRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(protocolRecorder, protocolRequest)
+	if protocolRecorder.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected protocol status: %d", protocolRecorder.Code)
+	}
+
+	missingProtocolRequest := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":3,"method":"tools/list"}`))
+	missingProtocolRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(missingProtocolRecorder, missingProtocolRequest)
+	if missingProtocolRecorder.Code != http.StatusBadRequest || !strings.Contains(missingProtocolRecorder.Body.String(), "MCP-Protocol-Version is required") {
+		t.Fatalf("unexpected missing protocol response: %d %s", missingProtocolRecorder.Code, missingProtocolRecorder.Body.String())
+	}
+}
+
+func TestMCPValidateReceiptAuthorizesExactImport(t *testing.T) {
+	server := newTestServer(t)
+	bundle := map[string]any{
+		"schemaVersion": float64(2),
+		"kind":          "cots.workflow-bundle",
+		"workflow":      map[string]any{"name": "orders"},
+	}
+	imports := 0
+	server.client.Transport = authenticatedTransport(t, func(r *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var requestBody map[string]any
+		if err := json.Unmarshal(body, &requestBody); err != nil {
+			t.Fatal(err)
+		}
+		switch r.URL.Path {
+		case "/api/v1/agent/workflows/validate":
+			payload, _ := json.Marshal(map[string]any{"valid": true, "bundle": requestBody["bundle"], "issues": []any{}})
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(payload))}, nil
+		case "/api/v1/agent/workflows/import":
+			imports++
+			if r.Header.Get("Idempotency-Key") != "stable-import-key" {
+				t.Fatalf("idempotency key was not forwarded: %q", r.Header.Get("Idempotency-Key"))
+			}
+			if !reflect.DeepEqual(requestBody["bundle"], bundle) {
+				t.Fatalf("import bundle changed after validation: %#v", requestBody["bundle"])
+			}
+			return &http.Response{StatusCode: http.StatusCreated, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"workflowId":"workflow-1"}`))}, nil
+		default:
+			t.Fatalf("unexpected application path: %s", r.URL.Path)
+			return nil, nil
+		}
+	})
+
+	call := func(id int, name string, arguments map[string]any) map[string]any {
+		t.Helper()
+		payload, err := json.Marshal(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      id,
+			"method":  "tools/call",
+			"params":  map[string]any{"name": name, "arguments": arguments},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := newMCPRequest(http.MethodPost, "/mcp", bytes.NewReader(payload))
+		request.Header.Set("Authorization", "Bearer tt_pat_test")
+		recorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s returned %d: %s", name, recorder.Code, recorder.Body.String())
+		}
+		var response rpcResponse
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		result, ok := response.Result.(map[string]any)
+		if !ok {
+			t.Fatalf("%s returned no result: %s", name, recorder.Body.String())
+		}
+		if result["isError"] == true {
+			t.Fatalf("%s returned a tool error: %s", name, recorder.Body.String())
+		}
+		structured, ok := result["structuredContent"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s returned no structured content: %s", name, recorder.Body.String())
+		}
+		return structured
+	}
+
+	validation := call(10, "tokyo_validate_workflow", map[string]any{"bundle": bundle})
+	receipt, ok := validation["validationReceipt"].(string)
+	if !ok || receipt == "" {
+		t.Fatalf("validation returned no receipt: %#v", validation)
+	}
+	normalizedBundle, ok := validation["bundle"].(map[string]any)
+	if !ok {
+		t.Fatalf("validation returned no normalized bundle: %#v", validation)
+	}
+	call(11, "tokyo_import_workflow", map[string]any{
+		"bundle":            normalizedBundle,
+		"validationReceipt": receipt,
+		"idempotencyKey":    "stable-import-key",
+	})
+	if imports != 1 {
+		t.Fatalf("imports = %d, want 1", imports)
+	}
+}
+
+func TestMCPOAuthRequiresExactProjectAudience(t *testing.T) {
+	server, err := New(Config{
+		AppBaseURL: "http://ui:3000", PublicMCPURL: "https://tokyo.example/mcp", AuthMode: "oauth",
+		OAuthIssuer: "https://identity.example", OAuthIntrospectionURL: "https://identity.example/introspect",
+		OAuthClientID: "client", OAuthClientSecret: "secret", InternalSecret: "test-internal-secret-at-least-32-bytes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.client.Transport = roundTripper(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() != "https://identity.example/introspect" {
+			t.Fatalf("unexpected introspection URL: %s", r.URL)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"active":true,"sub":"oauth-user","email":"user@example.com","scope":"read","aud":"https://tokyo.example/mcp/projects/another-project"}`))}, nil
+	})
+	request := newMCPRequest(http.MethodPost, "/mcp/projects/project-1", bytes.NewBufferString(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"tokyo_list_projects","arguments":{}}}`))
+	request.Header.Set("Authorization", "Bearer oauth-token")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized || !strings.Contains(recorder.Header().Get("WWW-Authenticate"), "oauth-protected-resource/mcp/projects/project-1") {
+		t.Fatalf("unexpected OAuth response: %d %s %s", recorder.Code, recorder.Header().Get("WWW-Authenticate"), recorder.Body.String())
 	}
 }
 
@@ -170,14 +372,22 @@ func TestTokyoTesterSkillStaysCompactAndReferencesExist(t *testing.T) {
 	if lines := strings.Count(skill, "\n") + 1; lines >= 200 {
 		t.Fatalf("SKILL.md is too long: %d lines", lines)
 	}
-	for _, expected := range []string{"Discover every relevant repository", "tokyo_review_workflow_plan", "references/research.md", "references/scenario-design.md"} {
+	for _, expected := range []string{"Discover every relevant repository", "scripts/inspect_repository.py", "validationReceipt", "untrusted evidence", "tokyo_review_workflow_plan", "references/connection.md", "references/research.md", "references/scenario-design.md"} {
 		if !strings.Contains(skill, expected) {
 			t.Fatalf("skill is missing %q", expected)
 		}
 	}
-	for _, name := range []string{"research.md", "graph-modeling.md", "scenario-design.md", "quality-rubric.md", "authoring.md"} {
+	for _, name := range []string{"connection.md", "research.md", "graph-modeling.md", "scenario-design.md", "quality-rubric.md", "authoring.md"} {
 		if _, err := os.ReadFile(filepath.Join(root, ".agents", "skills", "tokyo-tester", "references", name)); err != nil {
 			t.Fatalf("missing reference %s: %v", name, err)
+		}
+	}
+	if _, err := os.ReadFile(filepath.Join(root, ".agents", "skills", "tokyo-tester", "evaluations", "README.md")); err != nil {
+		t.Fatalf("missing skill evaluations: %v", err)
+	}
+	for _, name := range []string{"inspect_repository.py", "test_inspect_repository.py"} {
+		if _, err := os.ReadFile(filepath.Join(root, ".agents", "skills", "tokyo-tester", "scripts", name)); err != nil {
+			t.Fatalf("missing skill script %s: %v", name, err)
 		}
 	}
 }
@@ -185,3 +395,40 @@ func TestTokyoTesterSkillStaysCompactAndReferencesExist(t *testing.T) {
 type roundTripper func(*http.Request) (*http.Response, error)
 
 func (fn roundTripper) RoundTrip(request *http.Request) (*http.Response, error) { return fn(request) }
+
+func newMCPRequest(method, target string, body io.Reader) *http.Request {
+	request := httptest.NewRequest(method, target, body)
+	request.Header.Set("MCP-Protocol-Version", protocolVersion)
+	return request
+}
+
+func newTestServer(t *testing.T) *Server {
+	t.Helper()
+	server, err := New(Config{
+		AppBaseURL: "http://ui:3000", PublicMCPURL: "http://localhost:8090/mcp",
+		AuthMode: "personal_token", InternalSecret: "test-internal-secret-at-least-32-bytes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return server
+}
+
+func authenticatedTransport(t *testing.T, next roundTripper) roundTripper {
+	t.Helper()
+	return func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/api/v1/agent/introspect" {
+			if r.Header.Get("Authorization") != "Bearer tt_pat_test" {
+				t.Fatal("token was not sent to introspection")
+			}
+			if r.Header.Get("X-Tokyo-MCP-Secret") == "" {
+				t.Fatal("introspection secret was not sent")
+			}
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"active":true,"sub":"user-1","user_id":"user-1","email":"user@example.com","project_id":"project-1","scopes":["read","workflow:write","run"]}`))}, nil
+		}
+		if next == nil {
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+		}
+		return next(r)
+	}
+}

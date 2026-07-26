@@ -59,6 +59,20 @@ func withExecutionContext(ctx context.Context, execution *dto.ExecutionContextDT
 	return ctx
 }
 
+func withWorkflowResourceMetadata(ctx context.Context, execution *dto.ExecutionContextDTO, backendSessionID string) context.Context {
+	ctx = provider.WithSessionID(ctx, backendSessionID)
+	if execution == nil {
+		return ctx
+	}
+	return provider.WithResourceMetadata(ctx, provider.ResourceMetadata{
+		SessionID:        execution.SessionID,
+		BackendSessionID: backendSessionID,
+		WorkflowID:       execution.WorkflowID,
+		WorkflowRunID:    execution.WorkflowRunID,
+		ScenarioID:       execution.ScenarioID,
+	})
+}
+
 func toSessionExecutionContext(execution *dto.ExecutionContextDTO) *session.ExecutionContext {
 	if execution == nil {
 		return nil
@@ -90,21 +104,23 @@ func executionContextFromSession(sess *session.Session) *dto.ExecutionContextDTO
 }
 
 type Handler struct {
-	sessionManager   *session.Manager
-	providers        *provider.Registry
-	db               db.Database
-	ownerID          string
-	leaseDuration    time.Duration
-	provisionTimeout time.Duration
-	testRunTimeout   time.Duration
-	cleanupTimeout   time.Duration
-	queueTimeout     time.Duration
-	provisionSlots   chan struct{}
-	testRunSlots     chan struct{}
-	cleanupSlots     chan struct{}
-	workflowService  *WorkflowService
-	resourceCleaner  sessionResourceCleaner
-	readinessCheck   func(context.Context) error
+	sessionManager           *session.Manager
+	providers                *provider.Registry
+	db                       db.Database
+	ownerID                  string
+	leaseDuration            time.Duration
+	sessionHeartbeatInterval time.Duration
+	provisionTimeout         time.Duration
+	testRunTimeout           time.Duration
+	cleanupTimeout           time.Duration
+	queueTimeout             time.Duration
+	provisionSlots           chan struct{}
+	testRunSlots             chan struct{}
+	cleanupSlots             chan struct{}
+	workflowService          *WorkflowService
+	resourceCleaner          sessionResourceCleaner
+	readinessCheck           func(context.Context) error
+	containerResources       config.ContainerResourceLimits
 }
 
 type sessionResourceCleaner interface {
@@ -137,18 +153,20 @@ func NewHandler(database db.Database, appCfg config.AppConfig) *Handler {
 	providers.Register("mongodb", &predefined.MongoDBProvider{})
 
 	return &Handler{
-		sessionManager:   session.NewManager(),
-		providers:        providers,
-		db:               database,
-		ownerID:          runtimeOwnerID(),
-		leaseDuration:    5 * time.Minute,
-		provisionTimeout: time.Duration(appCfg.ProvisionTimeoutSec) * time.Second,
-		testRunTimeout:   time.Duration(appCfg.TestRunTimeoutSec) * time.Second,
-		cleanupTimeout:   time.Duration(appCfg.CleanupTimeoutSec) * time.Second,
-		queueTimeout:     time.Duration(appCfg.OperationQueueTimeoutSec) * time.Second,
-		provisionSlots:   make(chan struct{}, appCfg.MaxConcurrentProvision),
-		testRunSlots:     make(chan struct{}, appCfg.MaxConcurrentTestRuns),
-		cleanupSlots:     make(chan struct{}, appCfg.MaxConcurrentCleanup),
+		sessionManager:           session.NewManager(),
+		providers:                providers,
+		db:                       database,
+		ownerID:                  runtimeOwnerID(),
+		leaseDuration:            5 * time.Minute,
+		sessionHeartbeatInterval: time.Minute,
+		provisionTimeout:         time.Duration(appCfg.ProvisionTimeoutSec) * time.Second,
+		testRunTimeout:           time.Duration(appCfg.TestRunTimeoutSec) * time.Second,
+		cleanupTimeout:           time.Duration(appCfg.CleanupTimeoutSec) * time.Second,
+		queueTimeout:             time.Duration(appCfg.OperationQueueTimeoutSec) * time.Second,
+		provisionSlots:           make(chan struct{}, appCfg.MaxConcurrentProvision),
+		testRunSlots:             make(chan struct{}, appCfg.MaxConcurrentTestRuns),
+		cleanupSlots:             make(chan struct{}, appCfg.MaxConcurrentCleanup),
+		containerResources:       appCfg.ContainerResources(),
 	}
 }
 
@@ -186,7 +204,7 @@ func (h *Handler) CreateServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	services := req.ToConfigList()
+	services := h.withContainerResources(req.ToConfigList())
 	telemetry.AddSpanAttributes(ctx, telemetry.ServiceAttr(fmt.Sprintf("%d services", len(services))))
 
 	servicesNames := make(map[string]bool)
@@ -265,6 +283,13 @@ func (h *Handler) CreateServices(w http.ResponseWriter, r *http.Request) {
 		SessionID: sessionID,
 		Message:   fmt.Sprintf("Successfully provisioned %d services", len(services)),
 	})
+}
+
+func (h *Handler) withContainerResources(services []config.ServiceConfig) []config.ServiceConfig {
+	for index := range services {
+		services[index].Resources = h.containerResources
+	}
+	return services
 }
 
 // RunTests handles Post request to /tests/{SessionID}

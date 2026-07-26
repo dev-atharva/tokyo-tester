@@ -122,6 +122,19 @@ export function hydrateWorkflowRunSnapshot(
   useExecutionStore
     .getState()
     .upsertExecutionFromSync(deserializeWorkflowRun(snapshot.workflowRun));
+  useExecutionStore.getState().updateQueueInfo(
+    snapshot.workflowRun.id,
+    snapshot.queue
+      ? {
+          position: snapshot.queue.position,
+          queuedAt: snapshot.queue.queuedAt,
+          workerConcurrency: snapshot.queue.workerConcurrency,
+          estimatedRun: snapshot.queue.estimatedRun,
+          estimatedWait: snapshot.queue.estimatedWait,
+          estimatedTotal: snapshot.queue.estimatedTotal,
+        }
+      : undefined,
+  );
 
   for (const scenarioRun of snapshot.scenarioRuns || []) {
     if (scenarioRun.is_deleted || !scenarioRun.scenario_id) continue;

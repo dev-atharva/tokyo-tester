@@ -2,6 +2,7 @@ import { expect, type Page, type TestInfo } from "@playwright/test";
 
 export interface WorkflowRunPayload {
   workflowRunId: string;
+  workflowRevisionId?: string;
   projectId: string;
   workflowId: string;
   executionOptions?: { continueOnFailure?: boolean };
@@ -21,6 +22,22 @@ export interface WorkflowRunSnapshot {
   workflowRun: { id: string; status: string };
   scenarioRuns: Array<{ id: string; status: string }>;
   testResults: Array<{ id: string; test_name: string; status: string }>;
+  queue?: WorkflowQueueInfo;
+}
+
+export interface WorkflowTimeEstimate {
+  p50Seconds: number;
+  p90Seconds: number;
+  sampleSize: number;
+}
+
+export interface WorkflowQueueInfo {
+  status: string;
+  position: number;
+  workerConcurrency: number;
+  estimatedRun?: WorkflowTimeEstimate;
+  estimatedWait?: WorkflowTimeEstimate;
+  estimatedTotal?: WorkflowTimeEstimate;
 }
 
 export async function captureWorkflowRun(

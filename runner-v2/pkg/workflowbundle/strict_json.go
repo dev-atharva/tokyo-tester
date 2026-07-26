@@ -1,0 +1,127 @@
+package workflowbundle
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+func rejectUnknownBundleFields(raw []byte) error {
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return fmt.Errorf("invalid workflow bundle JSON: %w", err)
+	}
+	if err := rejectUnknown(root, "/", "schemaVersion", "kind", "workflow", "scenarios"); err != nil {
+		return err
+	}
+	workflow, _ := root["workflow"].(map[string]any)
+	if workflow != nil {
+		if err := rejectUnknown(workflow, "/workflow", "name", "description", "nodes", "edges"); err != nil {
+			return err
+		}
+		for index, item := range asJSONArray(workflow["nodes"]) {
+			node, _ := item.(map[string]any)
+			data, _ := node["data"].(map[string]any)
+			service, _ := data["service"].(map[string]any)
+			if service != nil {
+				path := fmt.Sprintf("/workflow/nodes/%d/data/service", index)
+				if err := rejectUnknown(service, path, "type", "image", "command", "ports", "env", "waitStratergy", "initScripts", "registry"); err != nil {
+					return err
+				}
+				for portIndex, value := range asJSONArray(service["ports"]) {
+					port, _ := value.(map[string]any)
+					if err := rejectUnknown(port, fmt.Sprintf("%s/ports/%d", path, portIndex), "id", "hostPort", "containerPort"); err != nil {
+						return err
+					}
+				}
+				for envIndex, value := range asJSONArray(service["env"]) {
+					env, _ := value.(map[string]any)
+					if err := rejectUnknown(env, fmt.Sprintf("%s/env/%d", path, envIndex), "id", "key", "value"); err != nil {
+						return err
+					}
+				}
+				if strategy, _ := service["waitStratergy"].(map[string]any); strategy != nil {
+					if err := rejectUnknown(strategy, path+"/waitStratergy", "enabled", "type", "target", "timeout"); err != nil {
+						return err
+					}
+				}
+				for scriptIndex, value := range asJSONArray(service["initScripts"]) {
+					script, _ := value.(map[string]any)
+					if err := rejectUnknown(script, fmt.Sprintf("%s/initScripts/%d", path, scriptIndex), "id", "order", "script", "description"); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		for index, item := range asJSONArray(workflow["edges"]) {
+			edge, _ := item.(map[string]any)
+			data, _ := edge["data"].(map[string]any)
+			if data != nil {
+				if err := rejectUnknown(data, fmt.Sprintf("/workflow/edges/%d/data", index), "relation", "readiness", "label", "description", "protocol", "needsReview"); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	for scenarioIndex, item := range asJSONArray(root["scenarios"]) {
+		scenario, _ := item.(map[string]any)
+		path := fmt.Sprintf("/scenarios/%d", scenarioIndex)
+		if err := rejectUnknown(scenario, path, "name", "description", "tests", "testOrder"); err != nil {
+			return err
+		}
+		for testIndex, value := range asJSONArray(scenario["tests"]) {
+			test, _ := value.(map[string]any)
+			testPath := fmt.Sprintf("%s/tests/%d", path, testIndex)
+			if err := rejectUnknown(test, testPath, "id", "name", "type", "targetServices", "dependsOnTestIds", "databaseConfig", "documentConfig", "httpConfig", "shellConfig", "cacheConfig", "queueConfig", "delayConfig"); err != nil {
+				return err
+			}
+			configs := map[string][]string{
+				"databaseConfig": {"driver", "database", "user", "password", "query", "expectedResult"},
+				"documentConfig": {"service", "database", "collection", "operation", "document", "filter", "update", "expectedDocument", "expectedDocuments", "expectedCount", "expectedExists"},
+				"httpConfig":     {"method", "path", "port", "headers", "body", "expectedStatus", "expectedBody"},
+				"shellConfig":    {"command", "env", "expectedOutput", "expectedExitCode"},
+				"cacheConfig":    {"service", "cacheType", "operation", "key", "value", "expectedValue", "expectedExists", "ttl", "db", "password"},
+				"queueConfig":    {"service", "brokerType", "operation", "topic", "message", "key", "partition", "timeout", "fromBeginning", "expectedCount", "expectedMessage", "expectedExists"},
+				"delayConfig":    {"durationMs"},
+			}
+			for field, allowed := range configs {
+				config, _ := test[field].(map[string]any)
+				if config == nil {
+					continue
+				}
+				if err := rejectUnknown(config, testPath+"/"+field, allowed...); err != nil {
+					return err
+				}
+				if field == "httpConfig" {
+					if expected, _ := config["expectedBody"].(map[string]any); expected != nil {
+						if err := rejectUnknown(expected, testPath+"/httpConfig/expectedBody", "mode", "value"); err != nil {
+							return err
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func rejectUnknown(object map[string]any, path string, allowed ...string) error {
+	if object == nil {
+		return nil
+	}
+	set := make(map[string]struct{}, len(allowed))
+	for _, field := range allowed {
+		set[field] = struct{}{}
+	}
+	for field := range object {
+		if _, ok := set[field]; !ok {
+			return fmt.Errorf("unknown workflow bundle field %s/%s", path, field)
+		}
+	}
+	return nil
+}
+
+func asJSONArray(value any) []any {
+	items, _ := value.([]any)
+	return items
+}

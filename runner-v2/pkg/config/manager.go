@@ -27,12 +27,15 @@ func NewConfigManager() (*ConfigManager, error) {
 		WriteTimeoutSec:          getEnvIntOrDefault("WRITE_TIMEOUT_SEC", 2100),
 		IdleTimeoutSec:           getEnvIntOrDefault("IDLE_TIMEOUT_SEC", 120),
 		ProvisionTimeoutSec:      getEnvIntOrDefault("PROVISION_TIMEOUT_SEC", 900),
-		TestRunTimeoutSec:        getEnvIntOrDefault("TEST_RUN_TIMEOUT_SEC", 1800),
+		TestRunTimeoutSec:        getEnvIntOrDefault("TEST_RUN_TIMEOUT_SEC", 0),
 		CleanupTimeoutSec:        getEnvIntOrDefault("CLEANUP_TIMEOUT_SEC", 180),
 		OperationQueueTimeoutSec: getEnvIntOrDefault("OPERATION_QUEUE_TIMEOUT_SEC", 30),
 		MaxConcurrentProvision:   getEnvIntOrDefault("MAX_CONCURRENT_PROVISION", 2),
 		MaxConcurrentTestRuns:    getEnvIntOrDefault("MAX_CONCURRENT_TEST_RUNS", 4),
 		MaxConcurrentCleanup:     getEnvIntOrDefault("MAX_CONCURRENT_CLEANUP", 4),
+		ContainerMemoryMB:        getEnvIntOrDefault("WORKFLOW_CONTAINER_MEMORY_MB", 1024),
+		ContainerCPUMilli:        getEnvIntOrDefault("WORKFLOW_CONTAINER_CPU_MILLI", 1000),
+		ContainerPIDs:            getEnvIntOrDefault("WORKFLOW_CONTAINER_PIDS", 256),
 	}
 
 	cm.Database = *LoadDatabaseConfig()
@@ -53,14 +56,21 @@ func NewConfigManager() (*ConfigManager, error) {
 	}
 
 	cm.WorkflowWorker = WorkflowWorkerConfig{
-		Enabled:             getEnvBoolOrDefault("WORKFLOW_WORKER_ENABLED", cm.Database.Type == "mysql"),
-		Concurrency:         getEnvIntOrDefault("WORKFLOW_WORKER_CONCURRENCY", 2),
-		ScenarioConcurrency: getEnvIntOrDefault("WORKFLOW_SCENARIO_CONCURRENCY", 2),
-		LeaseSeconds:        getEnvIntOrDefault("WORKFLOW_JOB_LEASE_SECONDS", 60),
-		HeartbeatSeconds:    getEnvIntOrDefault("WORKFLOW_JOB_HEARTBEAT_SECONDS", 15),
-		MaxRecoveries:       getEnvIntOrDefault("WORKFLOW_JOB_MAX_RECOVERIES", 3),
-		EventRetentionDays:  getEnvIntOrDefault("WORKFLOW_EVENT_RETENTION_DAYS", 30),
-		EncryptionKey:       getEnvOrDefault("WORKFLOW_JOB_ENCRYPTION_KEY", ""),
+		Enabled:                     getEnvBoolOrDefault("WORKFLOW_WORKER_ENABLED", cm.Database.Type == "mysql"),
+		Concurrency:                 getEnvIntOrDefault("WORKFLOW_WORKER_CONCURRENCY", 2),
+		ScenarioConcurrency:         getEnvIntOrDefault("WORKFLOW_SCENARIO_CONCURRENCY", 1),
+		MaxQueuedGlobal:             getEnvIntOrDefault("WORKFLOW_MAX_QUEUED_GLOBAL", 100),
+		MaxQueuedPerUser:            getEnvIntOrDefault("WORKFLOW_MAX_QUEUED_PER_USER", 3),
+		MaxQueuedPerProject:         getEnvIntOrDefault("WORKFLOW_MAX_QUEUED_PER_PROJECT", 10),
+		SubmissionsPerMinuteUser:    getEnvIntOrDefault("WORKFLOW_SUBMISSIONS_PER_MINUTE_USER", 10),
+		SubmissionsPerMinuteProject: getEnvIntOrDefault("WORKFLOW_SUBMISSIONS_PER_MINUTE_PROJECT", 60),
+		MaxRunningPerUser:           getEnvIntOrDefault("WORKFLOW_MAX_RUNNING_PER_USER", 1),
+		MaxRunningPerProject:        getEnvIntOrDefault("WORKFLOW_MAX_RUNNING_PER_PROJECT", 2),
+		LeaseSeconds:                getEnvIntOrDefault("WORKFLOW_JOB_LEASE_SECONDS", 60),
+		HeartbeatSeconds:            getEnvIntOrDefault("WORKFLOW_JOB_HEARTBEAT_SECONDS", 15),
+		MaxRecoveries:               getEnvIntOrDefault("WORKFLOW_JOB_MAX_RECOVERIES", 3),
+		EventRetentionDays:          getEnvIntOrDefault("WORKFLOW_EVENT_RETENTION_DAYS", 30),
+		EncryptionKey:               getEnvOrDefault("WORKFLOW_JOB_ENCRYPTION_KEY", ""),
 	}
 
 	if err := cm.Validate(); err != nil {
@@ -88,11 +98,14 @@ func (cm *ConfigManager) Validate() error {
 	if cm.App.ReadHeaderTimeoutSec <= 0 || cm.App.ReadTimeoutSec <= 0 || cm.App.WriteTimeoutSec <= 0 || cm.App.IdleTimeoutSec <= 0 {
 		return fmt.Errorf("server timeout settings must be positive")
 	}
-	if cm.App.ProvisionTimeoutSec <= 0 || cm.App.TestRunTimeoutSec <= 0 || cm.App.CleanupTimeoutSec <= 0 || cm.App.OperationQueueTimeoutSec <= 0 {
-		return fmt.Errorf("operation timeout settings must be positive")
+	if cm.App.ProvisionTimeoutSec <= 0 || cm.App.TestRunTimeoutSec < 0 || cm.App.CleanupTimeoutSec <= 0 || cm.App.OperationQueueTimeoutSec <= 0 {
+		return fmt.Errorf("operation timeout settings are invalid")
 	}
 	if cm.App.MaxConcurrentProvision <= 0 || cm.App.MaxConcurrentTestRuns <= 0 || cm.App.MaxConcurrentCleanup <= 0 {
 		return fmt.Errorf("concurrency limits must be positive")
+	}
+	if cm.App.ContainerMemoryMB < 128 || cm.App.ContainerCPUMilli < 100 || cm.App.ContainerPIDs < 32 {
+		return fmt.Errorf("workflow container limits are below the supported minimum")
 	}
 	if cm.Janitor.Enabled {
 		if cm.Janitor.IntervalSec <= 0 || cm.Janitor.OrphanTTLSec <= 0 {
@@ -109,7 +122,7 @@ func (cm *ConfigManager) Validate() error {
 		if cm.WorkflowWorker.EncryptionKey == "" {
 			return fmt.Errorf("WORKFLOW_JOB_ENCRYPTION_KEY is required when the workflow worker is enabled")
 		}
-		if cm.WorkflowWorker.Concurrency <= 0 || cm.WorkflowWorker.ScenarioConcurrency <= 0 || cm.WorkflowWorker.LeaseSeconds <= 0 || cm.WorkflowWorker.HeartbeatSeconds <= 0 || cm.WorkflowWorker.MaxRecoveries <= 0 || cm.WorkflowWorker.EventRetentionDays <= 0 {
+		if cm.WorkflowWorker.Concurrency <= 0 || cm.WorkflowWorker.ScenarioConcurrency <= 0 || cm.WorkflowWorker.MaxQueuedGlobal <= 0 || cm.WorkflowWorker.MaxQueuedPerUser <= 0 || cm.WorkflowWorker.MaxQueuedPerProject <= 0 || cm.WorkflowWorker.SubmissionsPerMinuteUser <= 0 || cm.WorkflowWorker.SubmissionsPerMinuteProject <= 0 || cm.WorkflowWorker.MaxRunningPerUser <= 0 || cm.WorkflowWorker.MaxRunningPerProject <= 0 || cm.WorkflowWorker.LeaseSeconds <= 0 || cm.WorkflowWorker.HeartbeatSeconds <= 0 || cm.WorkflowWorker.MaxRecoveries <= 0 || cm.WorkflowWorker.EventRetentionDays <= 0 {
 			return fmt.Errorf("workflow worker numeric settings must be positive")
 		}
 		if cm.WorkflowWorker.HeartbeatSeconds >= cm.WorkflowWorker.LeaseSeconds {

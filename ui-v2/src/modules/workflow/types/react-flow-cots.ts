@@ -272,6 +272,8 @@ export interface Scenario {
 export type WorkflowRunStatus =
   | "pending"
   | "running"
+  | "cancelling"
+  | "cancelled"
   | "completed"
   | "failed"
   | "partial_failed"
@@ -280,6 +282,8 @@ export type WorkflowRunStatus =
 export type ScenarioRunStatus =
   | "pending"
   | "running"
+  | "cancelling"
+  | "cancelled"
   | "completed"
   | "failed"
   | "cleanup_failed";

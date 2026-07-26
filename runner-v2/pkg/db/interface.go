@@ -2,8 +2,11 @@ package db
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+var ErrWorkflowCancellationRequested = errors.New("workflow cancellation requested")
 
 type Database interface {
 	// Workflows
@@ -61,15 +64,21 @@ type Database interface {
 type WorkflowJobStore interface {
 	CreateWorkflowJob(ctx context.Context, job *WorkflowJob) (*WorkflowJob, bool, error)
 	EnqueueWorkflowJob(ctx context.Context, job *WorkflowJob, run *WorkflowRun, sessions []*Session) (*WorkflowJob, bool, error)
+	AdmitWorkflowJob(ctx context.Context, job *WorkflowJob, run *WorkflowRun, sessions []*Session, policy WorkflowAdmissionPolicy) (*WorkflowJob, bool, error)
 	GetWorkflowJob(ctx context.Context, workflowRunID string) (*WorkflowJob, error)
+	GetWorkflowJobQueueInfo(ctx context.Context, workflowRunID string) (*WorkflowQueueInfo, error)
 	ClaimWorkflowJob(ctx context.Context, ownerID string, now time.Time, leaseDuration time.Duration, maxRecoveries int) (*WorkflowJob, error)
+	ClaimWorkflowJobFair(ctx context.Context, ownerID string, now time.Time, leaseDuration time.Duration, maxRecoveries int, policy WorkflowAdmissionPolicy) (*WorkflowJob, error)
 	HeartbeatWorkflowJob(ctx context.Context, jobID, ownerID string, now time.Time, leaseDuration time.Duration) error
+	RequestWorkflowJobCancellation(ctx context.Context, workflowRunID, projectID, reason string, now time.Time) (*WorkflowJob, bool, error)
+	CancelWorkflowJob(ctx context.Context, jobID, ownerID string, now time.Time) error
 	ReleaseWorkflowJob(ctx context.Context, jobID, ownerID string, now time.Time) error
 	CompleteWorkflowJob(ctx context.Context, jobID, ownerID string, now time.Time) error
 	FailWorkflowJob(ctx context.Context, jobID, ownerID, message string, now time.Time) error
 	AppendWorkflowRunEvent(ctx context.Context, event *WorkflowRunEvent) (*WorkflowRunEvent, error)
 	AppendWorkflowLogEvent(ctx context.Context, event *WorkflowRunEvent, message, scenarioRunID string) (*WorkflowRunEvent, error)
 	ListWorkflowRunEvents(ctx context.Context, workflowRunID string, afterID int64, limit int) ([]WorkflowRunEvent, error)
+	ListWorkflowLogEventsBefore(ctx context.Context, workflowRunID string, beforeID int64, limit int) ([]WorkflowRunEvent, bool, error)
 	DeleteWorkflowRunEventsBefore(ctx context.Context, cutoff time.Time) error
 }
 
@@ -77,6 +86,7 @@ type WorkflowJob struct {
 	ID                string
 	WorkflowRunID     string
 	ProjectID         string
+	UserID            string
 	RequestHash       string
 	PayloadCiphertext []byte
 	PayloadNonce      []byte
@@ -84,12 +94,54 @@ type WorkflowJob struct {
 	LeaseOwner        string
 	LeaseExpiresAt    *time.Time
 	HeartbeatAt       *time.Time
+	CancelRequestedAt *time.Time
+	CancelledAt       *time.Time
+	CancelReason      string
 	RecoveryCount     int
 	LastError         string
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	StartedAt         *time.Time
 	CompletedAt       *time.Time
+	Priority          int
+	EstimatedCost     int
+}
+
+type WorkflowAdmissionPolicy struct {
+	MaxQueuedGlobal             int
+	MaxQueuedPerUser            int
+	MaxQueuedPerProject         int
+	SubmissionsPerMinuteUser    int
+	SubmissionsPerMinuteProject int
+	MaxRunningPerUser           int
+	MaxRunningPerProject        int
+}
+
+type WorkflowQueueInfo struct {
+	Status            string                `json:"status"`
+	Position          int                   `json:"position,omitempty"`
+	QueuedAt          time.Time             `json:"queuedAt"`
+	StartedAt         *time.Time            `json:"startedAt,omitempty"`
+	WorkerConcurrency int                   `json:"workerConcurrency,omitempty"`
+	EstimatedRun      *WorkflowTimeEstimate `json:"estimatedRun,omitempty"`
+	EstimatedWait     *WorkflowTimeEstimate `json:"estimatedWait,omitempty"`
+	EstimatedTotal    *WorkflowTimeEstimate `json:"estimatedTotal,omitempty"`
+}
+
+type WorkflowTimeEstimate struct {
+	P50Seconds int `json:"p50Seconds"`
+	P90Seconds int `json:"p90Seconds"`
+	SampleSize int `json:"sampleSize"`
+}
+
+type WorkflowAdmissionError struct {
+	Scope      string
+	Limit      int
+	RetryAfter time.Duration
+}
+
+func (e *WorkflowAdmissionError) Error() string {
+	return "workflow queue limit reached for " + e.Scope
 }
 
 type WorkflowRunEvent struct {

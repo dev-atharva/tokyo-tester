@@ -6,16 +6,25 @@ type Config struct {
 }
 
 type ServiceConfig struct {
-	Name          string              `yaml:"name" json:"name"`
-	Type          string              `yaml:"type" json:"type"` // "generic", "postgres","redis","mysql","mariadb"
-	Image         string              `yaml:"image" json:"image"`
-	Command       []string            `yaml:"command,omitempty" json:"command,omitempty"`
-	Env           map[string]string   `yaml:"env,omitempty" json:"env,omitempty"`
-	Ports         []string            `yaml:"ports,omitempty" json:"ports,omitempty"` //Format : "host:container"
-	DependsOn     []string            `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
-	WaitStratergy WaitStratergyConfig `yaml:"wait_stratergy" json:"wait_stratergy"`
-	InitScripts   []string            `yaml:"init_scripts,omitempty" json:"init_scripts,omitempty"`
-	Registry      *RegistryConfig     `yaml:"registry" json:"registry"`
+	Name          string                  `yaml:"name" json:"name"`
+	Type          string                  `yaml:"type" json:"type"` // "generic", "postgres","redis","mysql","mariadb"
+	Image         string                  `yaml:"image" json:"image"`
+	Command       []string                `yaml:"command,omitempty" json:"command,omitempty"`
+	Env           map[string]string       `yaml:"env,omitempty" json:"env,omitempty"`
+	Ports         []string                `yaml:"ports,omitempty" json:"ports,omitempty"` //Format : "host:container"
+	DependsOn     []string                `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
+	WaitStratergy WaitStratergyConfig     `yaml:"wait_stratergy" json:"wait_stratergy"`
+	InitScripts   []string                `yaml:"init_scripts,omitempty" json:"init_scripts,omitempty"`
+	Registry      *RegistryConfig         `yaml:"registry" json:"registry"`
+	Resources     ContainerResourceLimits `yaml:"-" json:"-"`
+}
+
+// ContainerResourceLimits is assigned by the trusted runner. It is excluded
+// from workflow payloads so callers cannot raise their own server limits.
+type ContainerResourceLimits struct {
+	MemoryBytes int64
+	NanoCPUs    int64
+	PIDs        int64
 }
 
 type TestConfig struct {

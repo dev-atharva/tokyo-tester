@@ -22,6 +22,6 @@ Use this rubric before import or execution. Warnings do not replace `tokyo_valid
 
 1. Run `tokyo_review_workflow_plan` for advisory warnings.
 2. Fix missing evidence or ask targeted questions.
-3. Validate the bundle with `tokyo_validate_workflow`.
+3. Validate the bundle with `tokyo_validate_workflow` and retain its normalized bundle plus validation receipt.
 4. Edit only the smallest relevant part for validation errors.
-5. Request approval before import or run.
+5. Present the normalized bundle and request approval before import or run; pass it unchanged with its receipt.

@@ -77,6 +77,8 @@ export const pgAgentTokens = pgTable("agent_token", {
     .references(() => pgProjects.id, { onDelete: "cascade" }),
   scopes: text("scopes").notNull(),
   expiresAt: timestamp("expiresAt", { mode: "date" }).notNull(),
+  lastUsedAt: timestamp("lastUsedAt", { mode: "date" }),
+  revokedAt: timestamp("revokedAt", { mode: "date" }),
   createdAt: timestamp("createdAt", { mode: "date" })
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),

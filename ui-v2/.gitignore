@@ -19,6 +19,7 @@
 
 # production
 /build
+/public/downloads/*.tar.gz
 
 # misc
 .DS_Store

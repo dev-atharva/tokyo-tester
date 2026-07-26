@@ -27,6 +27,8 @@ describe("runner realtime event reducers", () => {
     expect(isWorkflowRunStatus("completed")).toBe(true);
     expect(isWorkflowRunStatus("partial_failed")).toBe(true);
     expect(isWorkflowRunStatus("cleanup_failed")).toBe(true);
+    expect(isWorkflowRunStatus("cancelling")).toBe(true);
+    expect(isWorkflowRunStatus("cancelled")).toBe(true);
     expect(isWorkflowRunStatus("unknown")).toBe(false);
   });
 
