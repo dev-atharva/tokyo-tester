@@ -14,14 +14,19 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { createDefaultTest } from "../lib/workflow-defaults";
 import type {
+  FlowNode,
   JsonValue,
   ScenarioTestDefinition,
 } from "../types/react-flow-cots";
+import { DraftJsonTextarea, DraftNumberInput } from "./DraftFields";
+import { ServiceSelector } from "./ServiceSelector";
 
 interface TestConfigFormProps {
   tests: ScenarioTestDefinition[];
   availableServices: string[];
+  serviceNodes?: FlowNode[];
   onChange: (tests: ScenarioTestDefinition[]) => void;
 }
 
@@ -33,21 +38,6 @@ function inferQueueBrokerType(serviceName?: string): "kafka" | "rabbitmq" {
     return "rabbitmq";
   }
   return "kafka";
-}
-
-function defaultTest(availableServices: string[]): ScenarioTestDefinition {
-  return {
-    id: `test-${Date.now()}`,
-    name: "New Test",
-    type: "http",
-    targetServices: availableServices[0] ? [availableServices[0]] : [],
-    httpConfig: {
-      method: "GET",
-      path: "/",
-      port: "80",
-      expectedStatus: 200,
-    },
-  };
 }
 
 function parseEnvLines(value: string): Record<string, string> {
@@ -184,18 +174,6 @@ function parseColumnRules(value: string):
   return result;
 }
 
-function stringifyJSON(value: unknown): string {
-  if (!value) {
-    return "";
-  }
-
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return "";
-  }
-}
-
 function inferDelayUnit(durationMs: number): DelayUnit {
   if (durationMs >= 60_000 && durationMs % 60_000 === 0) {
     return "min";
@@ -233,122 +211,78 @@ function convertUnitToDuration(value: number, unit: DelayUnit): number {
 function withTypeDefaults(
   test: ScenarioTestDefinition,
   type: ScenarioTestDefinition["type"],
+  serviceNodes: FlowNode[],
+  availableServices: string[],
 ): ScenarioTestDefinition {
-  switch (type) {
-    case "http":
+  const defaults = createDefaultTest(
+    type,
+    serviceNodes,
+    availableServices,
+    test.id,
+  );
+  return {
+    ...defaults,
+    name: test.name,
+    dependsOnTestIds: test.dependsOnTestIds,
+  };
+}
+
+export function withPrimaryService(
+  test: ScenarioTestDefinition,
+  service: string,
+): ScenarioTestDefinition {
+  const next = { ...test, targetServices: service ? [service] : [] };
+  switch (test.type) {
+    case "cache":
       return {
-        ...test,
-        type,
-        httpConfig: {
-          method: "GET",
-          path: "/",
-          port: "80",
-          expectedStatus: 200,
-        },
-      };
-    case "database":
-      return {
-        ...test,
-        type,
-        databaseConfig: {
-          driver: "postgres",
-          database: "",
-          user: "",
-          password: "",
-          query: "",
+        ...next,
+        cacheConfig: {
+          ...(test.cacheConfig ?? {
+            cacheType: "redis",
+            operation: "ping",
+          }),
+          service,
         },
       };
     case "document":
       return {
-        ...test,
-        type,
+        ...next,
         documentConfig: {
-          service: test.targetServices[0] || "",
-          database: "testdb",
-          collection: "",
-          operation: "find_one",
-          filter: {},
-        },
-      };
-    case "shell":
-      return {
-        ...test,
-        type,
-        shellConfig: {
-          command: "",
-          env: {},
-          expectedOutput: "",
-          expectedExitCode: 0,
-        },
-      };
-    case "cache":
-      return {
-        ...test,
-        type,
-        cacheConfig: {
-          service: test.targetServices[0] || "",
-          cacheType: "redis",
-          operation: "ping",
-          db: 0,
+          ...(test.documentConfig ?? {
+            database: "testdb",
+            collection: "",
+            operation: "find_one",
+          }),
+          service,
         },
       };
     case "queue":
       return {
-        ...test,
-        type,
+        ...next,
         queueConfig: {
-          service: test.targetServices[0] || "",
-          brokerType: inferQueueBrokerType(test.targetServices[0]),
-          operation: "produce",
-          topic: "",
-          timeout: 10,
-          partition: 0,
-          expectedCount: 1,
-          expectedExists: true,
+          ...(test.queueConfig ?? {
+            operation: "produce",
+          }),
+          service,
+          brokerType: inferQueueBrokerType(service),
         },
       };
-    case "delay":
-      return {
-        ...test,
-        type,
-        targetServices: [],
-        delayConfig: {
-          durationMs: 1000,
-        },
-      };
+    default:
+      return next;
   }
 }
 
 export const TestConfigForm = ({
   tests,
   availableServices,
+  serviceNodes = [],
   onChange,
 }: TestConfigFormProps) => {
   const [localTests, setLocalTests] = useState<ScenarioTestDefinition[]>(tests);
-  const [httpHeadersDrafts, setHttpHeadersDrafts] = useState<
-    Record<string, string>
-  >({});
   const [delayUnits, setDelayUnits] = useState<Record<string, DelayUnit>>({});
 
   useEffect(() => {
     setLocalTests(tests);
-  }, [tests]);
-
-  useEffect(() => {
-    setHttpHeadersDrafts((current) => {
-      const next: Record<string, string> = {};
-
-      for (const test of tests) {
-        if (test.type !== "http") {
-          continue;
-        }
-
-        next[test.id] =
-          current[test.id] ?? stringifyJSON(test.httpConfig?.headers);
-      }
-
-      return next;
-    });
   }, [tests]);
 
   useEffect(() => {
@@ -395,7 +329,10 @@ export const TestConfigForm = ({
         </div>
         <Button
           onClick={() =>
-            updateTests([...localTests, defaultTest(availableServices)])
+            updateTests([
+              ...localTests,
+              createDefaultTest("http", serviceNodes, availableServices),
+            ])
           }
           className="shadow-sm"
         >
@@ -417,7 +354,10 @@ export const TestConfigForm = ({
           </p>
           <Button
             onClick={() =>
-              updateTests([...localTests, defaultTest(availableServices)])
+              updateTests([
+                ...localTests,
+                createDefaultTest("http", serviceNodes, availableServices),
+              ])
             }
             size="sm"
             className="shadow-sm"
@@ -457,10 +397,14 @@ export const TestConfigForm = ({
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <Label
+                  htmlFor={`test-name-${test.id}`}
+                  className="text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+                >
                   Test Name
                 </Label>
                 <Input
+                  id={`test-name-${test.id}`}
                   value={test.name}
                   onChange={(event) =>
                     updateTest(test.id, (current) => ({
@@ -487,6 +431,8 @@ export const TestConfigForm = ({
                             type: value as ScenarioTestDefinition["type"],
                           },
                           value as ScenarioTestDefinition["type"],
+                          serviceNodes,
+                          availableServices,
                         ),
                       )
                     }
@@ -495,15 +441,15 @@ export const TestConfigForm = ({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="http">HTTP Request</SelectItem>
-                      <SelectItem value="database">Database Query</SelectItem>
-                      <SelectItem value="document">
-                        Document Operation
+                      <SelectItem value="http">Call an API</SelectItem>
+                      <SelectItem value="database">Query a database</SelectItem>
+                      <SelectItem value="document">Check a document</SelectItem>
+                      <SelectItem value="shell">
+                        Run an advanced command
                       </SelectItem>
-                      <SelectItem value="shell">Shell Command</SelectItem>
-                      <SelectItem value="cache">Cache Operation</SelectItem>
-                      <SelectItem value="queue">Queue Operation</SelectItem>
-                      <SelectItem value="delay">Delay</SelectItem>
+                      <SelectItem value="cache">Check cached data</SelectItem>
+                      <SelectItem value="queue">Check a message</SelectItem>
+                      <SelectItem value="delay">Wait for something</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -512,21 +458,23 @@ export const TestConfigForm = ({
                   <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Target Services
                   </Label>
-                  <Input
-                    value={test.targetServices.join(", ")}
-                    placeholder="service-a, service-b"
-                    disabled={test.type === "delay"}
-                    onChange={(event) =>
-                      updateTest(test.id, (current) => ({
-                        ...current,
-                        targetServices: event.target.value
-                          .split(",")
-                          .map((value) => value.trim())
-                          .filter(Boolean),
-                      }))
-                    }
-                    className="shadow-sm mt-1.5"
-                  />
+                  <div className="mt-1.5">
+                    <ServiceSelector
+                      value={test.targetServices[0] || ""}
+                      services={availableServices}
+                      disabled={test.type === "delay"}
+                      invalid={
+                        test.type !== "delay" &&
+                        (!test.targetServices[0] ||
+                          !availableServices.includes(test.targetServices[0]))
+                      }
+                      onValueChange={(service) =>
+                        updateTest(test.id, (current) =>
+                          withPrimaryService(current, service),
+                        )
+                      }
+                    />
+                  </div>
                   {test.type === "delay" ? (
                     <p className="mt-1.5 text-xs text-muted-foreground">
                       Delay steps do not target a service. They pause the
@@ -564,8 +512,8 @@ export const TestConfigForm = ({
                               method: value as NonNullable<
                                 ScenarioTestDefinition["httpConfig"]
                               >["method"],
-                              path: current.httpConfig?.path || "/",
-                              port: current.httpConfig?.port || "80",
+                              path: current.httpConfig?.path ?? "/",
+                              port: current.httpConfig?.port ?? "80",
                               headers: current.httpConfig?.headers,
                               body: current.httpConfig?.body,
                               expectedStatus:
@@ -591,11 +539,15 @@ export const TestConfigForm = ({
                     </div>
 
                     <div>
-                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      <Label
+                        htmlFor={`http-path-${test.id}`}
+                        className="text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+                      >
                         Path
                       </Label>
                       <Input
-                        value={test.httpConfig?.path || "/"}
+                        id={`http-path-${test.id}`}
+                        value={test.httpConfig?.path ?? "/"}
                         className="shadow-sm mt-1.5 font-mono text-sm"
                         onChange={(event) =>
                           updateTest(test.id, (current) => ({
@@ -603,7 +555,7 @@ export const TestConfigForm = ({
                             httpConfig: {
                               method: current.httpConfig?.method || "GET",
                               path: event.target.value,
-                              port: current.httpConfig?.port || "80",
+                              port: current.httpConfig?.port ?? "80",
                               headers: current.httpConfig?.headers,
                               body: current.httpConfig?.body,
                               expectedStatus:
@@ -616,18 +568,22 @@ export const TestConfigForm = ({
                     </div>
 
                     <div>
-                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      <Label
+                        htmlFor={`http-port-${test.id}`}
+                        className="text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+                      >
                         Port
                       </Label>
                       <Input
-                        value={test.httpConfig?.port || "80"}
+                        id={`http-port-${test.id}`}
+                        value={test.httpConfig?.port ?? "80"}
                         className="shadow-sm mt-1.5"
                         onChange={(event) =>
                           updateTest(test.id, (current) => ({
                             ...current,
                             httpConfig: {
                               method: current.httpConfig?.method || "GET",
-                              path: current.httpConfig?.path || "/",
+                              path: current.httpConfig?.path ?? "/",
                               port: event.target.value,
                               headers: current.httpConfig?.headers,
                               body: current.httpConfig?.body,
@@ -642,57 +598,48 @@ export const TestConfigForm = ({
                   </div>
 
                   <div>
-                    <Label>Headers JSON</Label>
-                    <Textarea
-                      value={
-                        httpHeadersDrafts[test.id] ??
-                        stringifyJSON(test.httpConfig?.headers)
+                    <Label htmlFor={`http-headers-${test.id}`}>
+                      Headers JSON
+                    </Label>
+                    <DraftJsonTextarea
+                      id={`http-headers-${test.id}`}
+                      value={test.httpConfig?.headers}
+                      parse={(draft) =>
+                        parseJSONObject(draft) as
+                          | Record<string, string>
+                          | undefined
                       }
                       placeholder={`{\n  "Content-Type": "application/json"\n}`}
-                      onChange={(event) => {
-                        const nextValue = event.target.value;
-
-                        setHttpHeadersDrafts((current) => ({
-                          ...current,
-                          [test.id]: nextValue,
-                        }));
-
-                        const parsedHeaders = parseJSONObject(nextValue) as
-                          | Record<string, string>
-                          | undefined;
-
-                        if (nextValue.trim() && !parsedHeaders) {
-                          return;
-                        }
-
+                      onValueChange={(headers) =>
                         updateTest(test.id, (current) => ({
                           ...current,
                           httpConfig: {
                             method: current.httpConfig?.method || "GET",
-                            path: current.httpConfig?.path || "/",
-                            port: current.httpConfig?.port || "80",
-                            headers: parsedHeaders,
+                            path: current.httpConfig?.path ?? "/",
+                            port: current.httpConfig?.port ?? "80",
+                            headers,
                             body: current.httpConfig?.body,
                             expectedStatus:
                               current.httpConfig?.expectedStatus ?? 200,
                             expectedBody: current.httpConfig?.expectedBody,
                           },
-                        }));
-                      }}
+                        }))
+                      }
                     />
                   </div>
 
                   <div>
-                    <Label>Body</Label>
+                    <Label htmlFor={`http-body-${test.id}`}>Body</Label>
                     <Textarea
+                      id={`http-body-${test.id}`}
                       value={test.httpConfig?.body || ""}
                       onChange={(event) =>
                         updateTest(test.id, (current) => ({
                           ...current,
                           httpConfig: {
                             method: current.httpConfig?.method || "GET",
-                            path: current.httpConfig?.path || "/",
-                            port: current.httpConfig?.port || "80",
+                            path: current.httpConfig?.path ?? "/",
+                            port: current.httpConfig?.port ?? "80",
                             headers: current.httpConfig?.headers,
                             body: event.target.value,
                             expectedStatus:
@@ -706,22 +653,24 @@ export const TestConfigForm = ({
 
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
-                      <Label>Expected Status</Label>
-                      <Input
-                        type="number"
+                      <Label htmlFor={`http-expected-status-${test.id}`}>
+                        Expected Status
+                      </Label>
+                      <DraftNumberInput
+                        id={`http-expected-status-${test.id}`}
                         min={100}
                         max={599}
                         value={test.httpConfig?.expectedStatus ?? 200}
-                        onChange={(event) =>
+                        onValueChange={(expectedStatus) =>
                           updateTest(test.id, (current) => ({
                             ...current,
                             httpConfig: {
                               method: current.httpConfig?.method || "GET",
-                              path: current.httpConfig?.path || "/",
-                              port: current.httpConfig?.port || "80",
+                              path: current.httpConfig?.path ?? "/",
+                              port: current.httpConfig?.port ?? "80",
                               headers: current.httpConfig?.headers,
                               body: current.httpConfig?.body,
-                              expectedStatus: Number(event.target.value) || 200,
+                              expectedStatus,
                               expectedBody: current.httpConfig?.expectedBody,
                             },
                           }))
@@ -730,7 +679,9 @@ export const TestConfigForm = ({
                     </div>
 
                     <div>
-                      <Label>Expected Body Mode</Label>
+                      <Label htmlFor={`http-expected-body-mode-${test.id}`}>
+                        Expected Body Mode
+                      </Label>
                       <Select
                         value={
                           test.httpConfig?.expectedBody?.mode || "contains"
@@ -740,8 +691,8 @@ export const TestConfigForm = ({
                             ...current,
                             httpConfig: {
                               method: current.httpConfig?.method || "GET",
-                              path: current.httpConfig?.path || "/",
-                              port: current.httpConfig?.port || "80",
+                              path: current.httpConfig?.path ?? "/",
+                              port: current.httpConfig?.port ?? "80",
                               headers: current.httpConfig?.headers,
                               body: current.httpConfig?.body,
                               expectedStatus:
@@ -754,7 +705,9 @@ export const TestConfigForm = ({
                           }))
                         }
                       >
-                        <SelectTrigger>
+                        <SelectTrigger
+                          id={`http-expected-body-mode-${test.id}`}
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -771,27 +724,35 @@ export const TestConfigForm = ({
 
                   {test.httpConfig?.expectedBody?.mode === "json_partial" ? (
                     <div>
-                      <Label>Expected Body JSON</Label>
-                      <Textarea
-                        value={stringifyJSON(
-                          test.httpConfig.expectedBody.value,
-                        )}
+                      <Label htmlFor={`http-expected-body-json-${test.id}`}>
+                        Expected Body JSON
+                      </Label>
+                      <DraftJsonTextarea
+                        id={`http-expected-body-json-${test.id}`}
+                        value={
+                          typeof test.httpConfig.expectedBody.value ===
+                            "object" &&
+                          test.httpConfig.expectedBody.value !== null &&
+                          !Array.isArray(test.httpConfig.expectedBody.value)
+                            ? test.httpConfig.expectedBody.value
+                            : undefined
+                        }
+                        parse={parseJSONObject}
                         placeholder={`{\n  "status": "ok"\n}`}
-                        onChange={(event) =>
+                        onValueChange={(expectedBody) =>
                           updateTest(test.id, (current) => ({
                             ...current,
                             httpConfig: {
                               method: current.httpConfig?.method || "GET",
-                              path: current.httpConfig?.path || "/",
-                              port: current.httpConfig?.port || "80",
+                              path: current.httpConfig?.path ?? "/",
+                              port: current.httpConfig?.port ?? "80",
                               headers: current.httpConfig?.headers,
                               body: current.httpConfig?.body,
                               expectedStatus:
                                 current.httpConfig?.expectedStatus ?? 200,
                               expectedBody: {
                                 mode: "json_partial",
-                                value:
-                                  parseJSONObject(event.target.value) ?? {},
+                                value: expectedBody ?? {},
                               },
                             },
                           }))
@@ -800,8 +761,11 @@ export const TestConfigForm = ({
                     </div>
                   ) : (
                     <div>
-                      <Label>Expected Body Contains</Label>
+                      <Label htmlFor={`http-expected-body-text-${test.id}`}>
+                        Expected Body Contains
+                      </Label>
                       <Input
+                        id={`http-expected-body-text-${test.id}`}
                         value={
                           typeof test.httpConfig?.expectedBody?.value ===
                           "string"
@@ -813,8 +777,8 @@ export const TestConfigForm = ({
                             ...current,
                             httpConfig: {
                               method: current.httpConfig?.method || "GET",
-                              path: current.httpConfig?.path || "/",
-                              port: current.httpConfig?.port || "80",
+                              path: current.httpConfig?.path ?? "/",
+                              port: current.httpConfig?.port ?? "80",
                               headers: current.httpConfig?.headers,
                               body: current.httpConfig?.body,
                               expectedStatus:
@@ -871,8 +835,11 @@ export const TestConfigForm = ({
                     </div>
 
                     <div>
-                      <Label>Database</Label>
+                      <Label htmlFor={`database-name-${test.id}`}>
+                        Database
+                      </Label>
                       <Input
+                        id={`database-name-${test.id}`}
                         value={test.databaseConfig?.database || ""}
                         onChange={(event) =>
                           updateTest(test.id, (current) => ({
@@ -893,8 +860,9 @@ export const TestConfigForm = ({
                     </div>
 
                     <div>
-                      <Label>User</Label>
+                      <Label htmlFor={`database-user-${test.id}`}>User</Label>
                       <Input
+                        id={`database-user-${test.id}`}
                         value={test.databaseConfig?.user || ""}
                         onChange={(event) =>
                           updateTest(test.id, (current) => ({
@@ -915,8 +883,11 @@ export const TestConfigForm = ({
                     </div>
 
                     <div>
-                      <Label>Password</Label>
+                      <Label htmlFor={`database-password-${test.id}`}>
+                        Password
+                      </Label>
                       <Input
+                        id={`database-password-${test.id}`}
                         type="password"
                         value={test.databaseConfig?.password || ""}
                         onChange={(event) =>
@@ -939,8 +910,9 @@ export const TestConfigForm = ({
                   </div>
 
                   <div>
-                    <Label>Query</Label>
+                    <Label htmlFor={`database-query-${test.id}`}>Query</Label>
                     <Textarea
+                      id={`database-query-${test.id}`}
                       value={test.databaseConfig?.query || ""}
                       onChange={(event) =>
                         updateTest(test.id, (current) => ({
@@ -1042,8 +1014,11 @@ export const TestConfigForm = ({
                   "mode" in test.databaseConfig.expectedResult &&
                   test.databaseConfig.expectedResult.mode === "single" ? (
                     <div>
-                      <Label>Expected Single Value</Label>
+                      <Label htmlFor={`database-single-value-${test.id}`}>
+                        Expected Single Value
+                      </Label>
                       <Input
+                        id={`database-single-value-${test.id}`}
                         value={String(
                           test.databaseConfig.expectedResult.value ?? "",
                         )}
@@ -1068,8 +1043,11 @@ export const TestConfigForm = ({
                   "mode" in test.databaseConfig.expectedResult &&
                   test.databaseConfig.expectedResult.mode === "list" ? (
                     <div>
-                      <Label>Expected Values</Label>
+                      <Label htmlFor={`database-values-${test.id}`}>
+                        Expected Values
+                      </Label>
                       <Input
+                        id={`database-values-${test.id}`}
                         value={(
                           test.databaseConfig.expectedResult.value || []
                         ).join(", ")}
@@ -1096,14 +1074,16 @@ export const TestConfigForm = ({
                   test.databaseConfig.expectedResult.mode === "structured" ? (
                     <div className="grid gap-3 md:grid-cols-2">
                       <div>
-                        <Label>Minimum Rows</Label>
-                        <Input
-                          type="number"
+                        <Label htmlFor={`database-min-rows-${test.id}`}>
+                          Minimum Rows
+                        </Label>
+                        <DraftNumberInput
+                          id={`database-min-rows-${test.id}`}
                           min={0}
                           value={
                             test.databaseConfig.expectedResult.min_rows ?? 1
                           }
-                          onChange={(event) =>
+                          onValueChange={(minRows) =>
                             updateTest(test.id, (current) => ({
                               ...current,
                               databaseConfig: {
@@ -1111,7 +1091,7 @@ export const TestConfigForm = ({
                                 expectedResult: {
                                   ...current.databaseConfig!.expectedResult,
                                   mode: "structured",
-                                  min_rows: Number(event.target.value) || 0,
+                                  min_rows: minRows,
                                 },
                               },
                             }))
@@ -1120,14 +1100,16 @@ export const TestConfigForm = ({
                       </div>
 
                       <div>
-                        <Label>Maximum Rows</Label>
-                        <Input
-                          type="number"
+                        <Label htmlFor={`database-max-rows-${test.id}`}>
+                          Maximum Rows
+                        </Label>
+                        <DraftNumberInput
+                          id={`database-max-rows-${test.id}`}
                           min={0}
                           value={
                             test.databaseConfig.expectedResult.max_rows ?? 0
                           }
-                          onChange={(event) =>
+                          onValueChange={(maxRows) =>
                             updateTest(test.id, (current) => ({
                               ...current,
                               databaseConfig: {
@@ -1135,7 +1117,7 @@ export const TestConfigForm = ({
                                 expectedResult: {
                                   ...current.databaseConfig!.expectedResult,
                                   mode: "structured",
-                                  max_rows: Number(event.target.value) || 0,
+                                  max_rows: maxRows,
                                 },
                               },
                             }))
@@ -1144,13 +1126,15 @@ export const TestConfigForm = ({
                       </div>
 
                       <div className="md:col-span-2">
-                        <Label>Column Rules JSON</Label>
-                        <Textarea
-                          value={stringifyJSON(
-                            test.databaseConfig.expectedResult.columns,
-                          )}
+                        <Label htmlFor={`database-column-rules-${test.id}`}>
+                          Column Rules JSON
+                        </Label>
+                        <DraftJsonTextarea
+                          id={`database-column-rules-${test.id}`}
+                          value={test.databaseConfig.expectedResult.columns}
+                          parse={parseColumnRules}
                           placeholder={`{\n  "status": { "value": "ready" }\n}`}
-                          onChange={(event) =>
+                          onValueChange={(columns) =>
                             updateTest(test.id, (current) => ({
                               ...current,
                               databaseConfig: {
@@ -1158,8 +1142,7 @@ export const TestConfigForm = ({
                                 expectedResult: {
                                   ...current.databaseConfig!.expectedResult,
                                   mode: "structured",
-                                  columns:
-                                    parseColumnRules(event.target.value) ?? {},
+                                  columns: columns ?? {},
                                 },
                               },
                             }))
@@ -1179,44 +1162,28 @@ export const TestConfigForm = ({
                   <div className="grid gap-3 md:grid-cols-4">
                     <div>
                       <Label>Service</Label>
-                      <Input
+                      <ServiceSelector
                         value={
                           test.documentConfig?.service ||
                           test.targetServices[0] ||
                           ""
                         }
-                        onChange={(event) =>
-                          updateTest(test.id, (current) => ({
-                            ...current,
-                            documentConfig: {
-                              service: event.target.value,
-                              database:
-                                current.documentConfig?.database || "testdb",
-                              collection:
-                                current.documentConfig?.collection || "",
-                              operation:
-                                current.documentConfig?.operation || "find_one",
-                              document: current.documentConfig?.document,
-                              filter: current.documentConfig?.filter,
-                              update: current.documentConfig?.update,
-                              expectedDocument:
-                                current.documentConfig?.expectedDocument,
-                              expectedDocuments:
-                                current.documentConfig?.expectedDocuments,
-                              expectedCount:
-                                current.documentConfig?.expectedCount,
-                              expectedExists:
-                                current.documentConfig?.expectedExists,
-                            },
-                          }))
+                        services={availableServices}
+                        onValueChange={(service) =>
+                          updateTest(test.id, (current) =>
+                            withPrimaryService(current, service),
+                          )
                         }
                       />
                     </div>
 
                     <div>
-                      <Label>Database</Label>
+                      <Label htmlFor={`document-database-${test.id}`}>
+                        Database
+                      </Label>
                       <Input
-                        value={test.documentConfig?.database || "testdb"}
+                        id={`document-database-${test.id}`}
+                        value={test.documentConfig?.database ?? "testdb"}
                         onChange={(event) =>
                           updateTest(test.id, (current) => ({
                             ...current,
@@ -1248,8 +1215,11 @@ export const TestConfigForm = ({
                     </div>
 
                     <div>
-                      <Label>Collection</Label>
+                      <Label htmlFor={`document-collection-${test.id}`}>
+                        Collection
+                      </Label>
                       <Input
+                        id={`document-collection-${test.id}`}
                         value={test.documentConfig?.collection || ""}
                         onChange={(event) =>
                           updateTest(test.id, (current) => ({
@@ -1260,7 +1230,7 @@ export const TestConfigForm = ({
                                 current.targetServices[0] ||
                                 "",
                               database:
-                                current.documentConfig?.database || "testdb",
+                                current.documentConfig?.database ?? "testdb",
                               collection: event.target.value,
                               operation:
                                 current.documentConfig?.operation || "find_one",
@@ -1294,7 +1264,7 @@ export const TestConfigForm = ({
                                 current.targetServices[0] ||
                                 "",
                               database:
-                                current.documentConfig?.database || "testdb",
+                                current.documentConfig?.database ?? "testdb",
                               collection:
                                 current.documentConfig?.collection || "",
                               operation: value as NonNullable<
@@ -1337,16 +1307,20 @@ export const TestConfigForm = ({
                     test.documentConfig?.operation || "",
                   ) && (
                     <div>
-                      <Label>Document JSON</Label>
-                      <Textarea
-                        value={stringifyJSON(test.documentConfig?.document)}
+                      <Label htmlFor={`document-payload-${test.id}`}>
+                        Document JSON
+                      </Label>
+                      <DraftJsonTextarea
+                        id={`document-payload-${test.id}`}
+                        value={test.documentConfig?.document}
+                        parse={parseJSONObject}
                         placeholder={`{\n  "name": "Alice"\n}`}
-                        onChange={(event) =>
+                        onValueChange={(document) =>
                           updateTest(test.id, (current) => ({
                             ...current,
                             documentConfig: {
                               ...current.documentConfig!,
-                              document: parseJSONObject(event.target.value),
+                              document,
                             },
                           }))
                         }
@@ -1363,16 +1337,20 @@ export const TestConfigForm = ({
                     "exists",
                   ].includes(test.documentConfig?.operation || "") && (
                     <div>
-                      <Label>Filter JSON</Label>
-                      <Textarea
-                        value={stringifyJSON(test.documentConfig?.filter)}
+                      <Label htmlFor={`document-filter-${test.id}`}>
+                        Filter JSON
+                      </Label>
+                      <DraftJsonTextarea
+                        id={`document-filter-${test.id}`}
+                        value={test.documentConfig?.filter}
+                        parse={parseJSONObject}
                         placeholder={`{\n  "email": "alice@example.com"\n}`}
-                        onChange={(event) =>
+                        onValueChange={(filter) =>
                           updateTest(test.id, (current) => ({
                             ...current,
                             documentConfig: {
                               ...current.documentConfig!,
-                              filter: parseJSONObject(event.target.value),
+                              filter,
                             },
                           }))
                         }
@@ -1384,16 +1362,20 @@ export const TestConfigForm = ({
                     test.documentConfig?.operation || "",
                   ) && (
                     <div>
-                      <Label>Update JSON</Label>
-                      <Textarea
-                        value={stringifyJSON(test.documentConfig?.update)}
+                      <Label htmlFor={`document-update-${test.id}`}>
+                        Update JSON
+                      </Label>
+                      <DraftJsonTextarea
+                        id={`document-update-${test.id}`}
+                        value={test.documentConfig?.update}
+                        parse={parseJSONObject}
                         placeholder={`{\n  "$set": { "role": "admin" }\n}`}
-                        onChange={(event) =>
+                        onValueChange={(update) =>
                           updateTest(test.id, (current) => ({
                             ...current,
                             documentConfig: {
                               ...current.documentConfig!,
-                              update: parseJSONObject(event.target.value),
+                              update,
                             },
                           }))
                         }
@@ -1405,20 +1387,20 @@ export const TestConfigForm = ({
                     test.documentConfig?.operation || "",
                   ) && (
                     <div>
-                      <Label>Expected Document JSON</Label>
-                      <Textarea
-                        value={stringifyJSON(
-                          test.documentConfig?.expectedDocument,
-                        )}
+                      <Label htmlFor={`document-expected-${test.id}`}>
+                        Expected Document JSON
+                      </Label>
+                      <DraftJsonTextarea
+                        id={`document-expected-${test.id}`}
+                        value={test.documentConfig?.expectedDocument}
+                        parse={parseJSONObject}
                         placeholder={`{\n  "name": "Alice"\n}`}
-                        onChange={(event) =>
+                        onValueChange={(expectedDocument) =>
                           updateTest(test.id, (current) => ({
                             ...current,
                             documentConfig: {
                               ...current.documentConfig!,
-                              expectedDocument: parseJSONObject(
-                                event.target.value,
-                              ),
+                              expectedDocument,
                             },
                           }))
                         }
@@ -1430,32 +1412,32 @@ export const TestConfigForm = ({
                     test.documentConfig?.operation || "",
                   ) && (
                     <div>
-                      <Label>Expected Documents JSON</Label>
-                      <Textarea
-                        value={stringifyJSON(
-                          test.documentConfig?.expectedDocuments,
-                        )}
+                      <Label htmlFor={`documents-expected-${test.id}`}>
+                        Expected Documents JSON
+                      </Label>
+                      <DraftJsonTextarea
+                        id={`documents-expected-${test.id}`}
+                        value={test.documentConfig?.expectedDocuments}
+                        parse={(draft) => {
+                          const parsed = parseJSONValue(draft);
+                          return Array.isArray(parsed)
+                            ? (parsed.filter(
+                                (entry): entry is Record<string, JsonValue> =>
+                                  Boolean(entry) &&
+                                  typeof entry === "object" &&
+                                  !Array.isArray(entry),
+                              ) as Record<string, JsonValue>[])
+                            : undefined;
+                        }}
                         placeholder={`[\n  { "email": "alice@example.com" }\n]`}
-                        onChange={(event) =>
-                          updateTest(test.id, (current) => {
-                            const parsed = parseJSONValue(event.target.value);
-                            return {
-                              ...current,
-                              documentConfig: {
-                                ...current.documentConfig!,
-                                expectedDocuments: Array.isArray(parsed)
-                                  ? (parsed.filter(
-                                      (
-                                        entry,
-                                      ): entry is Record<string, JsonValue> =>
-                                        Boolean(entry) &&
-                                        typeof entry === "object" &&
-                                        !Array.isArray(entry),
-                                    ) as Record<string, JsonValue>[])
-                                  : [],
-                              },
-                            };
-                          })
+                        onValueChange={(expectedDocuments) =>
+                          updateTest(test.id, (current) => ({
+                            ...current,
+                            documentConfig: {
+                              ...current.documentConfig!,
+                              expectedDocuments: expectedDocuments ?? [],
+                            },
+                          }))
                         }
                       />
                     </div>
@@ -1465,17 +1447,19 @@ export const TestConfigForm = ({
                     test.documentConfig?.operation || "",
                   ) && (
                     <div>
-                      <Label>Expected Count</Label>
-                      <Input
-                        type="number"
+                      <Label htmlFor={`document-expected-count-${test.id}`}>
+                        Expected Count
+                      </Label>
+                      <DraftNumberInput
+                        id={`document-expected-count-${test.id}`}
                         min={0}
                         value={test.documentConfig?.expectedCount ?? 0}
-                        onChange={(event) =>
+                        onValueChange={(expectedCount) =>
                           updateTest(test.id, (current) => ({
                             ...current,
                             documentConfig: {
                               ...current.documentConfig!,
-                              expectedCount: Number(event.target.value) || 0,
+                              expectedCount,
                             },
                           }))
                         }
@@ -1512,8 +1496,9 @@ export const TestConfigForm = ({
                     Shell Configuration
                   </h5>
                   <div>
-                    <Label>Command</Label>
+                    <Label htmlFor={`shell-command-${test.id}`}>Command</Label>
                     <Textarea
+                      id={`shell-command-${test.id}`}
                       value={test.shellConfig?.command || ""}
                       onChange={(event) =>
                         updateTest(test.id, (current) => ({
@@ -1532,8 +1517,11 @@ export const TestConfigForm = ({
                   </div>
 
                   <div>
-                    <Label>Environment Variables</Label>
+                    <Label htmlFor={`shell-environment-${test.id}`}>
+                      Environment Variables
+                    </Label>
                     <Textarea
+                      id={`shell-environment-${test.id}`}
                       value={formatEnvLines(test.shellConfig?.env)}
                       placeholder={"API_URL=${service.host}\nTOKEN=secret"}
                       onChange={(event) =>
@@ -1554,8 +1542,11 @@ export const TestConfigForm = ({
 
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
-                      <Label>Expected Output Contains</Label>
+                      <Label htmlFor={`shell-output-${test.id}`}>
+                        Expected Output Contains
+                      </Label>
                       <Input
+                        id={`shell-output-${test.id}`}
                         value={test.shellConfig?.expectedOutput || ""}
                         onChange={(event) =>
                           updateTest(test.id, (current) => ({
@@ -1573,11 +1564,13 @@ export const TestConfigForm = ({
                     </div>
 
                     <div>
-                      <Label>Expected Exit Code</Label>
-                      <Input
-                        type="number"
+                      <Label htmlFor={`shell-exit-code-${test.id}`}>
+                        Expected Exit Code
+                      </Label>
+                      <DraftNumberInput
+                        id={`shell-exit-code-${test.id}`}
                         value={test.shellConfig?.expectedExitCode ?? 0}
-                        onChange={(event) =>
+                        onValueChange={(expectedExitCode) =>
                           updateTest(test.id, (current) => ({
                             ...current,
                             shellConfig: {
@@ -1585,7 +1578,7 @@ export const TestConfigForm = ({
                               env: current.shellConfig?.env ?? {},
                               expectedOutput:
                                 current.shellConfig?.expectedOutput || "",
-                              expectedExitCode: Number(event.target.value) || 0,
+                              expectedExitCode,
                             },
                           }))
                         }
@@ -1603,31 +1596,17 @@ export const TestConfigForm = ({
                   <div className="grid gap-3 md:grid-cols-3">
                     <div>
                       <Label>Cache Service</Label>
-                      <Input
+                      <ServiceSelector
                         value={
                           test.cacheConfig?.service ||
                           test.targetServices[0] ||
                           ""
                         }
-                        onChange={(event) =>
-                          updateTest(test.id, (current) => ({
-                            ...current,
-                            cacheConfig: {
-                              service: event.target.value,
-                              cacheType:
-                                current.cacheConfig?.cacheType || "redis",
-                              operation:
-                                current.cacheConfig?.operation || "ping",
-                              key: current.cacheConfig?.key,
-                              value: current.cacheConfig?.value,
-                              expectedValue: current.cacheConfig?.expectedValue,
-                              expectedExists:
-                                current.cacheConfig?.expectedExists,
-                              ttl: current.cacheConfig?.ttl,
-                              db: current.cacheConfig?.db,
-                              password: current.cacheConfig?.password,
-                            },
-                          }))
+                        services={availableServices}
+                        onValueChange={(service) =>
+                          updateTest(test.id, (current) =>
+                            withPrimaryService(current, service),
+                          )
                         }
                       />
                     </div>
@@ -1716,8 +1695,9 @@ export const TestConfigForm = ({
                   {(test.cacheConfig?.operation || "ping") !== "ping" && (
                     <div className="grid gap-3 md:grid-cols-2">
                       <div>
-                        <Label>Key</Label>
+                        <Label htmlFor={`cache-key-${test.id}`}>Key</Label>
                         <Input
+                          id={`cache-key-${test.id}`}
                           value={test.cacheConfig?.key || ""}
                           onChange={(event) =>
                             updateTest(test.id, (current) => ({
@@ -1735,12 +1715,13 @@ export const TestConfigForm = ({
                         test.cacheConfig?.operation || "",
                       ) && (
                         <div>
-                          <Label>
+                          <Label htmlFor={`cache-value-${test.id}`}>
                             {(test.cacheConfig?.operation || "") === "set"
                               ? "Value"
                               : "Expected Value"}
                           </Label>
                           <Input
+                            id={`cache-value-${test.id}`}
                             value={String(
                               (test.cacheConfig?.operation || "") === "set"
                                 ? (test.cacheConfig?.value ?? "")
@@ -1791,17 +1772,19 @@ export const TestConfigForm = ({
 
                   <div className="grid gap-3 md:grid-cols-3">
                     <div>
-                      <Label>TTL (seconds)</Label>
-                      <Input
-                        type="number"
+                      <Label htmlFor={`cache-ttl-${test.id}`}>
+                        TTL (seconds)
+                      </Label>
+                      <DraftNumberInput
+                        id={`cache-ttl-${test.id}`}
                         min={0}
                         value={test.cacheConfig?.ttl ?? 0}
-                        onChange={(event) =>
+                        onValueChange={(ttl) =>
                           updateTest(test.id, (current) => ({
                             ...current,
                             cacheConfig: {
                               ...current.cacheConfig!,
-                              ttl: Number(event.target.value) || 0,
+                              ttl,
                             },
                           }))
                         }
@@ -1809,17 +1792,17 @@ export const TestConfigForm = ({
                     </div>
 
                     <div>
-                      <Label>Redis DB</Label>
-                      <Input
-                        type="number"
+                      <Label htmlFor={`cache-db-${test.id}`}>Redis DB</Label>
+                      <DraftNumberInput
+                        id={`cache-db-${test.id}`}
                         min={0}
                         value={test.cacheConfig?.db ?? 0}
-                        onChange={(event) =>
+                        onValueChange={(db) =>
                           updateTest(test.id, (current) => ({
                             ...current,
                             cacheConfig: {
                               ...current.cacheConfig!,
-                              db: Number(event.target.value) || 0,
+                              db,
                             },
                           }))
                         }
@@ -1827,8 +1810,11 @@ export const TestConfigForm = ({
                     </div>
 
                     <div>
-                      <Label>Redis Password</Label>
+                      <Label htmlFor={`cache-password-${test.id}`}>
+                        Redis Password
+                      </Label>
                       <Input
+                        id={`cache-password-${test.id}`}
                         type="password"
                         value={test.cacheConfig?.password || ""}
                         onChange={(event) =>
@@ -1873,38 +1859,17 @@ export const TestConfigForm = ({
                         <div className="grid gap-3 md:grid-cols-3">
                           <div>
                             <Label>Queue Service</Label>
-                            <Input
+                            <ServiceSelector
                               value={
                                 test.queueConfig?.service ||
                                 test.targetServices[0] ||
                                 ""
                               }
-                              onChange={(event) =>
-                                updateTest(test.id, (current) => ({
-                                  ...current,
-                                  queueConfig: {
-                                    service: event.target.value,
-                                    brokerType: inferQueueBrokerType(
-                                      event.target.value,
-                                    ),
-                                    operation:
-                                      current.queueConfig?.operation ||
-                                      "produce",
-                                    topic: current.queueConfig?.topic,
-                                    message: current.queueConfig?.message,
-                                    key: current.queueConfig?.key,
-                                    partition: current.queueConfig?.partition,
-                                    timeout: current.queueConfig?.timeout,
-                                    fromBeginning:
-                                      current.queueConfig?.fromBeginning,
-                                    expectedCount:
-                                      current.queueConfig?.expectedCount,
-                                    expectedMessage:
-                                      current.queueConfig?.expectedMessage,
-                                    expectedExists:
-                                      current.queueConfig?.expectedExists,
-                                  },
-                                }))
+                              services={availableServices}
+                              onValueChange={(service) =>
+                                updateTest(test.id, (current) =>
+                                  withPrimaryService(current, service),
+                                )
                               }
                             />
                           </div>
@@ -2000,8 +1965,11 @@ export const TestConfigForm = ({
                           "list_topics" && (
                           <div className="grid gap-3 md:grid-cols-2">
                             <div>
-                              <Label>{queueTargetLabel}</Label>
+                              <Label htmlFor={`queue-target-${test.id}`}>
+                                {queueTargetLabel}
+                              </Label>
                               <Input
+                                id={`queue-target-${test.id}`}
                                 value={test.queueConfig?.topic || ""}
                                 onChange={(event) =>
                                   updateTest(test.id, (current) => ({
@@ -2019,8 +1987,11 @@ export const TestConfigForm = ({
                               test.queueConfig?.operation || "",
                             ) && (
                               <div>
-                                <Label>Message</Label>
+                                <Label htmlFor={`queue-message-${test.id}`}>
+                                  Message
+                                </Label>
                                 <Input
+                                  id={`queue-message-${test.id}`}
                                   value={String(
                                     test.queueConfig?.message ?? "",
                                   )}
@@ -2041,8 +2012,11 @@ export const TestConfigForm = ({
                               test.queueConfig?.operation || "",
                             ) && (
                               <div>
-                                <Label>Key</Label>
+                                <Label htmlFor={`queue-key-${test.id}`}>
+                                  Key
+                                </Label>
                                 <Input
+                                  id={`queue-key-${test.id}`}
                                   value={test.queueConfig?.key || ""}
                                   onChange={(event) =>
                                     updateTest(test.id, (current) => ({
@@ -2059,18 +2033,19 @@ export const TestConfigForm = ({
 
                             {showPartition && (
                               <div>
-                                <Label>Partition</Label>
-                                <Input
-                                  type="number"
+                                <Label htmlFor={`queue-partition-${test.id}`}>
+                                  Partition
+                                </Label>
+                                <DraftNumberInput
+                                  id={`queue-partition-${test.id}`}
                                   min={0}
                                   value={test.queueConfig?.partition ?? 0}
-                                  onChange={(event) =>
+                                  onValueChange={(partition) =>
                                     updateTest(test.id, (current) => ({
                                       ...current,
                                       queueConfig: {
                                         ...current.queueConfig!,
-                                        partition:
-                                          Number(event.target.value) || 0,
+                                        partition,
                                       },
                                     }))
                                   }
@@ -2082,18 +2057,19 @@ export const TestConfigForm = ({
                               test.queueConfig?.operation || "",
                             ) && (
                               <div>
-                                <Label>Timeout (seconds)</Label>
-                                <Input
-                                  type="number"
+                                <Label htmlFor={`queue-timeout-${test.id}`}>
+                                  Timeout (seconds)
+                                </Label>
+                                <DraftNumberInput
+                                  id={`queue-timeout-${test.id}`}
                                   min={1}
                                   value={test.queueConfig?.timeout ?? 10}
-                                  onChange={(event) =>
+                                  onValueChange={(timeout) =>
                                     updateTest(test.id, (current) => ({
                                       ...current,
                                       queueConfig: {
                                         ...current.queueConfig!,
-                                        timeout:
-                                          Number(event.target.value) || 10,
+                                        timeout,
                                       },
                                     }))
                                   }
@@ -2125,18 +2101,21 @@ export const TestConfigForm = ({
                                 </div>
 
                                 <div>
-                                  <Label>Expected Count</Label>
-                                  <Input
-                                    type="number"
+                                  <Label
+                                    htmlFor={`queue-expected-count-${test.id}`}
+                                  >
+                                    Expected Count
+                                  </Label>
+                                  <DraftNumberInput
+                                    id={`queue-expected-count-${test.id}`}
                                     min={1}
                                     value={test.queueConfig?.expectedCount ?? 1}
-                                    onChange={(event) =>
+                                    onValueChange={(expectedCount) =>
                                       updateTest(test.id, (current) => ({
                                         ...current,
                                         queueConfig: {
                                           ...current.queueConfig!,
-                                          expectedCount:
-                                            Number(event.target.value) || 1,
+                                          expectedCount,
                                         },
                                       }))
                                     }
@@ -2144,8 +2123,13 @@ export const TestConfigForm = ({
                                 </div>
 
                                 <div className="md:col-span-2">
-                                  <Label>Expected Message</Label>
+                                  <Label
+                                    htmlFor={`queue-expected-message-${test.id}`}
+                                  >
+                                    Expected Message
+                                  </Label>
                                   <Input
+                                    id={`queue-expected-message-${test.id}`}
                                     value={String(
                                       test.queueConfig?.expectedMessage ?? "",
                                     )}
@@ -2201,9 +2185,11 @@ export const TestConfigForm = ({
                   </h5>
                   <div className="grid gap-3 md:max-w-xl md:grid-cols-[minmax(0,1fr)_180px]">
                     <div>
-                      <Label>Delay Duration</Label>
-                      <Input
-                        type="number"
+                      <Label htmlFor={`delay-duration-${test.id}`}>
+                        Delay Duration
+                      </Label>
+                      <DraftNumberInput
+                        id={`delay-duration-${test.id}`}
                         min={delayUnits[test.id] === "ms" ? 100 : 1}
                         step={delayUnits[test.id] === "ms" ? 100 : 1}
                         value={convertDurationToUnit(
@@ -2213,20 +2199,13 @@ export const TestConfigForm = ({
                               test.delayConfig?.durationMs ?? 1000,
                             ),
                         )}
-                        onChange={(event) =>
+                        onValueChange={(nextValue) =>
                           updateTest(test.id, (current) => {
                             const unit =
                               delayUnits[test.id] ??
                               inferDelayUnit(
                                 current.delayConfig?.durationMs ?? 1000,
                               );
-                            const nextValue =
-                              Number(event.target.value) ||
-                              convertDurationToUnit(
-                                current.delayConfig?.durationMs ?? 1000,
-                                unit,
-                              );
-
                             return {
                               ...current,
                               delayConfig: {

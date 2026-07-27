@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/dev-atharva/cots/pkg/db"
 	mysqldb "github.com/dev-atharva/cots/pkg/db/mysql"
 	"github.com/dev-atharva/cots/pkg/db/postgres"
-	"github.com/dev-atharva/cots/pkg/db/sqlite"
 	"github.com/dev-atharva/cots/pkg/dockerhealth"
 	"github.com/dev-atharva/cots/pkg/janitor"
 	"github.com/dev-atharva/cots/pkg/logger"
@@ -70,76 +68,42 @@ func main() {
 	log.Info("database configuration loaded", "db_type", cfg.Database.Type)
 
 	var database db.Database
-	var syncHandler *sync.Handler
+	switch cfg.Database.Type {
+	case "postgres":
+		database, err = postgres.NewClient(cfg.Database.URL)
+	case "mysql":
+		database, err = mysqldb.NewClient(cfg.Database.URL)
+	}
+	if err != nil {
+		log.Error("failed to initialize database", "db_type", cfg.Database.Type, "error", err)
+		os.Exit(1)
+	}
+	log.Info("database initialized", "db_type", cfg.Database.Type)
 
-	if err := cfg.Database.Validate(); err == nil {
-		var err error
-
-		switch cfg.Database.Type {
-		case "sqlite":
-			dir := filepath.Dir(cfg.Database.Path)
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				log.Warn("failed to create data directory", "error", err, "path", dir)
-			}
-			database, err = sqlite.NewClient(cfg.Database.Path)
-			if err != nil {
-				log.Warn("failed to initialize SQLite database", "error", err, "path", cfg.Database.Path)
-			} else {
-				log.Info("SQLite database initialized", "path", cfg.Database.Path)
-			}
-
-		case "postgres":
-			database, err = postgres.NewClient(cfg.Database.URL)
-			if err != nil {
-				log.Warn("failed to initialize PostgreSQL database", "error", err)
-			} else {
-				log.Info("PostgresSQL database initialized")
-			}
-		case "mysql":
-			database, err = mysqldb.NewClient(cfg.Database.URL)
-			if err != nil {
-				log.Warn("failed to initialize MySQL database", "error", err)
-			} else {
-				log.Info("MySQL database initialized")
-			}
+	if *runMigrations || cfg.WorkflowWorker.Enabled {
+		migrator := db.NewMigrator(database, cfg.Database.Type)
+		if err := migrator.RunMigrations(); err != nil {
+			log.Error("database migrations failed", "error", err)
+			os.Exit(1)
 		}
-
-		if database != nil {
-			if *runMigrations || cfg.WorkflowWorker.Enabled {
-				migrator := db.NewMigrator(database, cfg.Database.Type)
-				if err := migrator.RunMigrations(); err != nil {
-					if cfg.WorkflowWorker.Enabled {
-						log.Error("workflow worker migrations failed", "error", err)
-						os.Exit(1)
-					}
-					log.Warn("failed to run migrations", "error", err)
-				} else {
-					log.Info("Database migrations completed")
-				}
-			} else {
-				log.Info("Skipping migrations (run with -migrate flag to enable)")
-			}
-
-			// Always initialize sync service & handler
-			syncService := sync.NewService(database)
-			syncHandler = sync.NewHandler(syncService)
-			log.Info("Sync service initialized")
-
-			defer func() {
-				if err := database.Close(); err != nil {
-					log.Error("error closing database", "error", err)
-				}
-			}()
-		}
+		log.Info("database migrations completed")
 	} else {
-		log.Info("database not configured, skipping sync service", "error", err)
-		log.Info("to enable database sync: ")
-		log.Info(" For SQlite: export DB_TYPE=sqlite DB_PATH=./data/cots.db")
-		log.Info(" For Postgres: export DB_TYPE=postgres DATABASE_URL=postgres://user:pass@host:5432/db")
-		log.Info(" For MySQL: export DB_TYPE=mysql DATABASE_URL=mysql://user:pass@host:3306/db")
+		log.Info("skipping migrations (run with -migrate to enable)")
 	}
 
+	syncService := sync.NewService(database)
+	syncHandler := sync.NewHandler(syncService)
+	log.Info("sync service initialized")
+	defer func() {
+		if err := database.Close(); err != nil {
+			log.Error("error closing database", "error", err)
+		}
+	}()
+
 	handler := api.NewHandler(database, cfg.App)
+	if cfg.WorkflowWorker.Enabled || cfg.Janitor.Enabled {
+		handler.SetReadinessCheck(dockerhealth.Validate)
+	}
 	appCtx, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 	var workflowService *api.WorkflowService

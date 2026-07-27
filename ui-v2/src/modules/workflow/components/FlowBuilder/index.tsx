@@ -2,20 +2,11 @@
 
 import { ReactFlowProvider } from "@xyflow/react";
 import type React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "@xyflow/react/dist/style.css";
 import { toast } from "sonner";
 import { useProjectContext } from "@/modules/projects/project-context";
-import {
-  createGenericServiceNode,
-  createKafkaNode,
-  createMariaDbNode,
-  createMongoDBNode,
-  createMySqlNode,
-  createPostgresNode,
-  createRabbitMQNode,
-  createRedisNode,
-} from "@/modules/utils/node-factory";
+import { useSyncContext } from "@/modules/sync/SyncProvider";
 import {
   getShortcutDescription,
   useKeyboardShortcuts,
@@ -25,12 +16,18 @@ import { useRealtimeLogs } from "../../hooks/useRealtimeLogs";
 import { useWorkflowExecution } from "../../hooks/useWorkflowExecution";
 import { useWorkflowGraph } from "../../hooks/useWorkflowGraph";
 import { shouldPollExecutionFallback } from "../../lib/realtime-events";
+import { cancelWorkflowRun } from "../../lib/runner-client";
+import { createDefaultServiceNode } from "../../lib/workflow-defaults";
 import { useExecutionStore } from "../../stores/execution.store.sync";
 import { useScenarioStore } from "../../stores/scenario.store.sync";
 import { useUIStore } from "../../stores/ui.store";
 import { useWorkflowStore } from "../../stores/workflow.store.sync";
 import { EdgeConfigDialog } from "../EdgeConfigDialog";
 import { ExecutionHistory } from "../ExecutionHistory";
+import {
+  type GuidedStage,
+  GuidedWorkflowWorkspace,
+} from "../GuidedWorkflowWorkspace";
 import { ShortcutsDialog } from "../KeyboardShortCutsDialog";
 import { NodeConfigDialog } from "../NodeConfigDialog";
 import { NodeDrawer } from "../NodeDrawer";
@@ -63,12 +60,34 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   const activeWorkflowRunId = useExecutionStore((s) => s.activeWorkflowRunId);
   const executions = useExecutionStore((s) => s.executions);
   const scenariosMap = useScenarioStore((s) => s.scenarios);
+  const updateExecutionStatus = useExecutionStore(
+    (s) => s.updateExecutionStatus,
+  );
   const hydrated = useWorkflowStore((s) => s.hydrated);
   const activeExecution = useMemo(
     () =>
       activeWorkflowRunId ? (executions[activeWorkflowRunId] ?? null) : null,
     [activeWorkflowRunId, executions],
   );
+  const cancelActiveExecution = useCallback(async () => {
+    if (!activeExecution) return;
+    try {
+      const result = await cancelWorkflowRun(
+        activeExecution.workflowRunId,
+        activeExecution.projectId,
+      );
+      updateExecutionStatus(activeExecution.workflowRunId, result.status);
+      toast.info(
+        result.status === "cancelled"
+          ? "Workflow cancelled"
+          : "Cancellation requested; cleaning up resources",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to cancel workflow",
+      );
+    }
+  }, [activeExecution, updateExecutionStatus]);
   // UI State
   const {
     isDrawerOpen,
@@ -100,7 +119,12 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   >(null);
   const autoLayoutWorkflowRef = useRef<string | null>(null);
   const [isRunDialogOpen, setIsRunDialogOpen] = useState(false);
+  const [authoringMode, setAuthoringMode] = useState<"guided" | "expert">(
+    "guided",
+  );
+  const [guidedStage, setGuidedStage] = useState<GuidedStage>("services");
   const { activeProject } = useProjectContext();
+  const { queueSize } = useSyncContext();
   const canEdit = activeProject?.allowedActions.includes("edit") ?? false;
   const canRun = activeProject?.allowedActions.includes("run") ?? false;
 
@@ -119,6 +143,8 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
     editingEdgeId,
     setEditingEdgeId,
     updateEdge,
+    saveGuidedEdge,
+    deleteEdge,
     tidyLayout,
   } = useWorkflowGraph(workflowId);
   const editingEdge = edges.find((edge) => edge.id === editingEdgeId) ?? null;
@@ -152,15 +178,16 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   }, [canEdit, edges, nodes.length, tidyLayout, workflow]);
 
   // Execution
-  const { execute, isExecuting, canExecute } = useWorkflowExecution({
-    workflowId,
-    workflowName: workflow?.name || "",
-    nodes,
-    edges,
-    onStart: onWorkflowStart,
-    onComplete: onWorkComplete,
-    onError,
-  });
+  const { execute, isExecuting, canExecute, validationResult } =
+    useWorkflowExecution({
+      workflowId,
+      workflowName: workflow?.name || "",
+      nodes,
+      edges,
+      onStart: onWorkflowStart,
+      onComplete: onWorkComplete,
+      onError,
+    });
   const runnableScenarios = useMemo(
     () =>
       Object.values(scenariosMap)
@@ -173,7 +200,10 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   );
 
   // Realtime logs
-  const { isConnected: isRunnerRealtimeConnected } = useRealtimeLogs({
+  const {
+    isConnected: isRunnerRealtimeConnected,
+    lastActivityAt: runnerLastActivityAt,
+  } = useRealtimeLogs({
     onComplete: onWorkComplete,
     onError,
   });
@@ -328,59 +358,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
       y: Math.random() * 300 + 100,
     };
 
-    const flowNode = (() => {
-      switch (type) {
-        case "postgres":
-          return createPostgresNode(id, position, {
-            label: "PostgreSQL",
-            database: "testdb",
-            user: "postgres",
-            password: "postgres",
-          });
-        case "mysql":
-          return createMySqlNode(id, position, {
-            label: "MySQL",
-            database: "testdb",
-            user: "root",
-            password: "root",
-          });
-        case "mariadb":
-          return createMariaDbNode(id, position, {
-            label: "MariaDB",
-            database: "testdb",
-            user: "root",
-            password: "root",
-          });
-        case "redis":
-          return createRedisNode(id, position, {
-            label: "Redis",
-            password: "",
-            database: 0,
-          });
-        case "kafka":
-          return createKafkaNode(id, position, {
-            label: "Kafka",
-            clusterId: "test-cluster",
-          });
-        case "rabbitmq":
-          return createRabbitMQNode(id, position, {
-            label: "RabbitMQ",
-          });
-        case "mongodb":
-          return createMongoDBNode(id, position, {
-            label: "MongoDB",
-            database: "testdb",
-            username: "admin",
-            password: "admin",
-          });
-        default:
-          return createGenericServiceNode(id, position, {
-            label: "API Server",
-            image: "nginx:alpine",
-            ports: [{ host: "8080", container: "80" }],
-          });
-      }
-    })();
+    const flowNode = createDefaultServiceNode(id, position, type);
 
     flowNode.data = {
       ...flowNode.data,
@@ -472,36 +450,60 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   return (
     <div className="size-full">
       <ReactFlowProvider>
-        <FlowCanvas
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={connectNodes}
-          onNodeDoubleClick={(_, node) => openNodeConfig(node)}
-          onEdgeClick={(_, edge) => setEditingEdgeId(edge.id)}
-          onExecute={() => setIsRunDialogOpen(true)}
-          onOpenDrawer={openDrawer}
-          onOpenScenarios={openScenarios}
-          onOpenLogs={openLogs}
-          onOpenShortcuts={openShortcuts}
-          onOpenHistory={() => setIsHistoryOpen(true)}
-          onOpenVersions={() => setIsVersionsOpen(true)}
-          isExecuting={isExecuting}
-          canExecute={canRun && canExecute}
-          canEdit={canEdit}
-          hasActiveExecution={!!activeExecution}
-          reviewEdgeCount={reviewEdgeCount}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
-          selectedNodeId={selectedArchitectureNodeId}
-          onSelectedNodeChange={setSelectedArchitectureNodeId}
-          onTidyLayout={tidyLayout}
-          focusedServiceNames={focusedScenarioServices}
-          onClearScenarioFocus={() => setFocusedScenarioServices(null)}
-          workflowStats={workflowStats}
-        />
+        {authoringMode === "guided" ? (
+          <GuidedWorkflowWorkspace
+            workflowId={workflowId}
+            workflowName={workflow.name}
+            provenance={workflow.provenance}
+            nodes={nodes}
+            edges={edges}
+            canEdit={canEdit}
+            canRun={canRun && canExecute && queueSize === 0}
+            isExecuting={isExecuting}
+            onAddService={openDrawer}
+            onEditService={openNodeConfig}
+            onRun={() => setIsRunDialogOpen(true)}
+            onOpenExpert={() => setAuthoringMode("expert")}
+            activeStage={guidedStage}
+            onStageChange={setGuidedStage}
+            onSaveConnection={saveGuidedEdge}
+            onConfirmConnection={updateEdge}
+            onDeleteConnection={deleteEdge}
+            validationErrors={validationResult?.errors}
+          />
+        ) : (
+          <FlowCanvas
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={connectNodes}
+            onNodeDoubleClick={(_, node) => openNodeConfig(node)}
+            onEdgeClick={(_, edge) => setEditingEdgeId(edge.id)}
+            onExecute={() => setIsRunDialogOpen(true)}
+            onOpenDrawer={openDrawer}
+            onOpenScenarios={openScenarios}
+            onOpenLogs={openLogs}
+            onOpenShortcuts={openShortcuts}
+            onOpenHistory={() => setIsHistoryOpen(true)}
+            onOpenVersions={() => setIsVersionsOpen(true)}
+            onOpenGuided={() => setAuthoringMode("guided")}
+            isExecuting={isExecuting}
+            canExecute={canRun && canExecute && queueSize === 0}
+            canEdit={canEdit}
+            hasActiveExecution={!!activeExecution}
+            reviewEdgeCount={reviewEdgeCount}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            selectedNodeId={selectedArchitectureNodeId}
+            onSelectedNodeChange={setSelectedArchitectureNodeId}
+            onTidyLayout={tidyLayout}
+            focusedServiceNames={focusedScenarioServices}
+            onClearScenarioFocus={() => setFocusedScenarioServices(null)}
+            workflowStats={workflowStats}
+          />
+        )}
 
         {canEdit ? (
           <EdgeConfigDialog
@@ -526,6 +528,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
 
         {canEdit ? (
           <NodeConfigDialog
+            workflowId={workflowId}
             isOpen={isNodeConfigOpen}
             node={selectedNode}
             nodes={nodes}
@@ -555,8 +558,10 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
         <RunWorkflowDialog
           open={isRunDialogOpen}
           onOpenChange={setIsRunDialogOpen}
+          nodes={nodes}
           scenarios={runnableScenarios}
           isExecuting={isExecuting}
+          validationErrors={validationResult?.errors}
           onRun={execute}
         />
 
@@ -564,6 +569,9 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           open={isLogsOpen}
           onOpenChange={closeLogs}
           execution={activeExecution}
+          realtimeConnected={isRunnerRealtimeConnected}
+          lastActivityAt={runnerLastActivityAt}
+          onCancel={cancelActiveExecution}
         />
 
         <ShortcutsDialog

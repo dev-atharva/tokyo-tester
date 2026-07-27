@@ -40,6 +40,7 @@ import type { ConflictInfo, ScenarioData, WorkflowData } from "./sync-types";
 
 interface SyncContextValue {
   isInitialized: boolean;
+  isHydrating: boolean;
   syncStatus: "healthy" | "degraded" | "down" | "error" | "unknown";
   queueSize: number;
   forceSync: () => Promise<void>;
@@ -280,6 +281,7 @@ export function SyncProvider({
 
   const contextValue: SyncContextValue = {
     isInitialized,
+    isHydrating,
     syncStatus,
     queueSize,
     forceSync,
@@ -372,7 +374,12 @@ export function SyncStatusIndicator() {
   };
 
   return (
-    <div className="flex items-center gap-2 p-2 border rounded-lg bg-white">
+    <div
+      className="flex items-center gap-2 p-2 border rounded-lg bg-white"
+      data-testid="sync-status"
+      data-status={syncStatus}
+      data-queue-size={queueSize}
+    >
       {/* Status indicator dot */}
       <div
         className={cn(

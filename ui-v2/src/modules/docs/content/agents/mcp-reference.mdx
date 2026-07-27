@@ -1,0 +1,29 @@
+The MCP adapter implements a narrow Tokyo Tester surface. Tools return structured results, declare read/destructive/idempotent hints, and authenticate every call against one project boundary.
+
+## Resources
+
+The server publishes `tokyo://capabilities` plus authoring guidance resources such as `tokyo://authoring`, `tokyo://scenario-patterns`, and `tokyo://quality-rubric`. Capabilities describe supported node types, test executors, authoring rules, and limits.
+
+## Read tools
+
+| Tool | Purpose |
+| --- | --- |
+| `tokyo_list_projects` | Show the authorized workspace and actions |
+| `tokyo_list_workflows` | List persisted workflows |
+| `tokyo_get_workflow` | Read one workflow and its scenarios |
+| `tokyo_list_workflow_revisions` | List immutable revisions |
+| `tokyo_get_capabilities` | Read the compact capability contract |
+| `tokyo_review_workflow_plan` | Review research and scenario coverage |
+| `tokyo_validate_workflow` | Normalize a bundle and issue a receipt |
+| `tokyo_get_run` | Poll durable run state and results |
+| `tokyo_get_run_diagnostics` | Retrieve redacted failure context |
+
+## Write and run tools
+
+`tokyo_create_workflow_revision`, `tokyo_restore_workflow_revision`, `tokyo_import_workflow`, `tokyo_run_workflow`, and `tokyo_run_existing_workflow` mutate durable state or start execution. Restore is explicitly destructive. Import and run use stable idempotency keys; bundle mutations require an unexpired validation receipt.
+
+## Authentication and limits
+
+Scopes are `read`, `workflow:write`, and `run`. The maximum workflow bundle is 10 MiB. Personal tokens suit controlled self-hosting; OAuth is the public-network mode. Internally, the adapter exchanges external authority for a 60-second assertion and does not forward the original access token.
+
+The current protocol server negotiates supported MCP protocol versions and exposes Streamable HTTP at the workspace-specific MCP URL shown in Agent setup.

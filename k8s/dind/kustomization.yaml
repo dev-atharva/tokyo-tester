@@ -4,7 +4,6 @@ namespace: tokyo-tester
 resources:
   - namespace.yaml
   - configmap.yaml
-  - persistentvolumeclaims.yaml
   - runner.yaml
   - ui.yaml
   - mcp.yaml

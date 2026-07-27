@@ -186,10 +186,11 @@ function hydrateTestResults(testResults: TestResultData[]): number {
 export function deserializeWorkflow(data: WorkflowData): Workflow {
   const nodes = parseJSON<FlowNode[]>(data.nodes_config, []);
   const edges = normalizeEdges(parseJSON<FlowEdge[]>(data.edges_config, []));
-  const metadata = parseJSON<{ customTestOrder?: Record<string, string[]> }>(
-    data.metadata,
-    {},
-  );
+  const metadata = parseJSON<{
+    customTestOrder?: Record<string, string[]>;
+    provenance?: "manual" | "import" | "mcp";
+    importedBy?: string;
+  }>(data.metadata, {});
 
   return {
     id: data.id,
@@ -199,6 +200,9 @@ export function deserializeWorkflow(data: WorkflowData): Workflow {
     nodes,
     edges,
     customTestOrder: metadata.customTestOrder ?? {},
+    provenance:
+      metadata.provenance ??
+      (metadata.importedBy === "agent" ? "mcp" : "manual"),
     version: data.version,
     created_at: data.created_at,
     updated_at: data.updated_at,

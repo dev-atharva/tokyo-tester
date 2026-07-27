@@ -32,7 +32,7 @@ export interface ServiceConfig {
 
 export interface RegistryConfig {
   url: string;
-  auth_type?: "basic" | "token";
+  auth_type?: "none" | "basic" | "token";
   username?: string;
   password?: string;
   token?: string;
@@ -120,6 +120,10 @@ export interface ServiceNodeData {
       timeout?: number;
     };
     initScripts?: InitScript[];
+    registry?: {
+      url: string;
+      auth_type: "none" | "basic" | "token";
+    };
   };
   // Kept optional for legacy workflows while scenarios migrate tests out of nodes.
   tests?: ScenarioTestDefinition[];
@@ -268,11 +272,21 @@ export interface Scenario {
 export type WorkflowRunStatus =
   | "pending"
   | "running"
+  | "cancelling"
+  | "cancelled"
   | "completed"
   | "failed"
-  | "partial_failed";
+  | "partial_failed"
+  | "cleanup_failed";
 
-export type ScenarioRunStatus = "pending" | "running" | "completed" | "failed";
+export type ScenarioRunStatus =
+  | "pending"
+  | "running"
+  | "cancelling"
+  | "cancelled"
+  | "completed"
+  | "failed"
+  | "cleanup_failed";
 
 export interface PortMapping {
   id: string;
@@ -387,7 +401,7 @@ export interface WorkflowRunInput {
     string,
     {
       url?: string;
-      auth_type: "basic" | "token";
+      auth_type: "none" | "basic" | "token";
       username?: string;
       password?: string;
       token?: string;
@@ -449,7 +463,7 @@ export interface WorkflowLogEvent {
   scenarioName?: string;
   backendSessionId?: string;
   message: string;
-  status?: "running" | "completed" | "failed";
+  status?: "running" | "completed" | "failed" | "cleanup_failed";
   stage?:
     | "validation"
     | "translation"

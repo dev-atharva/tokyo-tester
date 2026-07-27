@@ -3,12 +3,17 @@ package mcpserver
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +21,7 @@ import (
 
 const protocolVersion = "2025-11-25"
 const maxReviewWarnings = 8
+const maxMCPRequestBytes = 10 << 20
 
 var resourceDocs = map[string]struct {
 	name     string
@@ -32,6 +38,7 @@ var resourceDocs = map[string]struct {
 3. Model readiness from startup/runtime references, not just architecture.
 4. Call tokyo_review_workflow_plan with compact summaries before authoring complex or multi-repo bundles.
 5. Validate every bundle with tokyo_validate_workflow before import or run.
+6. Use the returned normalized bundle and validationReceipt unchanged. Any edit requires validation again.
 
 Do not send source files, raw manifests, logs, or secrets to MCP.`),
 	},
@@ -62,10 +69,29 @@ tokyo_review_workflow_plan returns warnings only. Structural validation still co
 }
 
 type Server struct {
-	appBaseURL    *url.URL
-	client        *http.Client
-	allowedOrigin string
-	limiter       *rateLimiter
+	appBaseURL            *url.URL
+	publicMCPURL          *url.URL
+	oauthIssuer           string
+	oauthIntrospectionURL string
+	oauthClientID         string
+	oauthClientSecret     string
+	internalSecret        string
+	authMode              string
+	client                *http.Client
+	allowedOrigins        map[string]struct{}
+	limiter               *rateLimiter
+}
+
+type Config struct {
+	AppBaseURL            string
+	PublicMCPURL          string
+	AllowedOrigins        string
+	AuthMode              string
+	OAuthIssuer           string
+	OAuthIntrospectionURL string
+	OAuthClientID         string
+	OAuthClientSecret     string
+	InternalSecret        string
 }
 
 type rpcRequest struct {
@@ -88,35 +114,112 @@ type rpcError struct {
 	Data    any    `json:"data,omitempty"`
 }
 
-func New(appBaseURL, allowedOrigin string) (*Server, error) {
-	base, err := url.Parse(appBaseURL)
+func New(config Config) (*Server, error) {
+	base, err := url.Parse(config.AppBaseURL)
 	if err != nil || base.Scheme == "" || base.Host == "" {
 		return nil, fmt.Errorf("invalid TOKYO_TESTER_APP_URL")
 	}
-	return &Server{appBaseURL: base, client: &http.Client{Timeout: 30 * time.Second}, allowedOrigin: strings.TrimSpace(allowedOrigin), limiter: newRateLimiter(120, time.Minute)}, nil
+	publicURL, err := url.Parse(config.PublicMCPURL)
+	if err != nil || publicURL.Scheme == "" || publicURL.Host == "" || strings.TrimSuffix(publicURL.Path, "/") != "/mcp" {
+		return nil, fmt.Errorf("invalid MCP_PUBLIC_URL")
+	}
+	mode := strings.TrimSpace(config.AuthMode)
+	if mode != "personal_token" && mode != "oauth" {
+		return nil, fmt.Errorf("MCP_AUTH_MODE must be personal_token or oauth")
+	}
+	if len(config.InternalSecret) < 32 {
+		return nil, fmt.Errorf("MCP_INTERNAL_SECRET must contain at least 32 characters")
+	}
+	if mode == "oauth" {
+		issuer, issuerErr := url.Parse(config.OAuthIssuer)
+		introspection, introspectionErr := url.Parse(config.OAuthIntrospectionURL)
+		if issuerErr != nil || issuer.Scheme != "https" || issuer.Host == "" {
+			return nil, fmt.Errorf("MCP_OAUTH_ISSUER must be an HTTPS URL")
+		}
+		if introspectionErr != nil || introspection.Scheme != "https" || introspection.Host == "" {
+			return nil, fmt.Errorf("MCP_OAUTH_INTROSPECTION_URL must be an HTTPS URL")
+		}
+		if config.OAuthClientID == "" || config.OAuthClientSecret == "" {
+			return nil, fmt.Errorf("MCP OAuth client credentials must be set")
+		}
+	}
+	origins := make(map[string]struct{})
+	for _, origin := range strings.Split(config.AllowedOrigins, ",") {
+		if trimmed := strings.TrimSpace(origin); trimmed != "" {
+			origins[trimmed] = struct{}{}
+		}
+	}
+	return &Server{
+		appBaseURL:            base,
+		publicMCPURL:          publicURL,
+		oauthIssuer:           strings.TrimSuffix(config.OAuthIssuer, "/"),
+		oauthIntrospectionURL: config.OAuthIntrospectionURL,
+		oauthClientID:         config.OAuthClientID,
+		oauthClientSecret:     config.OAuthClientSecret,
+		internalSecret:        config.InternalSecret,
+		authMode:              mode,
+		client:                &http.Client{Timeout: 30 * time.Second},
+		allowedOrigins:        origins,
+		limiter:               newRateLimiter(120, time.Minute),
+	}, nil
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
+		status, _, err := s.callAppHealth(r.Context())
+		if err != nil || status != http.StatusOK {
+			writeHealthResponse(w, r, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
+			return
+		}
+		writeHealthResponse(w, r, http.StatusOK, map[string]string{"status": "ready"})
+	}
+	mux.HandleFunc("GET /health", healthHandler)
+	mux.HandleFunc("HEAD /health", healthHandler)
 	mux.HandleFunc("POST /mcp", s.handleMCP)
+	mux.HandleFunc("POST /mcp/projects/{projectID}", s.handleMCP)
+	mux.HandleFunc("OPTIONS /mcp", s.handleOptions)
+	mux.HandleFunc("OPTIONS /mcp/projects/{projectID}", s.handleOptions)
 	mux.HandleFunc("GET /mcp", func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "SSE subscriptions are not enabled; poll tokyo_get_run", http.StatusMethodNotAllowed)
 	})
+	mux.HandleFunc("GET /mcp/projects/{projectID}", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "SSE subscriptions are not enabled; poll tokyo_get_run", http.StatusMethodNotAllowed)
+	})
 	return s.securityHeaders(mux)
+}
+
+func writeHealthResponse(w http.ResponseWriter, r *http.Request, status int, value any) {
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		return
+	}
+	writeJSON(w, status, value)
+}
+
+func (s *Server) handleOptions(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, MCP-Protocol-Version")
+	w.Header().Set("Access-Control-Max-Age", "600")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
-		if origin := r.Header.Get("Origin"); origin != "" && s.allowedOrigin != "" && origin != s.allowedOrigin {
-			http.Error(w, "origin is not allowed", http.StatusForbidden)
-			return
+		if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
+			if _, allowed := s.allowedOrigins[origin]; !allowed {
+				http.Error(w, "origin is not allowed", http.StatusForbidden)
+				return
+			}
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Expose-Headers", "MCP-Protocol-Version, WWW-Authenticate")
 		}
-		if !s.limiter.Allow(clientIP(r)) {
+		if strings.HasPrefix(r.URL.Path, "/mcp") && r.Method != http.MethodOptions && !s.limiter.Allow(rateLimitKey(r)) {
+			w.Header().Set("Retry-After", "60")
 			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}
@@ -125,7 +228,7 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 }
 
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxMCPRequestBytes)
 	var request rpcRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		s.writeRPC(w, nil, nil, &rpcError{Code: -32700, Message: "Parse error"})
@@ -134,6 +237,17 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	if request.JSONRPC != "2.0" {
 		s.writeRPC(w, request.ID, nil, &rpcError{Code: -32600, Message: "Invalid Request"})
 		return
+	}
+	if request.Method != "initialize" {
+		version := strings.TrimSpace(r.Header.Get("MCP-Protocol-Version"))
+		if version == "" {
+			http.Error(w, "MCP-Protocol-Version is required after initialization", http.StatusBadRequest)
+			return
+		}
+		if version != "2025-03-26" && version != "2025-06-18" && version != protocolVersion {
+			http.Error(w, "unsupported MCP-Protocol-Version", http.StatusBadRequest)
+			return
+		}
 	}
 	if len(request.ID) == 0 {
 		w.WriteHeader(http.StatusAccepted)
@@ -145,13 +259,13 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		var params struct {
 			ProtocolVersion string `json:"protocolVersion"`
 		}
-		if json.Unmarshal(request.Params, &params) == nil && (params.ProtocolVersion == "2025-06-18" || params.ProtocolVersion == protocolVersion) {
+		if json.Unmarshal(request.Params, &params) == nil && (params.ProtocolVersion == "2025-03-26" || params.ProtocolVersion == "2025-06-18" || params.ProtocolVersion == protocolVersion) {
 			negotiated = params.ProtocolVersion
 		}
 		s.writeRPC(w, request.ID, map[string]any{
 			"protocolVersion": negotiated,
 			"capabilities":    map[string]any{"tools": map[string]bool{"listChanged": false}, "resources": map[string]bool{"subscribe": false, "listChanged": false}},
-			"serverInfo":      map[string]string{"name": "tokyo-tester", "version": "0.1.0"},
+			"serverInfo":      map[string]string{"name": "tokyo-tester", "version": "1.0.0"},
 			"instructions":    "Inspect the user's repository locally. Use Tokyo Tester tools only for capabilities, validation, import, execution, and diagnostics.",
 		}, nil)
 	case "ping":
@@ -170,9 +284,9 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 }
 
 func tools() []map[string]any {
-	bundle := map[string]any{"type": "object", "description": "Complete cots.workflow-bundle JSON object. Do not include secrets or unevidenced endpoints, topics, schemas, or credentials."}
+	bundle := workflowBundleToolSchema()
 	stringArray := map[string]any{"type": "array", "description": "Unique non-empty string list.", "items": map[string]any{"type": "string"}, "uniqueItems": true, "minItems": 1}
-	reviewArray := map[string]any{"type": "array", "description": "Compact summary objects only; do not include source files, raw manifests, logs, or secrets.", "items": map[string]any{"type": "object", "additionalProperties": true}}
+	reviewSchemas := reviewItemSchemas()
 	return []map[string]any{
 		tool("tokyo_list_projects", "List the project authorized by the current token; inspect allowedActions before import or run.", objectSchema(nil, nil), true, false, true),
 		tool("tokyo_list_workflows", "List persisted workflows available in the authorized workspace.", objectSchema(nil, nil), true, false, true),
@@ -182,17 +296,17 @@ func tools() []map[string]any {
 		tool("tokyo_restore_workflow_revision", "Restore an immutable workflow revision as a new current revision. This is destructive and requires explicit user approval.", objectSchema(map[string]any{"workflowId": stringSchema("Persisted workflow id."), "revisionId": stringSchema("Revision id to restore."), "expectedVersion": map[string]any{"type": "integer", "minimum": 1, "description": "Current workflow version guard."}}, []string{"workflowId", "revisionId", "expectedVersion"}), false, true, false),
 		tool("tokyo_get_capabilities", "Get compact workflow schema, supported types, authoring rules, limits, and optional tokyo:// resource URIs.", objectSchema(nil, nil), true, false, true),
 		tool("tokyo_review_workflow_plan", "Review compact multi-repo research and scenario summaries before authoring complex workflows. Returns warnings only; it never imports, runs, or blocks.", objectSchema(map[string]any{
-			"repositories":       reviewArray,
-			"serviceInventory":   reviewArray,
-			"dependencyMap":      reviewArray,
-			"scenarioMatrix":     reviewArray,
+			"repositories":       reviewSchemas["repositories"],
+			"serviceInventory":   reviewSchemas["serviceInventory"],
+			"dependencyMap":      reviewSchemas["dependencyMap"],
+			"scenarioMatrix":     reviewSchemas["scenarioMatrix"],
 			"evidenceNotes":      map[string]any{"type": "array", "description": "Short evidence notes or provenance strings.", "items": map[string]any{"type": "string"}},
 			"openQuestions":      map[string]any{"type": "array", "description": "Unresolved questions that should be asked before assumptions become workflow JSON.", "items": map[string]any{"type": "string"}},
 			"applicationSummary": stringSchema("Optional short summary of the application cluster."),
 		}, []string{"repositories", "serviceInventory", "dependencyMap", "scenarioMatrix"}), true, false, true),
 		tool("tokyo_validate_workflow", "Authoritatively validate and normalize a workflow bundle. Call before import or run.", objectSchema(map[string]any{"bundle": bundle}, []string{"bundle"}), true, false, true),
-		tool("tokyo_import_workflow", "Import a validated workflow into the authorized project. Requires user approval and a stable idempotency key.", objectSchema(map[string]any{"bundle": bundle, "idempotencyKey": map[string]any{"type": "string", "minLength": 8, "description": "Stable key reused only for retrying the same import."}}, []string{"bundle", "idempotencyKey"}), false, true, true),
-		tool("tokyo_run_workflow", "Import and execute a workflow in the authorized project. Requires workflow write/run permission, user approval, and a stable idempotency key.", objectSchema(map[string]any{"bundle": bundle, "scenarioNames": stringArray, "idempotencyKey": map[string]any{"type": "string", "minLength": 8, "description": "Stable key reused only for retrying the same import-and-run."}}, []string{"bundle", "idempotencyKey"}), false, true, true),
+		tool("tokyo_import_workflow", "Import an exactly validated workflow into the authorized project. Requires the unexpired validationReceipt returned for this bundle, user approval, and a stable idempotency key.", objectSchema(map[string]any{"bundle": bundle, "validationReceipt": validationReceiptSchema(), "idempotencyKey": map[string]any{"type": "string", "minLength": 8, "description": "Stable key reused only for retrying the same import."}}, []string{"bundle", "validationReceipt", "idempotencyKey"}), false, true, true),
+		tool("tokyo_run_workflow", "Import and execute an exactly validated workflow in the authorized project. Requires the unexpired validationReceipt returned for this bundle, workflow write/run permission, user approval, and a stable idempotency key.", objectSchema(map[string]any{"bundle": bundle, "validationReceipt": validationReceiptSchema(), "scenarioNames": stringArray, "idempotencyKey": map[string]any{"type": "string", "minLength": 8, "description": "Stable key reused only for retrying the same import-and-run."}}, []string{"bundle", "validationReceipt", "idempotencyKey"}), false, true, true),
 		tool("tokyo_run_existing_workflow", "Execute selected scenarios from a persisted workflow without modifying it. Omit scenarioIds only when the user approves running all scenarios.", objectSchema(map[string]any{"workflowId": stringSchema("Persisted workflow id."), "scenarioIds": stringArray, "idempotencyKey": map[string]any{"type": "string", "minLength": 8, "description": "Stable key reused only for retrying the same run."}}, []string{"workflowId", "idempotencyKey"}), false, true, true),
 		tool("tokyo_get_run", "Poll durable workflow run status and test results.", objectSchema(map[string]any{"workflowRunId": stringSchema("Workflow run id returned by a run tool.")}, []string{"workflowRunId"}), true, false, true),
 		tool("tokyo_get_run_diagnostics", "Get redacted workflow, scenario, and test failure diagnostics for repairing a workflow.", objectSchema(map[string]any{"workflowRunId": stringSchema("Workflow run id returned by a run tool.")}, []string{"workflowRunId"}), true, false, true),
@@ -200,7 +314,7 @@ func tools() []map[string]any {
 }
 
 func tool(name, description string, schema map[string]any, readOnly, destructive, idempotent bool) map[string]any {
-	return map[string]any{"name": name, "description": description, "inputSchema": schema, "annotations": map[string]any{"readOnlyHint": readOnly, "destructiveHint": destructive, "idempotentHint": idempotent, "openWorldHint": true}}
+	return map[string]any{"name": name, "description": description, "inputSchema": schema, "outputSchema": genericToolOutputSchema(), "annotations": map[string]any{"readOnlyHint": readOnly, "destructiveHint": destructive, "idempotentHint": idempotent, "openWorldHint": true}}
 }
 
 func objectSchema(properties map[string]any, required []string) map[string]any {
@@ -220,7 +334,13 @@ func resources() []map[string]any {
 		"name":     "Tokyo Tester capabilities",
 		"mimeType": "application/json",
 	}}
-	for uri, doc := range resourceDocs {
+	resourceURIs := make([]string, 0, len(resourceDocs))
+	for uri := range resourceDocs {
+		resourceURIs = append(resourceURIs, uri)
+	}
+	sort.Strings(resourceURIs)
+	for _, uri := range resourceURIs {
+		doc := resourceDocs[uri]
 		result = append(result, map[string]any{"uri": uri, "name": doc.name, "mimeType": doc.mimeType})
 	}
 	return result
@@ -235,6 +355,22 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request, request rpcReq
 		s.writeRPC(w, request.ID, nil, &rpcError{Code: -32602, Message: "Invalid tool arguments"})
 		return
 	}
+	requiredScopes := toolScopes(params.Name)
+	assertion, ok := s.authenticateRequest(w, r, requiredScopes...)
+	if !ok {
+		return
+	}
+	if message := validateToolArguments(params.Name, params.Arguments); message != "" {
+		s.writeToolResult(w, request.ID, map[string]any{"error": message}, true)
+		return
+	}
+	if params.Name == "tokyo_import_workflow" || params.Name == "tokyo_run_workflow" {
+		receipt, _ := params.Arguments["validationReceipt"].(string)
+		if err := s.verifyValidationReceipt(receipt, params.Arguments["bundle"], time.Now()); err != nil {
+			s.writeToolResult(w, request.ID, map[string]any{"error": err.Error(), "nextStep": "Call tokyo_validate_workflow with the exact bundle, then retry with its validationReceipt after user approval."}, true)
+			return
+		}
+	}
 	method, path, body, idempotency := "GET", "", any(nil), ""
 	switch params.Name {
 	case "tokyo_review_workflow_plan":
@@ -246,27 +382,15 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request, request rpcReq
 		path = "/api/v1/agent/workflows"
 	case "tokyo_get_workflow":
 		workflowID, _ := params.Arguments["workflowId"].(string)
-		if workflowID == "" {
-			s.writeRPC(w, request.ID, nil, &rpcError{Code: -32602, Message: "workflowId is required"})
-			return
-		}
 		path = "/api/v1/agent/workflows/" + url.PathEscape(workflowID)
 	case "tokyo_list_workflow_revisions", "tokyo_create_workflow_revision", "tokyo_restore_workflow_revision":
 		workflowID, _ := params.Arguments["workflowId"].(string)
-		if workflowID == "" {
-			s.writeRPC(w, request.ID, nil, &rpcError{Code: -32602, Message: "workflowId is required"})
-			return
-		}
 		path = "/api/v1/agent/workflows/" + url.PathEscape(workflowID) + "/revisions"
 		if params.Name == "tokyo_create_workflow_revision" {
 			method, body = "POST", map[string]any{"message": params.Arguments["message"]}
 		} else if params.Name == "tokyo_restore_workflow_revision" {
 			revisionID, _ := params.Arguments["revisionId"].(string)
-			expectedVersion, ok := params.Arguments["expectedVersion"].(float64)
-			if revisionID == "" || !ok || expectedVersion < 1 {
-				s.writeRPC(w, request.ID, nil, &rpcError{Code: -32602, Message: "revisionId and expectedVersion are required"})
-				return
-			}
+			expectedVersion, _ := params.Arguments["expectedVersion"].(float64)
 			method = "POST"
 			path += "/" + url.PathEscape(revisionID) + "/restore"
 			body = map[string]any{"expectedVersion": int(expectedVersion)}
@@ -287,10 +411,6 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request, request rpcReq
 		idempotency, _ = params.Arguments["idempotencyKey"].(string)
 	case "tokyo_run_existing_workflow":
 		workflowID, _ := params.Arguments["workflowId"].(string)
-		if workflowID == "" {
-			s.writeRPC(w, request.ID, nil, &rpcError{Code: -32602, Message: "workflowId is required"})
-			return
-		}
 		method = "POST"
 		path = "/api/v1/agent/workflows/" + url.PathEscape(workflowID) + "/runs"
 		runBody := map[string]any{}
@@ -301,10 +421,6 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request, request rpcReq
 		idempotency, _ = params.Arguments["idempotencyKey"].(string)
 	case "tokyo_get_run", "tokyo_get_run_diagnostics":
 		runID, _ := params.Arguments["workflowRunId"].(string)
-		if runID == "" {
-			s.writeRPC(w, request.ID, nil, &rpcError{Code: -32602, Message: "workflowRunId is required"})
-			return
-		}
 		path = "/api/v1/agent/runs/" + url.PathEscape(runID)
 		if params.Name == "tokyo_get_run_diagnostics" {
 			path += "/diagnostics"
@@ -313,18 +429,153 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request, request rpcReq
 		s.writeRPC(w, request.ID, nil, &rpcError{Code: -32602, Message: "Unknown tool"})
 		return
 	}
-	status, payload, err := s.callApp(r.Context(), r.Header.Get("Authorization"), method, path, body, idempotency)
+	status, payload, err := s.callApp(r.Context(), assertion, method, path, body, idempotency)
 	if err != nil {
-		s.writeRPC(w, request.ID, nil, &rpcError{Code: -32603, Message: "Tokyo Tester application is unavailable"})
+		s.writeToolResult(w, request.ID, map[string]any{"error": "Tokyo Tester application is unavailable. Retry after the service is healthy."}, true)
 		return
 	}
 	var structured any
 	if json.Unmarshal(payload, &structured) == nil {
+		if params.Name == "tokyo_validate_workflow" && status >= 200 && status < 300 {
+			object, objectOK := structured.(map[string]any)
+			normalizedBundle, bundleOK := object["bundle"]
+			if !objectOK || !bundleOK {
+				s.writeToolResult(w, request.ID, map[string]any{"error": "Tokyo Tester validation returned no normalized bundle."}, true)
+				return
+			}
+			receipt, receiptErr := s.issueValidationReceipt(normalizedBundle, time.Now())
+			if receiptErr != nil {
+				s.writeToolResult(w, request.ID, map[string]any{"error": "Unable to issue a validation receipt. Validate again."}, true)
+				return
+			}
+			object["validationReceipt"] = receipt
+			object["validationReceiptExpiresInSeconds"] = int(validationReceiptTTL.Seconds())
+		}
 		s.writeToolResult(w, request.ID, structured, status < 200 || status >= 300)
 		return
 	}
 	result := map[string]any{"content": []any{map[string]any{"type": "text", "text": string(payload)}}, "isError": status < 200 || status >= 300}
 	s.writeRPC(w, request.ID, result, nil)
+}
+
+func validateToolArguments(name string, args map[string]any) string {
+	if args == nil {
+		args = map[string]any{}
+	}
+	allowed := map[string][]string{
+		"tokyo_list_projects": {}, "tokyo_list_workflows": {}, "tokyo_get_capabilities": {},
+		"tokyo_get_workflow": {"workflowId"}, "tokyo_list_workflow_revisions": {"workflowId"},
+		"tokyo_create_workflow_revision":  {"workflowId", "message"},
+		"tokyo_restore_workflow_revision": {"workflowId", "revisionId", "expectedVersion"},
+		"tokyo_review_workflow_plan":      {"repositories", "serviceInventory", "dependencyMap", "scenarioMatrix", "evidenceNotes", "openQuestions", "applicationSummary"},
+		"tokyo_validate_workflow":         {"bundle"}, "tokyo_import_workflow": {"bundle", "validationReceipt", "idempotencyKey"},
+		"tokyo_run_workflow":          {"bundle", "validationReceipt", "scenarioNames", "idempotencyKey"},
+		"tokyo_run_existing_workflow": {"workflowId", "scenarioIds", "idempotencyKey"},
+		"tokyo_get_run":               {"workflowRunId"}, "tokyo_get_run_diagnostics": {"workflowRunId"},
+	}
+	keys, known := allowed[name]
+	if !known {
+		return ""
+	}
+	allowedSet := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		allowedSet[key] = struct{}{}
+	}
+	for key := range args {
+		if _, ok := allowedSet[key]; !ok {
+			return fmt.Sprintf("Unexpected argument %q. Remove fields not declared by the tool schema.", key)
+		}
+	}
+	requireString := func(key string) string {
+		value, ok := args[key].(string)
+		if !ok || strings.TrimSpace(value) == "" {
+			return fmt.Sprintf("%s is required and must be a non-empty string.", key)
+		}
+		return ""
+	}
+	requireObject := func(key string) string {
+		value, ok := args[key].(map[string]any)
+		if !ok || value == nil {
+			return fmt.Sprintf("%s is required and must be a JSON object.", key)
+		}
+		return ""
+	}
+	validateStringArray := func(key string) string {
+		value, exists := args[key]
+		if !exists {
+			return ""
+		}
+		items, ok := value.([]any)
+		if !ok || len(items) == 0 {
+			return fmt.Sprintf("%s must be a non-empty array of unique strings.", key)
+		}
+		seen := map[string]struct{}{}
+		for _, item := range items {
+			text, ok := item.(string)
+			if !ok || strings.TrimSpace(text) == "" {
+				return fmt.Sprintf("%s must contain only non-empty strings.", key)
+			}
+			if _, duplicate := seen[text]; duplicate {
+				return fmt.Sprintf("%s must not contain duplicate values.", key)
+			}
+			seen[text] = struct{}{}
+		}
+		return ""
+	}
+	switch name {
+	case "tokyo_get_workflow", "tokyo_list_workflow_revisions", "tokyo_create_workflow_revision", "tokyo_restore_workflow_revision", "tokyo_run_existing_workflow":
+		if message := requireString("workflowId"); message != "" {
+			return message
+		}
+	case "tokyo_get_run", "tokyo_get_run_diagnostics":
+		return requireString("workflowRunId")
+	}
+	if name == "tokyo_create_workflow_revision" {
+		if value, exists := args["message"]; exists {
+			if _, ok := value.(string); !ok {
+				return "message must be a string when provided."
+			}
+		}
+	}
+	if name == "tokyo_restore_workflow_revision" {
+		if message := requireString("revisionId"); message != "" {
+			return message
+		}
+		value, ok := args["expectedVersion"].(float64)
+		if !ok || value < 1 || math.Trunc(value) != value {
+			return "expectedVersion is required and must be a positive integer."
+		}
+	}
+	if name == "tokyo_validate_workflow" || name == "tokyo_import_workflow" || name == "tokyo_run_workflow" {
+		if message := requireObject("bundle"); message != "" {
+			return message
+		}
+	}
+	if name == "tokyo_import_workflow" || name == "tokyo_run_workflow" || name == "tokyo_run_existing_workflow" {
+		key, ok := args["idempotencyKey"].(string)
+		if !ok || len(strings.TrimSpace(key)) < 8 || len(strings.TrimSpace(key)) > 200 {
+			return "idempotencyKey is required and must contain 8-200 characters."
+		}
+	}
+	if name == "tokyo_import_workflow" || name == "tokyo_run_workflow" {
+		if message := requireString("validationReceipt"); message != "" {
+			return message
+		}
+	}
+	if message := validateStringArray("scenarioNames"); message != "" {
+		return message
+	}
+	if message := validateStringArray("scenarioIds"); message != "" {
+		return message
+	}
+	if name == "tokyo_review_workflow_plan" {
+		for _, key := range []string{"repositories", "serviceInventory", "dependencyMap", "scenarioMatrix"} {
+			if _, ok := args[key].([]any); !ok {
+				return fmt.Sprintf("%s is required and must be an array.", key)
+			}
+		}
+	}
+	return ""
 }
 
 func (s *Server) writeToolResult(w http.ResponseWriter, id json.RawMessage, payload any, isError bool) {
@@ -346,7 +597,11 @@ func (s *Server) readResource(w http.ResponseWriter, r *http.Request, request rp
 		return
 	}
 	if params.URI == "tokyo://capabilities" {
-		status, payload, err := s.callApp(r.Context(), r.Header.Get("Authorization"), "GET", "/api/v1/agent/capabilities", nil, "")
+		assertion, ok := s.authenticateRequest(w, r, "read")
+		if !ok {
+			return
+		}
+		status, payload, err := s.callApp(r.Context(), assertion, "GET", "/api/v1/agent/capabilities", nil, "")
 		if err != nil || status != http.StatusOK {
 			s.writeRPC(w, request.ID, nil, &rpcError{Code: -32603, Message: "Unable to read capabilities"})
 			return
@@ -559,7 +814,256 @@ func mustJSON(value any) string {
 	return string(payload)
 }
 
-func (s *Server) callApp(ctx context.Context, authorization, method, path string, body any, idempotency string) (int, []byte, error) {
+type introspectionResponse struct {
+	Active    bool     `json:"active"`
+	Subject   string   `json:"sub"`
+	Email     string   `json:"email"`
+	UserID    string   `json:"user_id"`
+	ProjectID string   `json:"project_id"`
+	Scope     string   `json:"scope"`
+	Scopes    []string `json:"scopes"`
+	Audience  any      `json:"aud"`
+}
+
+func bearerToken(r *http.Request) string {
+	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
+	if !strings.HasPrefix(authorization, "Bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
+}
+
+func (s *Server) authenticateRequest(w http.ResponseWriter, r *http.Request, requiredScopes ...string) (string, bool) {
+	token := bearerToken(r)
+	if token == "" {
+		s.writeUnauthorized(w, r, "A Bearer access token is required.", requiredScopes)
+		return "", false
+	}
+	projectID := strings.TrimSpace(r.PathValue("projectID"))
+	if s.authMode == "oauth" && projectID == "" {
+		http.Error(w, "OAuth connections must use /mcp/projects/{projectId}", http.StatusBadRequest)
+		return "", false
+	}
+	claims, err := s.introspectToken(r.Context(), token)
+	if err != nil {
+		s.writeUnauthorized(w, r, "The access token is invalid or expired.", requiredScopes)
+		return "", false
+	}
+	if s.authMode == "personal_token" {
+		if claims.ProjectID == "" {
+			s.writeUnauthorized(w, r, "The personal token is not project scoped.", requiredScopes)
+			return "", false
+		}
+		if projectID != "" && projectID != claims.ProjectID {
+			s.writeUnauthorized(w, r, "The token is not valid for this project.", requiredScopes)
+			return "", false
+		}
+		projectID = claims.ProjectID
+	} else {
+		resource := s.resourceURL(projectID)
+		if !audienceContains(claims.Audience, resource) {
+			s.writeUnauthorized(w, r, "The access token audience does not match this MCP resource.", requiredScopes)
+			return "", false
+		}
+		if claims.Email == "" || claims.Subject == "" {
+			s.writeUnauthorized(w, r, "The authorization server must provide sub and email claims.", requiredScopes)
+			return "", false
+		}
+	}
+	scopes := normalizeScopes(claims)
+	if len(scopes) == 0 {
+		s.writeUnauthorized(w, r, "The access token has no supported Tokyo Tester scopes.", requiredScopes)
+		return "", false
+	}
+	if missing := missingScopes(scopes, requiredScopes); len(missing) > 0 {
+		s.writeForbidden(w, r, missing)
+		return "", false
+	}
+	assertion, err := s.signAssertion(claims, projectID, scopes)
+	if err != nil {
+		http.Error(w, "unable to establish the internal authorization context", http.StatusServiceUnavailable)
+		return "", false
+	}
+	return assertion, true
+}
+
+func toolScopes(name string) []string {
+	switch name {
+	case "tokyo_create_workflow_revision", "tokyo_restore_workflow_revision", "tokyo_import_workflow":
+		return []string{"workflow:write"}
+	case "tokyo_run_workflow":
+		return []string{"workflow:write", "run"}
+	case "tokyo_run_existing_workflow":
+		return []string{"run"}
+	default:
+		return []string{"read"}
+	}
+}
+
+func missingScopes(granted, required []string) []string {
+	available := make(map[string]struct{}, len(granted))
+	for _, scope := range granted {
+		available[scope] = struct{}{}
+	}
+	missing := make([]string, 0, len(required))
+	for _, scope := range required {
+		if _, ok := available[scope]; !ok {
+			missing = append(missing, scope)
+		}
+	}
+	return missing
+}
+
+func (s *Server) introspectToken(ctx context.Context, token string) (introspectionResponse, error) {
+	var endpoint string
+	var body io.Reader
+	if s.authMode == "oauth" {
+		endpoint = s.oauthIntrospectionURL
+		form := url.Values{"token": []string{token}, "token_type_hint": []string{"access_token"}}
+		body = strings.NewReader(form.Encode())
+	} else {
+		endpoint = s.appBaseURL.ResolveReference(&url.URL{Path: "/api/v1/agent/introspect"}).String()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, body)
+	if err != nil {
+		return introspectionResponse{}, err
+	}
+	if s.authMode == "oauth" {
+		req.SetBasicAuth(s.oauthClientID, s.oauthClientSecret)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	} else {
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-Tokyo-MCP-Secret", s.internalSecret)
+	}
+	response, err := s.client.Do(req)
+	if err != nil {
+		return introspectionResponse{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return introspectionResponse{}, fmt.Errorf("introspection returned %d", response.StatusCode)
+	}
+	var claims introspectionResponse
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&claims); err != nil {
+		return claims, err
+	}
+	if !claims.Active {
+		return claims, fmt.Errorf("inactive token")
+	}
+	return claims, nil
+}
+
+func normalizeScopes(claims introspectionResponse) []string {
+	values := append([]string{}, claims.Scopes...)
+	values = append(values, strings.Fields(claims.Scope)...)
+	allowed := map[string]struct{}{"read": {}, "workflow:write": {}, "run": {}}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, 3)
+	for _, value := range values {
+		if _, ok := allowed[value]; !ok {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func audienceContains(value any, expected string) bool {
+	switch typed := value.(type) {
+	case string:
+		return typed == expected
+	case []any:
+		for _, item := range typed {
+			if text, ok := item.(string); ok && text == expected {
+				return true
+			}
+		}
+	case []string:
+		for _, item := range typed {
+			if item == expected {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (s *Server) resourceURL(projectID string) string {
+	copy := *s.publicMCPURL
+	copy.Path = strings.TrimSuffix(copy.Path, "/")
+	if projectID != "" {
+		copy.Path += "/projects/" + url.PathEscape(projectID)
+	}
+	copy.RawQuery, copy.Fragment = "", ""
+	return copy.String()
+}
+
+func (s *Server) metadataURL(projectID string) string {
+	resource, _ := url.Parse(s.resourceURL(projectID))
+	return (&url.URL{Scheme: resource.Scheme, Host: resource.Host, Path: "/.well-known/oauth-protected-resource" + resource.Path}).String()
+}
+
+func (s *Server) writeUnauthorized(w http.ResponseWriter, r *http.Request, message string, scopes []string) {
+	challenge := `Bearer realm="tokyo-tester"`
+	if s.authMode == "oauth" {
+		challenge += fmt.Sprintf(`, resource_metadata="%s", scope="%s"`, s.metadataURL(strings.TrimSpace(r.PathValue("projectID"))), strings.Join(scopes, " "))
+	}
+	w.Header().Set("WWW-Authenticate", challenge)
+	writeJSON(w, http.StatusUnauthorized, map[string]any{"jsonrpc": "2.0", "error": map[string]any{"code": -32001, "message": message}, "id": nil})
+}
+
+func (s *Server) writeForbidden(w http.ResponseWriter, r *http.Request, scopes []string) {
+	challenge := fmt.Sprintf(`Bearer realm="tokyo-tester", error="insufficient_scope", scope="%s"`, strings.Join(scopes, " "))
+	if s.authMode == "oauth" {
+		challenge += fmt.Sprintf(`, resource_metadata="%s"`, s.metadataURL(strings.TrimSpace(r.PathValue("projectID"))))
+	}
+	w.Header().Set("WWW-Authenticate", challenge)
+	writeJSON(w, http.StatusForbidden, map[string]any{"jsonrpc": "2.0", "error": map[string]any{"code": -32003, "message": "The access token does not grant the required scope."}, "id": nil})
+}
+
+func (s *Server) signAssertion(claims introspectionResponse, projectID string, scopes []string) (string, error) {
+	now := time.Now().Unix()
+	headerBytes, _ := json.Marshal(map[string]string{"alg": "HS256", "typ": "JWT"})
+	payload := map[string]any{
+		"sub": claims.Subject, "email": strings.ToLower(strings.TrimSpace(claims.Email)), "project_id": projectID,
+		"scopes": scopes, "iss": "tokyo-mcp", "aud": "tokyo-ui-agent-api", "iat": now, "exp": now + 60,
+	}
+	if claims.UserID != "" {
+		payload["user_id"] = claims.UserID
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	encodedHeader := base64.RawURLEncoding.EncodeToString(headerBytes)
+	encodedPayload := base64.RawURLEncoding.EncodeToString(payloadBytes)
+	input := encodedHeader + "." + encodedPayload
+	mac := hmac.New(sha256.New, []byte(s.internalSecret))
+	_, _ = mac.Write([]byte(input))
+	return input + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+}
+
+func (s *Server) callAppHealth(ctx context.Context) (int, []byte, error) {
+	target := s.appBaseURL.ResolveReference(&url.URL{Path: "/api/health"})
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
+	if err != nil {
+		return 0, nil, err
+	}
+	response, err := s.client.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer response.Body.Close()
+	payload, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	return response.StatusCode, payload, err
+}
+
+func (s *Server) callApp(ctx context.Context, assertion, method, path string, body any, idempotency string) (int, []byte, error) {
 	var reader io.Reader
 	if body != nil {
 		encoded, _ := json.Marshal(body)
@@ -570,7 +1074,7 @@ func (s *Server) callApp(ctx context.Context, authorization, method, path string
 	if err != nil {
 		return 0, nil, err
 	}
-	req.Header.Set("Authorization", authorization)
+	req.Header.Set("X-Tokyo-Agent-Assertion", assertion)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -591,6 +1095,7 @@ func (s *Server) writeRPC(w http.ResponseWriter, id json.RawMessage, result any,
 	if len(id) > 0 {
 		_ = json.Unmarshal(id, &decodedID)
 	}
+	w.Header().Set("MCP-Protocol-Version", protocolVersion)
 	writeJSON(w, http.StatusOK, rpcResponse{JSONRPC: "2.0", ID: decodedID, Result: result, Error: rpcErr})
 }
 
@@ -599,10 +1104,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }
-func clientIP(r *http.Request) string {
-	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0]); forwarded != "" {
-		return forwarded
-	}
+func directClientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil {
 		return host
@@ -610,11 +1112,20 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+func rateLimitKey(r *http.Request) string {
+	if token := bearerToken(r); token != "" {
+		digest := sha256.Sum256([]byte(token))
+		return "token:" + base64.RawURLEncoding.EncodeToString(digest[:])
+	}
+	return "ip:" + directClientIP(r)
+}
+
 type rateLimiter struct {
-	mu      sync.Mutex
-	limit   int
-	window  time.Duration
-	clients map[string]*rateWindow
+	mu        sync.Mutex
+	limit     int
+	window    time.Duration
+	clients   map[string]*rateWindow
+	lastSweep time.Time
 }
 type rateWindow struct {
 	started time.Time
@@ -622,12 +1133,20 @@ type rateWindow struct {
 }
 
 func newRateLimiter(limit int, window time.Duration) *rateLimiter {
-	return &rateLimiter{limit: limit, window: window, clients: make(map[string]*rateWindow)}
+	return &rateLimiter{limit: limit, window: window, clients: make(map[string]*rateWindow), lastSweep: time.Now()}
 }
 func (l *rateLimiter) Allow(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
+	if now.Sub(l.lastSweep) >= l.window {
+		for client, value := range l.clients {
+			if now.Sub(value.started) >= l.window {
+				delete(l.clients, client)
+			}
+		}
+		l.lastSweep = now
+	}
 	value := l.clients[key]
 	if value == nil || now.Sub(value.started) >= l.window {
 		l.clients[key] = &rateWindow{started: now, count: 1}

@@ -1,0 +1,29 @@
+Tests are ordered scenario steps. Each executor targets a service in the workflow and records a result with the evidence needed to evaluate its assertions.
+
+## Test types
+
+| Type | Providers or targets | Core operations |
+| --- | --- | --- |
+| HTTP | Reachable application service | Request and response assertions |
+| Database | PostgreSQL, MySQL, MariaDB | Query and result assertions |
+| Document | MongoDB | Insert, find, update, delete, count, exists |
+| Cache | Redis, Memcached | Ping, set, get, exists, delete |
+| Queue | Kafka, RabbitMQ | Produce, consume, round trip, inspect topics |
+| Shell | Selected service container | Execute a command and inspect exit/output |
+| Delay | Scenario timeline | Wait for an intentional duration |
+
+## HTTP
+
+The UI supports GET, POST, PUT, PATCH, and DELETE authoring; runner capabilities also recognize HEAD and OPTIONS. Configure URL or service target, headers, optional body, and assertions such as status and response content.
+
+Use HTTP for the public action whenever possible, then another executor to prove downstream side effects.
+
+## Data and messaging
+
+Database tests execute SQL against PostgreSQL, MySQL, or MariaDB. Document tests expose MongoDB operations. Cache tests cover Redis and Memcached primitives. Queue tests support Kafka and RabbitMQ produce, consume, produce-and-consume, topic checks, and topic listing where applicable.
+
+Assertions should match the operation: rows or scalars for SQL, documents or counts for MongoDB, values or existence for caches, and payloads for queues.
+
+## Shell and delay
+
+Shell steps run a command inside the selected service context and capture exit status and output. Treat them as powerful, image-dependent operations. Delay steps are for real asynchronous contracts; they are not a replacement for service readiness.

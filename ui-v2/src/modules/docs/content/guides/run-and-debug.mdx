@@ -1,0 +1,34 @@
+Tokyo Tester keeps provisioning events, test responses, assertions, and cleanup outcomes together so a failed run can be understood without reconstructing it from several dashboards.
+
+## Before you run
+
+Save the current workflow, confirm required registry credentials are present, and select only the scenarios needed for the question at hand. The run pins the workflow definition it receives, which protects historical results from later edits.
+
+The queue may enforce concurrency or rate limits. The UI shows queued work and uses historical p50/p90 durations to provide an estimate rather than pretending every environment starts instantly.
+
+## Follow the run
+
+Realtime events update service and test state as they arrive. If the browser disconnects, reload safely: the durable run snapshot and event history reconcile missed SSE messages.
+
+Use paginated logs for long runs. Separate provisioning failure from scenario failure; an unhealthy container has a different remedy from a mismatched assertion.
+
+For host-level beta incidents, use the private [logs and observability](/docs/operations/observability) UI to correlate runner orchestration messages with UI, MCP, edge, and still-running ephemeral container output. Treat that view as transient operational context; return to the execution record for durable results.
+
+## Read a failure
+
+Work outward from the failed layer:
+
+- **Provisioning:** inspect image pulls, command, environment, health checks, and dependency readiness.
+- **Connectivity:** verify service aliases, internal ports, and edge direction.
+- **Executor:** inspect the request, query, operation, or command.
+- **Assertion:** compare expected and actual evidence; change the product or the expectation deliberately.
+
+Agent diagnostics return redacted workflow, scenario, and test context designed for repair.
+
+## Cancel and clean up
+
+Cancellation asks the durable worker to stop ongoing work and clean up. It is not a browser-only button. Wait for `cancelled` or another terminal outcome before assuming containers are gone.
+
+<Callout title="A cleanup failure is actionable" kind="warning">
+`cleanup_failed` means the test result may be known but one or more runtime resources could not be removed. Inspect runner logs and the captured resource identifiers.
+</Callout>

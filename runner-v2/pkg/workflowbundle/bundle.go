@@ -6,6 +6,7 @@ import (
 	"io"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/dev-atharva/cots/pkg/config"
@@ -204,8 +205,16 @@ type workflowServiceGraph struct {
 }
 
 func Decode(reader io.Reader) (*Bundle, error) {
+	raw, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("invalid workflow bundle JSON: %w", err)
+	}
+	if err := rejectUnknownBundleFields(raw); err != nil {
+		return nil, err
+	}
 	var bundle Bundle
-	if err := json.NewDecoder(reader).Decode(&bundle); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	if err := decoder.Decode(&bundle); err != nil {
 		return nil, fmt.Errorf("invalid workflow bundle JSON: %w", err)
 	}
 	if err := bundle.normalize(); err != nil {
@@ -281,7 +290,13 @@ func (b *Bundle) Validate() error {
 	if len(b.Scenarios) == 0 {
 		return fmt.Errorf("workflow bundle must include at least one scenario")
 	}
+	scenarioNames := make(map[string]struct{}, len(b.Scenarios))
 	for index, scenario := range b.Scenarios {
+		name := strings.TrimSpace(scenario.Name)
+		if _, duplicate := scenarioNames[name]; duplicate {
+			return fmt.Errorf("workflow bundle contains duplicate scenario name %q", name)
+		}
+		scenarioNames[name] = struct{}{}
 		if err := validateScenario(graph, scenario, index); err != nil {
 			return err
 		}
@@ -317,15 +332,57 @@ func validateWorkflowGraph(nodes []FlowNode, edges []FlowEdge) error {
 		return fmt.Errorf("flow must contain at least one node")
 	}
 
+	nodeIDs := make(map[string]struct{}, len(nodes))
+	serviceNames := make(map[string]string, len(nodes))
 	for _, node := range nodes {
+		if strings.TrimSpace(node.ID) == "" {
+			return fmt.Errorf("node must have a non-empty id")
+		}
+		if _, duplicate := nodeIDs[node.ID]; duplicate {
+			return fmt.Errorf("workflow contains duplicate node id %q", node.ID)
+		}
+		nodeIDs[node.ID] = struct{}{}
 		if strings.TrimSpace(node.Data.Label) == "" {
 			return fmt.Errorf("node must have a label")
 		}
-		if node.Data.Service.Type == "" {
+		serviceName := SanitizeName(node.Data.Label)
+		if serviceName == "" {
+			return fmt.Errorf("node %q produces an empty sanitized service name", node.Data.Label)
+		}
+		if previous, duplicate := serviceNames[serviceName]; duplicate {
+			return fmt.Errorf("node labels %q and %q produce duplicate sanitized service name %q", previous, node.Data.Label, serviceName)
+		}
+		serviceNames[serviceName] = node.Data.Label
+		if strings.TrimSpace(node.Data.Service.Type) == "" {
 			return fmt.Errorf("node %q must have service definition", node.Data.Label)
+		}
+		if !supportedServiceType(node.Data.Service.Type) {
+			return fmt.Errorf("node %q has unsupported service type %q", node.Data.Label, node.Data.Service.Type)
 		}
 		if node.Data.Service.Type == "generic" && strings.TrimSpace(node.Data.Service.Image) == "" {
 			return fmt.Errorf("generic service %q must specify the docker image", node.Data.Label)
+		}
+		if err := validateServiceRuntime(node); err != nil {
+			return err
+		}
+	}
+
+	edgeIDs := make(map[string]struct{}, len(edges))
+	for _, edge := range edges {
+		if edge.ID != "" {
+			if _, duplicate := edgeIDs[edge.ID]; duplicate {
+				return fmt.Errorf("workflow contains duplicate edge id %q", edge.ID)
+			}
+			edgeIDs[edge.ID] = struct{}{}
+		}
+		if _, ok := nodeIDs[edge.Source]; !ok {
+			return fmt.Errorf("edge %q references unknown source node %q", edge.ID, edge.Source)
+		}
+		if _, ok := nodeIDs[edge.Target]; !ok {
+			return fmt.Errorf("edge %q references unknown target node %q", edge.ID, edge.Target)
+		}
+		if edge.Source == edge.Target {
+			return fmt.Errorf("edge %q must not connect a node to itself", edge.ID)
 		}
 	}
 
@@ -349,12 +406,16 @@ func validateScenario(graph workflowServiceGraph, scenario BundleScenario, index
 	}
 
 	testIDs := make(map[string]struct{}, len(scenario.Tests))
+	testNames := make(map[string]struct{}, len(scenario.Tests))
 	serviceNames := make(map[string]struct{}, len(graph.services))
 	for _, service := range graph.services {
 		serviceNames[service.Name] = struct{}{}
 	}
 
 	for _, test := range scenario.Tests {
+		if strings.TrimSpace(test.ID) == "" {
+			return fmt.Errorf("scenario %q contains a test without an id", scenario.Name)
+		}
 		if _, exists := testIDs[test.ID]; exists {
 			return fmt.Errorf("scenario %q contains duplicate test id %q", scenario.Name, test.ID)
 		}
@@ -362,19 +423,48 @@ func validateScenario(graph workflowServiceGraph, scenario BundleScenario, index
 		if strings.TrimSpace(test.Name) == "" {
 			return fmt.Errorf("scenario %q contains a test without a name", scenario.Name)
 		}
+		if _, duplicate := testNames[test.Name]; duplicate {
+			return fmt.Errorf("scenario %q contains duplicate test name %q", scenario.Name, test.Name)
+		}
+		testNames[test.Name] = struct{}{}
+		if !supportedTestType(test.Type) {
+			return fmt.Errorf("scenario test %q has unsupported type %q", test.Name, test.Type)
+		}
 		if len(test.TargetServices) == 0 {
 			return fmt.Errorf("scenario test %q must target at least one service", test.Name)
 		}
+		targetSeen := make(map[string]struct{}, len(test.TargetServices))
 		for _, serviceName := range test.TargetServices {
+			if strings.TrimSpace(serviceName) == "" {
+				return fmt.Errorf("scenario test %q contains an empty target service", test.Name)
+			}
+			if _, duplicate := targetSeen[serviceName]; duplicate {
+				return fmt.Errorf("scenario test %q contains duplicate target service %q", test.Name, serviceName)
+			}
+			targetSeen[serviceName] = struct{}{}
 			if _, ok := serviceNames[serviceName]; !ok {
 				return fmt.Errorf("scenario test %q references unknown service %q", test.Name, serviceName)
 			}
 		}
 		for _, depID := range test.DependsOnTestIDs {
+			if depID == test.ID {
+				return fmt.Errorf("scenario test %q must not depend on itself", test.Name)
+			}
 			if _, ok := testIDs[depID]; !ok && !scenarioHasTest(scenario.Tests, depID) {
 				return fmt.Errorf("scenario test %q depends on missing test %q", test.Name, depID)
 			}
 		}
+		if err := validateScenarioTestConfig(test, serviceNames); err != nil {
+			return err
+		}
+	}
+
+	dependencyGraph := make(map[string][]string, len(scenario.Tests))
+	for _, test := range scenario.Tests {
+		dependencyGraph[test.ID] = slices.Clone(test.DependsOnTestIDs)
+	}
+	if cycles := detectCycles(dependencyGraph); len(cycles) > 0 {
+		return fmt.Errorf("scenario %q contains a test dependency cycle: %s", scenario.Name, strings.Join(cycles, ", "))
 	}
 
 	if len(scenario.TestOrder) != len(scenario.Tests) {
@@ -392,6 +482,178 @@ func validateScenario(graph workflowServiceGraph, scenario BundleScenario, index
 		}
 	}
 
+	return nil
+}
+
+func supportedServiceType(value string) bool {
+	return slices.Contains([]string{"generic", "postgres", "mysql", "mariadb", "redis", "memcached", "mongodb", "rabbitmq", "kafka"}, value)
+}
+
+func supportedTestType(value string) bool {
+	return slices.Contains([]string{"http", "database", "document", "cache", "queue", "shell", "delay"}, value)
+}
+
+func validateServiceRuntime(node FlowNode) error {
+	service := node.Data.Service
+	seenPorts := make(map[string]struct{}, len(service.Ports))
+	for _, port := range service.Ports {
+		if !validPort(port.ContainerPort) {
+			return fmt.Errorf("service %q has invalid container port %q", node.Data.Label, port.ContainerPort)
+		}
+		if _, duplicate := seenPorts[port.ContainerPort]; duplicate {
+			return fmt.Errorf("service %q contains duplicate container port %q", node.Data.Label, port.ContainerPort)
+		}
+		seenPorts[port.ContainerPort] = struct{}{}
+		if port.HostPort != "" && !validPort(port.HostPort) {
+			return fmt.Errorf("service %q has invalid host port %q", node.Data.Label, port.HostPort)
+		}
+	}
+	seenEnv := make(map[string]struct{}, len(service.Env))
+	for _, env := range service.Env {
+		key := strings.TrimSpace(env.Key)
+		if key == "" {
+			return fmt.Errorf("service %q contains an environment variable without a key", node.Data.Label)
+		}
+		if _, duplicate := seenEnv[key]; duplicate {
+			return fmt.Errorf("service %q contains duplicate environment key %q", node.Data.Label, key)
+		}
+		seenEnv[key] = struct{}{}
+	}
+	if strategy := service.WaitStratergy; strategy != nil && strategy.Enabled {
+		if !slices.Contains([]string{"log", "port", "exec"}, strategy.Type) {
+			return fmt.Errorf("service %q has invalid wait strategy %q", node.Data.Label, strategy.Type)
+		}
+		if strings.TrimSpace(strategy.Target) == "" {
+			return fmt.Errorf("service %q wait strategy %q requires a target", node.Data.Label, strategy.Type)
+		}
+		if strategy.Timeout < 0 || strategy.Timeout > 3600 {
+			return fmt.Errorf("service %q wait strategy timeout must be between 0 and 3600 seconds", node.Data.Label)
+		}
+	}
+	for _, script := range service.InitScripts {
+		if strings.TrimSpace(script.Script) == "" {
+			return fmt.Errorf("service %q contains an empty init script", node.Data.Label)
+		}
+	}
+	return nil
+}
+
+func validPort(value string) bool {
+	value = strings.TrimSpace(strings.TrimSuffix(value, "/tcp"))
+	port, err := strconv.Atoi(value)
+	return err == nil && port >= 1 && port <= 65535
+}
+
+func validateScenarioTestConfig(test ScenarioTestDefinition, services map[string]struct{}) error {
+	configs := map[string]bool{
+		"databaseConfig": test.DatabaseConfig != nil,
+		"documentConfig": test.DocumentConfig != nil,
+		"httpConfig":     test.HTTPConfig != nil,
+		"shellConfig":    test.ShellConfig != nil,
+		"cacheConfig":    test.CacheConfig != nil,
+		"queueConfig":    test.QueueConfig != nil,
+		"delayConfig":    test.DelayConfig != nil,
+	}
+	required := test.Type + "Config"
+	if !configs[required] {
+		return fmt.Errorf("scenario test %q of type %q requires %s", test.Name, test.Type, required)
+	}
+	for field, present := range configs {
+		if present && field != required {
+			return fmt.Errorf("scenario test %q of type %q must not include %s", test.Name, test.Type, field)
+		}
+	}
+
+	requireService := func(name string) error {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("scenario test %q configuration requires a service", test.Name)
+		}
+		if _, ok := services[name]; !ok {
+			return fmt.Errorf("scenario test %q configuration references unknown service %q", test.Name, name)
+		}
+		if !slices.Contains(test.TargetServices, name) {
+			return fmt.Errorf("scenario test %q configuration service %q must be included in targetServices", test.Name, name)
+		}
+		return nil
+	}
+
+	switch test.Type {
+	case "http":
+		cfg := test.HTTPConfig
+		if !slices.Contains([]string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}, strings.ToUpper(cfg.Method)) {
+			return fmt.Errorf("scenario test %q has invalid HTTP method %q", test.Name, cfg.Method)
+		}
+		if !strings.HasPrefix(cfg.Path, "/") {
+			return fmt.Errorf("scenario test %q HTTP path must start with '/'", test.Name)
+		}
+		if !validPort(cfg.Port) {
+			return fmt.Errorf("scenario test %q has invalid HTTP port %q", test.Name, cfg.Port)
+		}
+		if cfg.ExpectedStatus != 0 && (cfg.ExpectedStatus < 100 || cfg.ExpectedStatus > 599) {
+			return fmt.Errorf("scenario test %q has invalid expected HTTP status %d", test.Name, cfg.ExpectedStatus)
+		}
+		if cfg.ExpectedBody != nil && !slices.Contains([]string{"contains", "json_partial", "json"}, cfg.ExpectedBody.Mode) {
+			return fmt.Errorf("scenario test %q has invalid expected body mode %q", test.Name, cfg.ExpectedBody.Mode)
+		}
+	case "database":
+		cfg := test.DatabaseConfig
+		if !slices.Contains([]string{"postgres", "mysql", "mariadb"}, cfg.Driver) {
+			return fmt.Errorf("scenario test %q has unsupported database driver %q", test.Name, cfg.Driver)
+		}
+		if strings.TrimSpace(cfg.Database) == "" || strings.TrimSpace(cfg.Query) == "" {
+			return fmt.Errorf("scenario test %q databaseConfig requires database and query", test.Name)
+		}
+	case "document":
+		cfg := test.DocumentConfig
+		if err := requireService(cfg.Service); err != nil {
+			return err
+		}
+		if strings.TrimSpace(cfg.Database) == "" || strings.TrimSpace(cfg.Collection) == "" {
+			return fmt.Errorf("scenario test %q documentConfig requires database and collection", test.Name)
+		}
+		if !slices.Contains([]string{"insert_one", "find_one", "find_many", "update_one", "delete_one", "count_documents", "exists"}, cfg.Operation) {
+			return fmt.Errorf("scenario test %q has unsupported document operation %q", test.Name, cfg.Operation)
+		}
+	case "cache":
+		cfg := test.CacheConfig
+		if err := requireService(cfg.Service); err != nil {
+			return err
+		}
+		if !slices.Contains([]string{"redis", "memcached"}, cfg.CacheType) {
+			return fmt.Errorf("scenario test %q has unsupported cache type %q", test.Name, cfg.CacheType)
+		}
+		if !slices.Contains([]string{"ping", "set", "get", "exists", "delete", "del"}, cfg.Operation) {
+			return fmt.Errorf("scenario test %q has unsupported cache operation %q", test.Name, cfg.Operation)
+		}
+		if cfg.Operation != "ping" && strings.TrimSpace(cfg.Key) == "" {
+			return fmt.Errorf("scenario test %q cache operation %q requires a key", test.Name, cfg.Operation)
+		}
+	case "queue":
+		cfg := test.QueueConfig
+		if err := requireService(cfg.Service); err != nil {
+			return err
+		}
+		if !slices.Contains([]string{"kafka", "rabbitmq"}, cfg.BrokerType) {
+			return fmt.Errorf("scenario test %q has unsupported broker type %q", test.Name, cfg.BrokerType)
+		}
+		if !slices.Contains([]string{"produce", "consume", "produce_and_consume", "check_topic", "list_topics"}, cfg.Operation) {
+			return fmt.Errorf("scenario test %q has unsupported queue operation %q", test.Name, cfg.Operation)
+		}
+		if cfg.Operation != "list_topics" && strings.TrimSpace(cfg.Topic) == "" {
+			return fmt.Errorf("scenario test %q queue operation %q requires a topic", test.Name, cfg.Operation)
+		}
+		if cfg.Timeout < 0 || cfg.Timeout > 300 {
+			return fmt.Errorf("scenario test %q queue timeout must be between 0 and 300 seconds", test.Name)
+		}
+	case "shell":
+		if strings.TrimSpace(test.ShellConfig.Command) == "" {
+			return fmt.Errorf("scenario test %q shellConfig requires a command", test.Name)
+		}
+	case "delay":
+		if test.DelayConfig.DurationMs < 1 || test.DelayConfig.DurationMs > 24*60*60*1000 {
+			return fmt.Errorf("scenario test %q delay duration must be between 1 and 86400000 milliseconds", test.Name)
+		}
+	}
 	return nil
 }
 

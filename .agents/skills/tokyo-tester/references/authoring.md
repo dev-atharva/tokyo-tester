@@ -23,3 +23,5 @@ Use schema version 2 and kind `cots.workflow-bundle`. A bundle contains one work
 ## Repair loop
 
 Validation errors contain a code, JSON pointer, message, and suggestion. Edit only the pointed portion unless the error reveals a mistaken service model. Runtime diagnostics are redacted; correlate scenario and test names with repository logs and configuration before changing expectations.
+
+Successful validation returns a normalized `bundle` and an expiring `validationReceipt` bound to that exact JSON. Present the normalized workflow for approval, then pass both values unchanged to import or run. Never attach a receipt to a locally edited, reconstructed, or previously validated bundle; validate again after every edit or expiry.

@@ -1,0 +1,30 @@
+Troubleshoot from the failing layer instead of restarting everything. Tokyo Tester separates application startup, runner provisioning, test execution, persistence, and cleanup so the symptom can lead to the right evidence.
+
+## Start with doctor
+
+For local failures, begin with:
+
+```bash
+make doctor
+docker compose ps
+```
+
+Confirm Docker is reachable, required ports are available, environment files exist, and database services are healthy. In production, use `make prod-check` and `make prod-capture` before invasive changes.
+
+## Services do not start
+
+Inspect the runner and target-container logs. Check the image reference, registry credential, command, environment, architecture compatibility, and container resource limits. If a service starts but never becomes healthy, run its configured health operation inside the run network and verify the readiness dependency order.
+
+## Tests cannot connect
+
+Use container aliases and internal ports, not `localhost` or a host-published port. Confirm the target service joined the run network, its protocol is ready, and the executor matches the provider. For Kafka and RabbitMQ, verify the topic or queue operation as well as broker reachability.
+
+## Runs or cleanup stall
+
+Check the durable workflow status, worker lease, runner logs, and Docker resources carrying the run identifier. A worker can recover expired leases, but manually deleting a job record destroys evidence and can leave resources behind.
+
+For cancellation, wait for a terminal status. For `cleanup_failed`, capture the incident first, then remove only resources identified with that run.
+
+<Callout title="Do not use a global Docker prune as a fix" kind="warning">
+It can remove unrelated developer or production resources. Resolve the exact run network and containers before taking cleanup action.
+</Callout>

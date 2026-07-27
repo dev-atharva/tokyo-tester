@@ -1,0 +1,17 @@
+{
+  "name": "tokyo-tester-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun run test:docker",
+    "test:docker": "E2E_TARGET=docker playwright test",
+    "test:headed": "playwright test --headed",
+    "typecheck": "tsc --noEmit",
+    "stack:docker": "bash ./scripts/docker-stack.sh"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.0",
+    "@types/node": "24.10.0",
+    "typescript": "5.9.3"
+  }
+}

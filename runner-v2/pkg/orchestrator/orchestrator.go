@@ -34,9 +34,11 @@ func NewOrchestrator(providers *provider.Registry) *Orchestrator {
 
 // Provisions the services by respecting teh dependencies
 func (o *Orchestrator) ProvisionServices(ctx context.Context, services []config.ServiceConfig) error {
-	if err := o.authenticateRegisteries(ctx, services); err != nil {
-		return fmt.Errorf("registry authentication failed : %w", err)
+	preparedServices, err := o.prepareRegistryImages(ctx, services)
+	if err != nil {
+		return fmt.Errorf("prepare registry images: %w", err)
 	}
+	services = preparedServices
 
 	logger.InfoContext(ctx, "creating shared Docker network")
 	dockerNetwork, err := network.New(ctx, network.WithLabels(provider.ResourceLabels(ctx, provider.ResourceTypeNetwork)))
@@ -68,34 +70,45 @@ func (o *Orchestrator) ProvisionServices(ctx context.Context, services []config.
 	return nil
 }
 
-func (o *Orchestrator) authenticateRegisteries(ctx context.Context, services []config.ServiceConfig) error {
-	uniqueRegisteries := make(map[string]*config.RegistryConfig)
-	for _, svc := range services {
+func (o *Orchestrator) prepareRegistryImages(ctx context.Context, services []config.ServiceConfig) ([]config.ServiceConfig, error) {
+	prepared := append([]config.ServiceConfig(nil), services...)
+	hasCustomRegistry := false
+	for _, svc := range prepared {
 		if svc.Registry != nil && svc.Registry.URL != "" {
-			uniqueRegisteries[svc.Registry.URL] = svc.Registry
+			hasCustomRegistry = true
+			break
 		}
 	}
-
-	if len(uniqueRegisteries) == 0 {
-		return nil
+	if !hasCustomRegistry {
+		return prepared, nil
 	}
 
-	logger.InfoContext(ctx, "authenticating with custom container registries", "count", len(uniqueRegisteries))
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return fmt.Errorf("failed to create Docker client: %w", err)
+		return nil, fmt.Errorf("create Docker client: %w", err)
 	}
 	defer dockerClient.Close()
 
-	for url, reg := range uniqueRegisteries {
-		logger.DebugContext(ctx, "authenticating with regsitry", "registry_url", url)
-		if err := registry.AuthenticateRegistry(ctx, dockerClient, reg); err != nil {
-			logger.WarnContext(ctx, "failed to authenticate with registry, falling back to docker hub", "registry_url", url, "error", err)
-		} else {
-			logger.InfoContext(ctx, "successfully authenticated with registry", "registry_url", url)
+	for index := range prepared {
+		svc := &prepared[index]
+		if svc.Registry == nil || svc.Registry.URL == "" {
+			continue
 		}
+
+		logger.InfoContext(ctx, "pulling service image from configured registry", "service_name", svc.Name, "registry_url", svc.Registry.URL)
+		resolvedImage, pullErr := registry.PullImage(ctx, dockerClient, svc.Image, svc.Registry)
+		if pullErr != nil {
+			return nil, fmt.Errorf("service %q: %w", svc.Name, pullErr)
+		}
+
+		// The authenticated request pulled the image into the local daemon. Clear
+		// the registry credentials before handing the config to providers so they
+		// cannot log in globally or silently fall back to another registry.
+		svc.Image = resolvedImage
+		svc.Registry = nil
 	}
-	return nil
+
+	return prepared, nil
 }
 
 func (o *Orchestrator) provisionlevel(ctx context.Context, serviceNames []string, serviceMap map[string]config.ServiceConfig) error {

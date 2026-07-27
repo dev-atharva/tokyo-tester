@@ -1,7 +1,7 @@
 # Build
 FROM golang:1.25.4-alpine AS builder
 
-RUN apk add --no-cache git gcc musl-dev
+RUN apk add --no-cache git
 
 WORKDIR /build
 
@@ -10,13 +10,13 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -ldflags '-extldflags "-static"' -o cots ./cmd/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o cots ./cmd/main.go
 RUN CGO_ENABLED=0 GOOS=linux go build -o tokyo-mcp ./cmd/mcp
 
 # Development
 FROM golang:1.25.4-alpine AS dev
 
-RUN apk add --no-cache git gcc musl-dev docker-cli wget
+RUN apk add --no-cache git docker-cli wget
 RUN go install github.com/air-verse/air@latest
 
 WORKDIR /app
@@ -28,11 +28,8 @@ RUN apk --no-cache add ca-certificates wget
 
 WORKDIR /app
 
-RUN mkdir -p /app/data
-
 ENV PORT=8080
-ENV DB_TYPE=sqlite
-ENV DB_PATH=/app/data/cots.db
+ENV DB_TYPE=mysql
 
 EXPOSE 8080
 

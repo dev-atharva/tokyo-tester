@@ -15,9 +15,8 @@ bun install
 2. Configure environment variables. The auth layer uses the same database mode as the runner:
 
 ```bash
-DB_TYPE=sqlite
-DB_PATH=./data/tokyo-tester-auth.db
-# DATABASE_URL=postgres://...
+DB_TYPE=mysql
+DATABASE_URL=mysql://tokyo:tokyo-dev-password@127.0.0.1:3306/tokyo_ui
 
 AUTH_SECRET=replace-with-a-long-random-secret
 AUTH_TRUST_HOST=true
@@ -29,24 +28,22 @@ AUTH_TRUST_HOST=true
 bun run db:migrate
 ```
 
-`db:migrate` runs `node ./src/db/migrate.mjs` under the hood. The app runtime stays on Bun, but SQLite migration uses Node because the current setup depends on `better-sqlite3`.
-
 4. Start the development server:
 
 ```bash
-bun dev
+bun run dev
 ```
 
 5. Open [http://localhost:3000/setup](http://localhost:3000/setup) on the first boot to create the initial admin user. After setup is complete, the app redirects unauthenticated users to `/login`.
 
 ## Useful Scripts
 
-- `bun dev`: start the Next.js dev server
+- `bun run dev`: start the Next.js dev server
 - `bun run build`: create the production build
 - `bun run start`: start the production server
 - `bun run db:migrate`: apply the checked-in auth schema for the selected database mode
 - `bun run db:generate`: generate Drizzle migrations from the current schema
-- `bun test`: run tests discovered by Bun
+- `bun test`: run the UI unit tests
 - `node --import tsx --test src/modules/auth/server/service.test.ts`: run the auth service tests with Node
 
 ## Sync And Execution Notes

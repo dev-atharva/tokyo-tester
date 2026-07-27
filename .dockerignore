@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+**/node_modules
+**/.next
+**/coverage
+**/artifacts
+**/.auth
+**/.runtime
+**/.DS_Store
+**/*.log
+ui-v2/public/downloads/*.tar.gz

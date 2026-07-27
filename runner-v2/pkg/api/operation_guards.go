@@ -18,6 +18,18 @@ func (h *Handler) acquireSlot(ctx context.Context, slots chan struct{}, operatio
 	}
 }
 
+// acquireDurableSlot waits until capacity exists or the persisted workflow is
+// explicitly cancelled. Accepted work must not fail merely because an
+// in-process resource semaphore stayed busy longer than an HTTP-oriented wait.
+func acquireDurableSlot(ctx context.Context, slots chan struct{}) (func(), error) {
+	select {
+	case slots <- struct{}{}:
+		return func() { <-slots }, nil
+	case <-ctx.Done():
+		return nil, context.Cause(ctx)
+	}
+}
+
 func withOperationTimeout(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if timeout <= 0 {
 		return context.WithCancel(parent)

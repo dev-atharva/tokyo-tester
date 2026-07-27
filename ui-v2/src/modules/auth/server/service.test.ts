@@ -1,50 +1,25 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
-import Database from "better-sqlite3";
+import {
+  closeMySQLTestDatabase,
+  resetMySQLTestDatabase,
+} from "@/db/mysql-test";
 import { hashPassword, verifyPassword } from "./password";
 import { countUsers, createInitialAdmin, verifyPasswordLogin } from "./service";
 
-let tempDir = "";
-let dbPath = "";
-
-function resetDbCache() {
-  const cached = (
-    globalThis as { __tokyoTesterDb?: { type: string; client: unknown } }
-  ).__tokyoTesterDb;
-
-  if (cached?.type === "sqlite") {
-    (cached.client as InstanceType<typeof Database>).close();
-  }
-
-  (globalThis as { __tokyoTesterDb?: unknown }).__tokyoTesterDb = undefined;
-}
-
-function runSqliteMigration(targetPath: string) {
-  const database = new Database(targetPath);
-  const migrationDir = resolve(process.cwd(), "src/db/migrations/sqlite");
-  for (const name of readdirSync(migrationDir)
-    .filter((entry) => entry.endsWith(".sql"))
-    .sort()) {
-    database.exec(readFileSync(resolve(migrationDir, name), "utf8"));
-  }
-  database.close();
-}
+const databaseUrl =
+  process.env.UI_AUTH_TEST_DATABASE_URL ??
+  "mysql://root:tokyo-test-root-password@127.0.0.1:33306/ui_auth_test";
 
 describe("auth service", () => {
-  beforeEach(() => {
-    tempDir = mkdtempSync(join(process.cwd(), ".tmp-auth-test-"));
-    dbPath = join(tempDir, "auth-test.db");
-    process.env.DB_TYPE = "sqlite";
-    process.env.DB_PATH = dbPath;
-    resetDbCache();
-    runSqliteMigration(dbPath);
+  beforeEach(async () => {
+    process.env.DB_TYPE = "mysql";
+    process.env.DATABASE_URL = databaseUrl;
+    await resetMySQLTestDatabase(databaseUrl);
   });
 
-  afterEach(() => {
-    resetDbCache();
-    rmSync(tempDir, { recursive: true, force: true });
+  afterEach(async () => {
+    await closeMySQLTestDatabase();
   });
 
   test("hashPassword and verifyPassword round-trip correctly", async () => {
@@ -66,15 +41,15 @@ describe("auth service", () => {
     assert.equal(user.email, "admin@example.com");
     assert.equal(user.role, "admin");
     assert.equal(await countUsers(), 1);
-    const database = new Database(dbPath, { readonly: true });
-    const personal = database
-      .prepare(
-        `SELECT p.kind, pm.role FROM project p
-         JOIN project_member pm ON pm.projectId = p.id
-         WHERE p.createdBy = ? AND p.kind = 'personal'`,
-      )
-      .get(user.id) as { kind: string; role: string } | undefined;
-    database.close();
+    const { getDb } = await import("@/db");
+    const connection = getDb();
+    const [rows] = await connection.client.query(
+      `SELECT p.kind, pm.role FROM project p
+       JOIN project_member pm ON pm.projectId = p.id
+       WHERE p.createdBy = ? AND p.kind = 'personal'`,
+      [user.id],
+    );
+    const personal = (rows as Array<{ kind: string; role: string }>)[0];
     assert.deepEqual(personal, { kind: "personal", role: "owner" });
 
     await assert.rejects(

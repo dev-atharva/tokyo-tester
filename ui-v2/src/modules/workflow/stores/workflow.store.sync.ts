@@ -31,6 +31,7 @@ export interface Workflow {
   nodes: FlowNode[];
   edges: FlowEdge[];
   customTestOrder: Record<string, string[]>;
+  provenance?: "manual" | "import" | "mcp";
 
   // Sync metadata
   version: number;
@@ -88,6 +89,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
             nodes: [],
             edges: [],
             customTestOrder: {},
+            provenance: "manual",
           });
 
           trackSync(store, id, "insert");
@@ -218,7 +220,10 @@ export const useWorkflowStore = create<WorkflowStore>()(
             description: workflow.description || "",
             nodes_config: workflow.nodes,
             edges_config: workflow.edges,
-            metadata: { customTestOrder: workflow.customTestOrder },
+            metadata: {
+              customTestOrder: workflow.customTestOrder,
+              provenance: workflow.provenance,
+            },
             version: workflow.version,
             created_at: workflow.created_at,
             updated_at: workflow.updated_at,

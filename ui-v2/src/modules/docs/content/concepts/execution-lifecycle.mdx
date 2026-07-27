@@ -1,0 +1,37 @@
+Pressing Run starts a durable job, not a browser-bound script. The worker continues even if the page is refreshed or its realtime connection drops.
+
+## Lifecycle at a glance
+
+<LifecycleDiagram />
+
+The UI translates the selected workflow and scenarios into an execution input. The runner validates the definition again, persists the run, and claims work through the durable queue.
+
+## Provisioning
+
+<ProvisioningDiagram />
+
+The runner creates an orchestrator for the execution session. Before starting containers, it prepares images that need session-only registry credentials and removes those credentials from the service configuration passed to providers. It then creates a labeled Docker network that becomes the isolation boundary for the environment.
+
+Service relationships become a dependency graph. A topological sort turns that graph into readiness levels: services within one level can provision concurrently, while later levels wait for their dependencies. A provider owns the concrete startup behavior for its service type, including its container request and readiness strategy.
+
+When a provider succeeds, the orchestrator registers the service's container ID, network alias, host address, and mapped ports in a runtime registry. Later services can interpolate those runtime values, and test executors use the same registry to resolve their targets. Provisioning logs belong to the run and remain available for diagnosis.
+
+Private-registry credentials may be attached to the job, but they are encrypted in transit to the worker, excluded from exported workflows, and cleared after a terminal state.
+
+## Scenario execution
+
+<TestExecutionDiagram />
+
+Selected scenarios execute their tests in declared order. Before each test, Tokyo Tester interpolates runtime values from the provisioned service registry and selects the executor for the declared type. HTTP, relational database, document, cache, queue, shell, and delay executors all share this lifecycle even though their operations and evidence differ.
+
+Each outcome is persisted before the checkpoint cursor advances. A failed executor stores its error and available service logs; a passing executor stores successful evidence. The scenario then proceeds through its remaining declared steps, produces a summary, and enters cleanup. Workflow, scenario, and test records are checkpointed as execution progresses. SSE sends fresh changes to the UI, while durable snapshots reconcile anything missed.
+
+Cancellation is cooperative: the runner observes the cancellation request, stops new work, tears down active resources, and records the resulting state.
+
+Cleanup terminates known containers concurrently, then removes the isolated network. Cleanup is attempted after success, failure, and acknowledged cancellation. If teardown cannot finish, Tokyo Tester preserves the test outcome but promotes the execution to `cleanup_failed` so the operator knows the Docker host may still contain resources.
+
+## Terminal states
+
+`completed` means selected tests and cleanup succeeded. `failed` indicates execution could not complete. `partial_failed` preserves the distinction when some scenarios pass and others fail. `cancelled` records an acknowledged cancellation, and `cleanup_failed` makes leaked runtime resources visible.
+
+See [run statuses and limits](/docs/reference/run-statuses-limits) for the exact state vocabulary.

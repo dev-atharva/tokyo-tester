@@ -1,0 +1,38 @@
+Tokyo Tester is a self-hosted platform for testing a **working group of services as one disposable system**. Instead of borrowing a shared staging environment, a workflow describes the services, infrastructure, and checks needed for one repeatable run.
+
+## The short version
+
+Teams usually test an API against whatever happens to be running in staging. That environment may contain stale data, another branch, or a dependency someone else is changing. A failure becomes an investigation into the environment before it becomes an investigation into the product.
+
+Tokyo Tester reverses that arrangement. The test definition owns its environment. Each run receives a Docker network, starts the requested application and dependency containers, waits for readiness, executes ordered scenarios, stores the evidence, and removes the environment.
+
+<LifecycleDiagram />
+
+## What it replaces
+
+Tokyo Tester does not replace unit tests or focused API tests. Those remain the fastest way to prove small pieces of behavior. It replaces the fragile gap where a team needs to know whether several deployable services and real infrastructure work together.
+
+| Approach | Best at | Common blind spot |
+| --- | --- | --- |
+| Unit tests | Pure logic and fast feedback | Runtime wiring and infrastructure |
+| API tests | One running interface | Downstream services and state |
+| Shared staging | Broad manual exploration | Isolation and repeatability |
+| Tokyo Tester | Reproducible service journeys | It requires runnable container images |
+
+## Who it is for
+
+- **Product and delivery leaders** get a precise answer to “what journey failed?” rather than a vague staging incident.
+- **Developers** reproduce integration failures with the same services, ordering, and checks.
+- **QA engineers** encode realistic scenarios without maintaining one permanent test cluster.
+- **Platform teams** operate one runner while each execution gets its own isolation boundary.
+- **Coding agents** can propose and validate workflows through a deliberately narrow control plane.
+
+## What a run does
+
+A saved workflow is translated into an executable bundle. The durable runner claims the job, creates an isolated network, provisions services in dependency order, and executes the selected scenarios. Results and logs survive after containers are removed.
+
+<Callout title="A definition, not a permanent environment" kind="idea">
+Tokyo Tester stores the recipe and the evidence. The runtime environment is intentionally temporary.
+</Callout>
+
+Continue with the [philosophy](/docs/start/philosophy), or start immediately with the [quick start](/docs/start/quick-start).

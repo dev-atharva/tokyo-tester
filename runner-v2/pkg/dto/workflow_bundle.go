@@ -1,12 +1,13 @@
 package dto
 
 type WorkflowBundleScenarioResponse struct {
-	ScenarioName string       `json:"scenario_name"`
-	SessionID    string       `json:"session_id"`
-	Success      bool         `json:"success"`
-	Results      []TestResult `json:"results"`
-	Summary      TestSummary  `json:"summary"`
-	Error        string       `json:"error,omitempty"`
+	ScenarioName  string       `json:"scenario_name"`
+	SessionID     string       `json:"session_id"`
+	Success       bool         `json:"success"`
+	CleanupFailed bool         `json:"cleanup_failed,omitempty"`
+	Results       []TestResult `json:"results"`
+	Summary       TestSummary  `json:"summary"`
+	Error         string       `json:"error,omitempty"`
 }
 
 type WorkflowBundleRunSummary struct {

@@ -1,0 +1,29 @@
+Tokyo Tester separates the **system**, the **journey**, and the **individual observation**. This keeps a reusable environment from becoming tangled with one giant test script.
+
+## Workflow
+
+A workflow is the durable definition of the service environment: its nodes, edges, configuration, and scenarios. Runs pin the definition they execute so later edits do not rewrite historical meaning.
+
+Name workflows after a bounded system such as `Checkout platform` or `Notification pipeline`.
+
+## Scenario
+
+A scenario is one ordered journey through the workflow. Examples include `Successful card payment`, `Duplicate event is ignored`, and `Cache repopulates after a miss`.
+
+Scenarios can be selected independently at run time. Keep them narrow enough that a failure points to one business outcome, but complete enough to cross the dependencies whose integration matters.
+
+## Test
+
+A test is one executable step inside a scenario. Tokyo Tester supports HTTP, relational database, MongoDB document, cache, queue, shell, and delay executors.
+
+Steps run in order. A request can create state that a later database query, queue consume, or cache read verifies.
+
+## Choosing boundaries
+
+- Put services that need the same lifecycle in one workflow.
+- Put independent user journeys in separate scenarios.
+- Put one action or observation in each test step.
+- Prefer assertions on business meaning over incidental formatting.
+- Split a workflow when its environment becomes too expensive or its scenarios no longer share a useful setup.
+
+The [test reference](/docs/reference/tests) lists the exact executor families.

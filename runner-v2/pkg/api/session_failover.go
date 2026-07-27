@@ -19,14 +19,15 @@ import (
 )
 
 const (
-	sessionPhaseCreated      = "created"
-	sessionPhaseProvisioning = "provisioning"
-	sessionPhaseProvisioned  = "provisioned"
-	sessionPhaseRunningTests = "running_tests"
-	sessionPhaseTestsDone    = "tests_completed"
-	sessionPhaseCleaningUp   = "cleaning_up"
-	sessionPhaseCompleted    = "completed"
-	sessionPhaseFailed       = "failed"
+	sessionPhaseCreated       = "created"
+	sessionPhaseProvisioning  = "provisioning"
+	sessionPhaseProvisioned   = "provisioned"
+	sessionPhaseRunningTests  = "running_tests"
+	sessionPhaseTestsDone     = "tests_completed"
+	sessionPhaseCleaningUp    = "cleaning_up"
+	sessionPhaseCleanupFailed = "cleanup_failed"
+	sessionPhaseCompleted     = "completed"
+	sessionPhaseFailed        = "failed"
 )
 
 type persistedTestResult struct {
@@ -88,6 +89,41 @@ func (h *Handler) releaseSessionLease(ctx context.Context, persistedID string) {
 	})
 	if err != nil {
 		logger.WarnContext(ctx, "failed to release session lease", "session_id", persistedID, "error", err)
+	}
+}
+
+func (h *Handler) heartbeatSession(ctx context.Context, persistedID string) {
+	if h.db == nil || persistedID == "" {
+		return
+	}
+	interval := h.sessionHeartbeatInterval
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			_, err := h.updatePersistedSession(ctx, persistedID, func(current *db.Session) error {
+				if current.Status != "running" || current.OwnerID != h.ownerID {
+					return fmt.Errorf("session lease is no longer owned by this runner")
+				}
+				now = now.UTC()
+				current.HeartbeatAt = &now
+				leaseUntil := now.Add(h.leaseDuration)
+				current.LeaseExpiresAt = &leaseUntil
+				return nil
+			})
+			if err != nil {
+				if ctx.Err() == nil {
+					logger.WarnContext(ctx, "session heartbeat stopped", "session_id", persistedID, "error", err)
+				}
+				return
+			}
+		}
 	}
 }
 
@@ -278,6 +314,23 @@ func (h *Handler) persistSessionFailure(ctx context.Context, persistedID string,
 	}
 }
 
+func (h *Handler) persistInterruptedSession(ctx context.Context, persistedID string) {
+	if h.db == nil || persistedID == "" {
+		return
+	}
+	_, updateErr := h.updatePersistedSession(ctx, persistedID, func(current *db.Session) error {
+		now := time.Now().UTC()
+		current.Status = "pending"
+		current.Error = ""
+		current.CompletedAt = nil
+		current.HeartbeatAt = &now
+		return nil
+	})
+	if updateErr != nil {
+		logger.WarnContext(ctx, "failed to persist interrupted session state", "session_id", persistedID, "error", updateErr)
+	}
+}
+
 func (h *Handler) ensureTestPlan(ctx context.Context, persistedID string, tests []config.TestConfig) error {
 	if h.db == nil || persistedID == "" {
 		return nil
@@ -423,12 +476,12 @@ func (h *Handler) persistCheckpoint(ctx context.Context, persistedID string, che
 }
 
 func (h *Handler) getOrRecoverSession(ctx context.Context, backendSessionID string, execution *dto.ExecutionContextDTO) (*session.Session, *db.Session, error) {
-		if active, err := h.sessionManager.Get(backendSessionID); err == nil {
-			if active.PersistedID != "" && h.db != nil {
-				persisted, err := h.db.GetSession(ctx, active.PersistedID)
-				if err == nil {
-					persisted, err = h.ensureSessionLease(ctx, persisted)
-					return active, persisted, err
+	if active, err := h.sessionManager.Get(backendSessionID); err == nil {
+		if active.PersistedID != "" && h.db != nil {
+			persisted, err := h.db.GetSession(ctx, active.PersistedID)
+			if err == nil {
+				persisted, err = h.ensureSessionLease(ctx, persisted)
+				return active, persisted, err
 			}
 		}
 		return active, nil, nil
@@ -454,6 +507,7 @@ func (h *Handler) getOrRecoverSession(ctx context.Context, backendSessionID stri
 	if err := json.Unmarshal([]byte(persisted.ServiceGraph), &services); err != nil {
 		return nil, persisted, fmt.Errorf("failed to decode persisted service graph: %w", err)
 	}
+	services = h.withContainerResources(services)
 
 	orch := orchestrator.NewOrchestrator(h.providers)
 	execCtx := toSessionExecutionContext(executionContextFromPersisted(persisted, execution))

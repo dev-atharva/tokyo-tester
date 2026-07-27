@@ -2,8 +2,11 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/dev-atharva/cots/pkg/db"
 	apperrors "github.com/dev-atharva/cots/pkg/errors"
+	"github.com/dev-atharva/cots/pkg/logger"
 	"github.com/dev-atharva/cots/pkg/workflowrun"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -29,6 +33,16 @@ func (h *Handler) SubmitWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	}
 	job, created, err := h.workflowService.Submit(r.Context(), &request)
 	if err != nil {
+		var admissionErr *db.WorkflowAdmissionError
+		if errors.As(err, &admissionErr) {
+			w.Header().Set("Retry-After", strconv.Itoa(maxIntAPI(int(admissionErr.RetryAfter.Seconds()), 1)))
+			status := http.StatusTooManyRequests
+			if admissionErr.Scope == "server" {
+				status = http.StatusServiceUnavailable
+			}
+			respondJson(w, status, map[string]any{"error": admissionErr.Error(), "code": "queue_limit", "scope": admissionErr.Scope, "limit": admissionErr.Limit})
+			return
+		}
 		if strings.Contains(err.Error(), "different payload") {
 			respondJson(w, http.StatusConflict, map[string]string{"error": err.Error(), "code": apperrors.ErrInvalidRequest.String()})
 			return
@@ -36,11 +50,13 @@ func (h *Handler) SubmitWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		apperrors.ResponseBadRequest(w, err.Error())
 		return
 	}
+	queue, _ := h.workflowService.QueueInfo(r.Context(), request.WorkflowRunID)
 	respondJson(w, http.StatusAccepted, map[string]any{
 		"workflowRunId":      request.WorkflowRunID,
 		"workflowRevisionId": request.WorkflowRevisionID,
 		"status":             job.Status,
 		"created":            created,
+		"queue":              queue,
 	})
 }
 
@@ -265,7 +281,78 @@ func (h *Handler) GetWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		"workflowRun":  run,
 		"scenarioRuns": filtered,
 		"testResults":  testResults,
+		"queue":        queueInfo(h.workflowService, r.Context(), runID),
 	})
+}
+
+func (h *Handler) CancelWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	if h.workflowService == nil {
+		apperrors.RespondInternalError(w, "workflow worker is not enabled")
+		return
+	}
+	runID := chi.URLParam(r, "workflowRunID")
+	projectID := r.URL.Query().Get("projectId")
+	if runID == "" || projectID == "" {
+		apperrors.ResponseBadRequest(w, "workflowRunID and projectId are required")
+		return
+	}
+	job, changed, err := h.workflowService.Cancel(r.Context(), runID, projectID, "cancelled by user")
+	if errors.Is(err, sql.ErrNoRows) {
+		apperrors.RespondNotFound(w, "workflow run")
+		return
+	}
+	if err != nil {
+		logger.ErrorContext(r.Context(), "failed to cancel workflow run", "workflow_run_id", runID, "project_id", projectID, "error", err)
+		apperrors.RespondInternalError(w, "failed to cancel workflow run")
+		return
+	}
+	respondJson(w, http.StatusAccepted, map[string]any{
+		"workflowRunId": runID,
+		"status":        job.Status,
+		"changed":       changed,
+	})
+}
+
+func (h *Handler) ListWorkflowRunLogs(w http.ResponseWriter, r *http.Request) {
+	if h.workflowService == nil {
+		apperrors.RespondInternalError(w, "workflow worker is not enabled")
+		return
+	}
+	runID := chi.URLParam(r, "workflowRunID")
+	projectID := r.URL.Query().Get("projectId")
+	run, err := h.db.GetWorkflowRun(r.Context(), runID)
+	if err != nil || projectID == "" || run.ProjectID != projectID {
+		apperrors.RespondNotFound(w, "workflow run")
+		return
+	}
+	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	events, hasMore, err := h.workflowService.store.ListWorkflowLogEventsBefore(r.Context(), runID, before, limit)
+	if err != nil {
+		apperrors.RespondInternalError(w, "failed to list workflow logs")
+		return
+	}
+	var nextBefore int64
+	if len(events) > 0 {
+		nextBefore = events[len(events)-1].ID
+	}
+	respondJson(w, http.StatusOK, map[string]any{
+		"events":     events,
+		"hasMore":    hasMore,
+		"nextBefore": nextBefore,
+	})
+}
+
+func queueInfo(service *WorkflowService, ctx context.Context, runID string) *db.WorkflowQueueInfo {
+	info, _ := service.QueueInfo(ctx, runID)
+	return info
+}
+
+func maxIntAPI(value, fallback int) int {
+	if value > 0 {
+		return value
+	}
+	return fallback
 }
 
 func (h *Handler) StreamWorkflowRunEvents(w http.ResponseWriter, r *http.Request) {
@@ -288,6 +375,9 @@ func (h *Handler) StreamWorkflowRunEvents(w http.ResponseWriter, r *http.Request
 		apperrors.RespondNotFound(w, "workflow run")
 		return
 	}
+	// Streaming responses are resumable and must not inherit the finite write
+	// deadline used by ordinary API handlers.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 	afterID, _ := strconv.ParseInt(r.Header.Get("Last-Event-ID"), 10, 64)
 	if queryAfter := r.URL.Query().Get("after"); queryAfter != "" {
 		if parsed, err := strconv.ParseInt(queryAfter, 10, 64); err == nil && parsed > afterID {
@@ -320,7 +410,11 @@ func (h *Handler) StreamWorkflowRunEvents(w http.ResponseWriter, r *http.Request
 			flusher.Flush()
 		}
 		job, err := h.workflowService.store.GetWorkflowJob(r.Context(), runID)
-		if err == nil && (job.Status == "completed" || job.Status == "failed") && len(events) == 0 {
+		jobStatus := run.Status
+		if err == nil {
+			jobStatus = job.Status
+		}
+		if err == nil && (job.Status == "completed" || job.Status == "failed" || job.Status == "cancelled") && len(events) == 0 {
 			return
 		}
 		select {
@@ -328,10 +422,23 @@ func (h *Handler) StreamWorkflowRunEvents(w http.ResponseWriter, r *http.Request
 			return
 		case <-poll.C:
 		case <-heartbeat.C:
-			if _, err := fmt.Fprint(w, ": heartbeat\n\n"); err != nil {
+			if err := writeWorkflowHeartbeat(w, runID, jobStatus, time.Now().UTC()); err != nil {
 				return
 			}
 			flusher.Flush()
 		}
 	}
+}
+
+func writeWorkflowHeartbeat(w io.Writer, workflowRunID, status string, now time.Time) error {
+	payload, err := json.Marshal(map[string]any{
+		"workflowRunId": workflowRunID,
+		"status":        status,
+		"timestamp":     now.UnixMilli(),
+	})
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "event: heartbeat\ndata: %s\n\n", payload)
+	return err
 }

@@ -1,0 +1,25 @@
+Tokyo Tester runs user-selected container images and commands, so its primary security boundary is operational: trusted workspaces execute on a dedicated runner host with narrow application and agent permissions.
+
+## Trust boundaries
+
+Authentication protects application routes. Workspace membership controls view, edit, run, and manage actions. The runner is not a general remote Docker API; it receives validated workflow jobs through the durable application boundary.
+
+Run untrusted images only on infrastructure designed for that threat model. A Docker socket grants host-level power to the runner process.
+
+## Registry credentials
+
+Private registry credentials are scoped to a workflow and service for the current session. They are not persisted with workflows, written into revisions, or exported. Job payloads carrying them are encrypted and cleared when the run becomes terminal.
+
+## Agent authentication
+
+Personal tokens are shown once, stored as hashes, expire, and can be revoked. OAuth deployments use project-specific resource metadata, audience validation, and token introspection. The MCP adapter issues a short-lived internal assertion rather than forwarding the external token.
+
+Scopes separate reading, workflow mutation, and execution. Workspace role remains an upper bound on the scopes a user can issue.
+
+## Diagnostics and redaction
+
+Run diagnostics provide enough workflow, scenario, and test context to repair a failure while redacting sensitive values. Logs and responses should still be treated as operational data: applications can print their own secrets, so image and logging practices matter.
+
+<Callout title="Security is shared with the tested services" kind="security">
+Tokyo Tester avoids persisting its registry secrets, but it cannot stop an application container from logging a secret supplied in that application's environment. Use disposable credentials and safe logging practices.
+</Callout>

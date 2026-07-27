@@ -1,0 +1,51 @@
+Tokyo Tester includes a small operational log UI for beta deployments. It streams Docker logs and basic container resource activity without introducing a separate log database, collector, or indexing cluster.
+
+The viewer is an incident tool, not a second source of execution truth. Workflow checkpoints, test results, and captured failure evidence remain in Tokyo Tester; the log UI helps explain what the application containers were doing around them.
+
+## Open the log UI
+
+Before the first production start, create a separate log administrator. The password is converted to bcrypt and the generated file is excluded from Git:
+
+```bash
+make prod-observe-user
+make prod
+```
+
+`make prod` starts the observability container together with the application. Caddy makes it available beneath the Tokyo Tester origin while Dozzle presents its own login screen:
+
+```bash
+make prod-observe
+docker compose --profile observability ps observability
+```
+
+Open `<TOKYO_TESTER_PUBLIC_ORIGIN>/logs/` and sign in with the log-administrator credentials. These credentials are deliberately separate from Tokyo Tester accounts: access to projects does not automatically grant access to host-wide container logs.
+
+To replace the administrator, run `make prod-observe-user` again, confirm replacement, and then run `make prod` to recreate the viewer with the new file.
+
+## Investigate an incident
+
+Start with the container nearest the symptom, then expand outward:
+
+1. **Edge:** confirm Caddy accepted the host and routed the request.
+2. **UI:** inspect migrations, authentication, server rendering, and API proxy errors.
+3. **MCP:** inspect health propagation, authorization, and tool requests.
+4. **Runner:** correlate the workflow run ID with queue claims, provisioning levels, tests, and cleanup.
+5. **Ephemeral services:** while a run is active, inspect the application and infrastructure containers created for that run.
+
+Use timestamps and request, workflow-run, scenario, or service identifiers to follow one operation across containers. Return to the Tokyo Tester execution view for the durable result and redacted diagnostic payload.
+
+## Retention and resource bounds
+
+Production services use Docker's `local` logging driver. By default, each Compose service keeps at most three 10 MB log segments, with Docker handling rotation. Configure `CONTAINER_LOG_MAX_SIZE` and `CONTAINER_LOG_MAX_FILES` only after checking available disk.
+
+The viewer itself defaults to `DOZZLE_MEMORY_LIMIT=128m`, `DOZZLE_CPU_LIMIT=0.25`, and 100 PIDs. It reads logs on demand rather than maintaining a separate searchable copy. Old lines disappear when Docker rotates them, and logs from ephemeral workflow containers disappear after those containers are cleaned up.
+
+For longer retention, export selected incident evidence or add a dedicated log backend later. Do not increase local retention indefinitely on the runner host.
+
+## Security boundary
+
+<Callout title="Keep the viewer private" kind="security">
+The log viewer can read the Docker API and application output, which may contain sensitive operational data. It is reachable only through Caddy at `/logs/`, requires a separate bcrypt login, and has container actions and shell access disabled. Restrict the application origin to the company network during beta. Plain HTTP does not encrypt the log password, session, or log content; add company TLS or an authenticated internal proxy before making this route internet-accessible.
+</Callout>
+
+The Docker socket remains a privileged boundary even when mounted read-only. Pin and review viewer upgrades, keep the runner on a dedicated host, and stop the observability profile if it is not needed.

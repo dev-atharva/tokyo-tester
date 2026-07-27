@@ -2,7 +2,6 @@
 
 import { useActionState, useEffect } from "react";
 import { useForm } from "react-hook-form";
-import { Input } from "@/components/ui/input";
 import {
   Form,
   FormControl,
@@ -11,6 +10,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
 import { loginAction } from "@/modules/auth/actions";
 import type { AuthActionState } from "@/modules/auth/types";
 import { SubmitButton } from "./submit-button";
@@ -58,7 +58,10 @@ export function LoginForm({
           name="email"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              <FormLabel
+                htmlFor="email"
+                className="text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+              >
                 Email
               </FormLabel>
               <FormControl>
@@ -82,7 +85,10 @@ export function LoginForm({
           name="password"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              <FormLabel
+                htmlFor="password"
+                className="text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+              >
                 Password
               </FormLabel>
               <FormControl>

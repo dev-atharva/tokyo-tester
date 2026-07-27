@@ -2,7 +2,6 @@
 
 import { useActionState, useEffect } from "react";
 import { useForm } from "react-hook-form";
-import { Input } from "@/components/ui/input";
 import {
   Form,
   FormControl,
@@ -11,6 +10,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
 import { setupAction } from "@/modules/auth/actions";
 import type { AuthActionState } from "@/modules/auth/types";
 import { SubmitButton } from "./submit-button";
@@ -46,7 +46,10 @@ export function SetupForm({ redirectTo }: { redirectTo: string }) {
           name="name"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              <FormLabel
+                htmlFor="name"
+                className="text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+              >
                 Display Name
               </FormLabel>
               <FormControl>
@@ -69,7 +72,10 @@ export function SetupForm({ redirectTo }: { redirectTo: string }) {
           name="email"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              <FormLabel
+                htmlFor="email"
+                className="text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+              >
                 Admin Email
               </FormLabel>
               <FormControl>
@@ -94,7 +100,10 @@ export function SetupForm({ redirectTo }: { redirectTo: string }) {
             name="password"
             render={({ field }) => (
               <FormItem>
-                <FormLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <FormLabel
+                  htmlFor="password"
+                  className="text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+                >
                   Initial Password
                 </FormLabel>
                 <FormControl>
@@ -117,7 +126,10 @@ export function SetupForm({ redirectTo }: { redirectTo: string }) {
             name="confirmPassword"
             render={({ field }) => (
               <FormItem>
-                <FormLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <FormLabel
+                  htmlFor="confirmPassword"
+                  className="text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+                >
                   Confirm Password
                 </FormLabel>
                 <FormControl>

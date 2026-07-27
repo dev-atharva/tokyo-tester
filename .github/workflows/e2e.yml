@@ -1,0 +1,41 @@
+name: Whole-product E2E
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-e2e:
+    name: Docker E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install E2E dependencies
+        run: make e2e-install
+      - name: Install Chromium system dependencies
+        working-directory: e2e
+        run: bunx playwright install-deps chromium
+      - name: Run repository checks
+        run: make check
+      - name: Build production images
+        run: AUTH_SECRET=ci-production-image-check-secret MYSQL_ROOT_PASSWORD=ci-mysql-root-password MYSQL_PASSWORD=ci-mysql-app-password WORKFLOW_JOB_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= docker compose --profile agent build
+      - name: Run Docker journey
+        run: make e2e-docker
+      - name: Upload Docker diagnostics
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: docker-e2e-artifacts
+          path: e2e/artifacts/docker
+          if-no-files-found: warn
+          retention-days: 14

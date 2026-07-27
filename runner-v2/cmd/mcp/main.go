@@ -10,8 +10,17 @@ import (
 )
 
 func main() {
-	appURL := env("TOKYO_TESTER_APP_URL", "http://ui:3000")
-	server, err := mcpserver.New(appURL, os.Getenv("MCP_ALLOWED_ORIGIN"))
+	server, err := mcpserver.New(mcpserver.Config{
+		AppBaseURL:            env("TOKYO_TESTER_APP_URL", "http://ui:3000"),
+		PublicMCPURL:          env("MCP_PUBLIC_URL", "http://localhost:8090/mcp"),
+		AllowedOrigins:        os.Getenv("MCP_ALLOWED_ORIGIN"),
+		AuthMode:              env("MCP_AUTH_MODE", "personal_token"),
+		OAuthIssuer:           os.Getenv("MCP_OAUTH_ISSUER"),
+		OAuthIntrospectionURL: os.Getenv("MCP_OAUTH_INTROSPECTION_URL"),
+		OAuthClientID:         os.Getenv("MCP_OAUTH_CLIENT_ID"),
+		OAuthClientSecret:     os.Getenv("MCP_OAUTH_CLIENT_SECRET"),
+		InternalSecret:        os.Getenv("MCP_INTERNAL_SECRET"),
+	})
 	if err != nil {
 		log.Fatal(err)
 	}

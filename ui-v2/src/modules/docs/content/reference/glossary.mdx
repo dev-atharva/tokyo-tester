@@ -1,0 +1,45 @@
+Tokyo Tester uses a small vocabulary consistently across the builder, runner, API, and agent tools.
+
+## Authoring terms
+
+**Workflow** — The saved definition of a service environment and its scenarios.
+
+**Node** — One runnable application or infrastructure service.
+
+**Edge** — A typed relationship between two nodes, optionally carrying readiness direction.
+
+**Scenario** — An independently selectable, ordered journey through a workflow.
+
+**Test** — One executable action or observation inside a scenario.
+
+**Bundle** — The portable versioned representation of a workflow.
+
+**Revision** — An immutable saved workflow snapshot. Restoring creates a new current revision.
+
+## Execution terms
+
+**Workflow run** — One durable execution of selected scenarios against a pinned workflow definition.
+
+**Scenario run** — The execution record for one selected scenario.
+
+**Test result** — The outcome and evidence for one test step.
+
+**Readiness** — The condition proving a service can accept the work its dependents require.
+
+**Lease** — Time-bounded runner ownership of durable work.
+
+**Checkpoint** — Persisted progress that makes execution observable and recoverable.
+
+**Cleanup** — Removal of the run's containers and Docker network after execution.
+
+## Platform terms
+
+**Workspace** — A personal or team boundary for workflows, roles, runs, and agent authorization. The codebase may also call it a project.
+
+**MCP adapter** — The separate authenticated service exposing controlled Tokyo Tester tools and resources to coding agents.
+
+**Validation receipt** — A short-lived proof that an exact normalized bundle passed authoritative validation.
+
+**Idempotency key** — A stable identifier reused only when retrying the same mutating request.
+
+**Durable snapshot** — Persisted run state used to reconcile realtime events and browser refreshes.

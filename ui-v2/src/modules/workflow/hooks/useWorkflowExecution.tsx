@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { generateId } from "@/lib/generate-id";
 import { syncService } from "@/modules/sync/sync-service";
 import {
+  sanitizeName,
   translateWorkflowGraphToServiceGraph,
   validateScenario,
   validateWorkflowGraph,
@@ -74,6 +75,7 @@ export function useWorkflowExecution({
 
   const startExecution = useExecutionStore((state) => state.startExecution);
   const failExecution = useExecutionStore((state) => state.failExecution);
+  const updateQueueInfo = useExecutionStore((state) => state.updateQueueInfo);
   const activeWorkflowRunId = useExecutionStore(
     (state) => state.activeWorkflowRunId,
   );
@@ -82,8 +84,9 @@ export function useWorkflowExecution({
     (state) => state.startScenarioRun,
   );
   const scenariosMap = useScenarioStore((state) => state.scenarios);
-  const secretStore = useRegistrySecretStore.getState();
-  const registrySecrets = secretStore.secrets;
+  const registrySecrets = useRegistrySecretStore(
+    (state) => state.secrets[workflowId],
+  );
   const activeExecution = useMemo(
     () =>
       activeWorkflowRunId ? (executions[activeWorkflowRunId] ?? null) : null,
@@ -102,15 +105,28 @@ export function useWorkflowExecution({
   const normalizedSecrets = useMemo(
     () =>
       Object.fromEntries(
-        Object.entries(registrySecrets).map(([name, secret]) => [
-          name,
-          {
-            ...secret,
-            auth_type: secret.auth_type || "basic",
-          },
-        ]),
+        nodes.flatMap((node) => {
+          const registry = node.data.service.registry;
+          if (!registry) return [];
+          const secret = registrySecrets?.[node.id];
+          return [
+            [
+              sanitizeName(node.data.label || node.id),
+              {
+                url: registry.url,
+                auth_type: registry.auth_type,
+                username:
+                  registry.auth_type === "basic" ? secret?.username : undefined,
+                password:
+                  registry.auth_type === "basic" ? secret?.password : undefined,
+                token:
+                  registry.auth_type === "token" ? secret?.token : undefined,
+              },
+            ] as const,
+          ];
+        }),
       ),
-    [registrySecrets],
+    [nodes, registrySecrets],
   );
   const openLogsDrawer = useUIStore((state) => state.openLogs);
 
@@ -119,6 +135,30 @@ export function useWorkflowExecution({
       const workflowValidation = validateWorkflowGraph(nodes, edges);
       if (!workflowValidation.valid) {
         return workflowValidation;
+      }
+
+      for (const node of nodes) {
+        const registry = node.data.service.registry;
+        if (!registry || registry.auth_type === "none") continue;
+        const runtime =
+          normalizedSecrets[sanitizeName(node.data.label || node.id)];
+        const missingBasic =
+          registry.auth_type === "basic" &&
+          (!runtime?.username?.trim() || !runtime.password);
+        const missingToken = registry.auth_type === "token" && !runtime?.token;
+        if (missingBasic || missingToken) {
+          return {
+            valid: false,
+            errors: [
+              {
+                nodeId: node.id,
+                field: "registry",
+                message: `Re-enter the session-only registry credentials for “${node.data.label}” before running.`,
+              },
+            ],
+            warnings: [],
+          } satisfies ValidationResult;
+        }
       }
 
       const serviceGraph = translateWorkflowGraphToServiceGraph(
@@ -251,7 +291,8 @@ export function useWorkflowExecution({
           },
         };
 
-        await submitWorkflowRun(data);
+        const submission = await submitWorkflowRun(data);
+        updateQueueInfo(workflowRunId, submission.queue);
 
         openLogsDrawer();
       } catch (error) {
@@ -278,6 +319,7 @@ export function useWorkflowExecution({
       normalizedSecrets,
       openLogsDrawer,
       failExecution,
+      updateQueueInfo,
     ],
   );
 

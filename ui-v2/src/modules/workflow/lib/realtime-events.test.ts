@@ -26,6 +26,9 @@ describe("runner realtime event reducers", () => {
   test("recognizes terminal and partial workflow statuses", () => {
     expect(isWorkflowRunStatus("completed")).toBe(true);
     expect(isWorkflowRunStatus("partial_failed")).toBe(true);
+    expect(isWorkflowRunStatus("cleanup_failed")).toBe(true);
+    expect(isWorkflowRunStatus("cancelling")).toBe(true);
+    expect(isWorkflowRunStatus("cancelled")).toBe(true);
     expect(isWorkflowRunStatus("unknown")).toBe(false);
   });
 
@@ -117,6 +120,12 @@ describe("runner realtime event reducers", () => {
     expect(resolveScenarioLogStatus("completed", "running")).toBe("completed");
     expect(resolveScenarioLogStatus("pending", "running")).toBe("running");
     expect(resolveScenarioLogStatus("running", "failed")).toBe("failed");
+    expect(resolveScenarioLogStatus("running", "cleanup_failed")).toBe(
+      "cleanup_failed",
+    );
+    expect(resolveScenarioLogStatus("cleanup_failed", "running")).toBe(
+      "cleanup_failed",
+    );
   });
 
   test("derives scenario status from a test-result batch", () => {

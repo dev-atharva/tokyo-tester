@@ -5,17 +5,20 @@ import {
   IconCheck,
   IconClipboard,
   IconDatabase,
+  IconDownload,
   IconKey,
   IconPlayerPlay,
+  IconPlugConnected,
   IconRefresh,
   IconRobot,
   IconRocket,
   IconShieldLock,
   IconTerminal2,
+  IconTrash,
   IconWorld,
 } from "@tabler/icons-react";
 import type React from "react";
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,8 +39,6 @@ const commands = {
   start: "make dev",
   mcp: "make agent-dev",
   health: "curl http://localhost:8090/health",
-  skill:
-    "mkdir -p ~/agent-workspace/.agents/skills\ncp -R /path/to/tokyo-tester/.agents/skills/tokyo-tester ~/agent-workspace/.agents/skills/",
 };
 
 const productionCommands = {
@@ -110,26 +111,30 @@ export function DevelopmentAgentDocs() {
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
               <IconBook2 className="size-4" />
-              Operator guide / deployment
+              Agent setup / operator guide
             </div>
             <h1 className="max-w-3xl text-3xl font-semibold tracking-tight sm:text-4xl">
-              Run Tokyo Tester locally or operate it on one production server.
+              Connect an agent safely, then run Tokyo Tester locally or in
+              production.
             </h1>
             <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-              Follow the verified path for development, then use the production
-              runbook for TLS, secrets, migrations, backups, upgrades, and agent
-              access.
+              Start with the guided MCP and skill setup. The same page also
+              covers development and the single-server production runbook.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge variant="outline">Development</Badge>
             <Badge variant="outline">Production</Badge>
-            <Badge variant="secondary">Migrations automatic</Badge>
+            <Badge variant="secondary">Agent-ready</Badge>
           </div>
         </header>
 
-        <Tabs defaultValue="development">
+        <Tabs defaultValue="agent">
           <TabsList variant="line">
+            <TabsTrigger value="agent">
+              <IconRobot />
+              Agent setup
+            </TabsTrigger>
             <TabsTrigger value="development">
               <IconTerminal2 />
               Development
@@ -139,6 +144,10 @@ export function DevelopmentAgentDocs() {
               Production
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="agent" className="pt-3">
+            <AgentSetupDocs onCopy={copy} />
+          </TabsContent>
 
           <TabsContent value="development" className="flex flex-col gap-8 pt-3">
             <section className="grid gap-4 lg:grid-cols-3">
@@ -270,7 +279,10 @@ export function DevelopmentAgentDocs() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
-                  <CommandBlock value={commands.skill} onCopy={copy} />
+                  <CommandBlock
+                    value="Open the Agent setup tab to download the current packaged skill."
+                    onCopy={copy}
+                  />
                   <Separator />
                   <pre className="overflow-x-auto text-xs leading-5 text-muted-foreground">
                     {`agent-workspace/\n├── .agents/skills/tokyo-tester/\n└── repositories/\n    ├── api/\n    ├── worker/\n    ├── web/\n    ├── payments/\n    └── infrastructure/`}
@@ -331,6 +343,446 @@ export function DevelopmentAgentDocs() {
   );
 }
 
+interface AgentSetup {
+  authMode: "personal_token" | "oauth";
+  mcpUrl: string;
+  project: { id: string; name: string };
+  skillDownloadUrl: string;
+}
+
+interface AgentTokenItem {
+  id: string;
+  name: string;
+  projectId: string;
+  scopes: string[];
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+}
+
+export function AgentSetupDocs({
+  onCopy = async (value, label) => {
+    await navigator.clipboard.writeText(value);
+    toast.success(`${label} copied`);
+  },
+}: {
+  onCopy?: (value: string, label: string) => Promise<void>;
+} = {}) {
+  const { activeProject } = useProjectContext();
+  const [setup, setSetup] = useState<AgentSetup | null>(null);
+  const [tokens, setTokens] = useState<AgentTokenItem[]>([]);
+  const [newToken, setNewToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const activeProjectId = activeProject?.id;
+
+  const scopes = useMemo(
+    () =>
+      activeProject
+        ? [
+            "read",
+            ...(activeProject.allowedActions.includes("edit")
+              ? ["workflow:write"]
+              : []),
+            ...(activeProject.allowedActions.includes("run") ? ["run"] : []),
+          ]
+        : [],
+    [activeProject],
+  );
+
+  const refresh = useCallback(async () => {
+    if (!activeProjectId) {
+      setSetup(null);
+      setTokens([]);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const [setupResponse, tokenResponse] = await Promise.all([
+        fetch(
+          `/api/v1/agent/setup?projectId=${encodeURIComponent(activeProjectId)}`,
+        ),
+        fetch("/api/v1/agent/tokens"),
+      ]);
+      const setupResult = (await setupResponse.json()) as AgentSetup & {
+        error?: string;
+      };
+      const tokenResult = (await tokenResponse.json()) as {
+        tokens?: AgentTokenItem[];
+        error?: string;
+      };
+      if (!setupResponse.ok) {
+        throw new Error(setupResult.error || "Could not load MCP setup");
+      }
+      if (!tokenResponse.ok) {
+        throw new Error(tokenResult.error || "Could not load agent tokens");
+      }
+      setSetup(setupResult);
+      setTokens(
+        (tokenResult.tokens ?? []).filter(
+          (item) => item.projectId === activeProjectId,
+        ),
+      );
+    } catch (error) {
+      setSetup(null);
+      toast.error(
+        error instanceof Error ? error.message : "Could not load agent setup",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    setNewToken(null);
+    void refresh();
+  }, [refresh]);
+
+  const createToken = async () => {
+    if (!activeProject || setup?.authMode !== "personal_token") return;
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/v1/agent/tokens", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Coding agent",
+          projectId: activeProject.id,
+          scopes,
+          expiresInDays: 30,
+        }),
+      });
+      const result = (await response.json()) as {
+        token?: string;
+        error?: string;
+      };
+      if (!response.ok || !result.token) {
+        throw new Error(result.error || "Could not create token");
+      }
+      setNewToken(result.token);
+      toast.success("Project token created");
+      await refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not create token",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const revokeToken = async (tokenId: string) => {
+    const response = await fetch(`/api/v1/agent/tokens/${tokenId}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      toast.error("Could not revoke the token");
+      return;
+    }
+    setNewToken(null);
+    toast.success("Token revoked");
+    await refresh();
+  };
+
+  const testConnection = async () => {
+    if (!setup || !newToken) return;
+    setIsTesting(true);
+    try {
+      const response = await fetch(setup.mcpUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${newToken}`,
+          "Content-Type": "application/json",
+          "MCP-Protocol-Version": "2025-11-25",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "tokyo_list_projects", arguments: {} },
+        }),
+      });
+      const result = (await response.json()) as {
+        error?: { message?: string };
+        result?: { isError?: boolean };
+      };
+      if (!response.ok || result.error || result.result?.isError) {
+        throw new Error(result.error?.message || "MCP rejected the connection");
+      }
+      toast.success("MCP connection verified");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "MCP connection failed",
+      );
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const skillUrl =
+    setup && typeof window !== "undefined"
+      ? new URL(setup.skillDownloadUrl, window.location.origin).toString()
+      : "https://tokyo.example/downloads/tokyo-tester-skill.tar.gz";
+  const installCommand = `mkdir -p .agents/skills\ncurl -fsSL ${skillUrl} | tar -xz -C .agents/skills`;
+  const clientConfig = JSON.stringify(
+    {
+      mcpServers: {
+        "tokyo-tester": {
+          url: setup?.mcpUrl ?? "https://tokyo.example/mcp/projects/project-id",
+          ...(setup?.authMode === "personal_token"
+            ? {
+                headers: {
+                  Authorization: `Bearer ${newToken ?? "<token-shown-once>"}`,
+                },
+              }
+            : {}),
+        },
+      },
+    },
+    null,
+    2,
+  );
+  const activeTokens = tokens.filter(
+    (item) =>
+      !item.revokedAt && new Date(item.expiresAt).getTime() > Date.now(),
+  );
+
+  return (
+    <div className="flex flex-col gap-8">
+      <section className="grid gap-4 lg:grid-cols-3">
+        <StepCard
+          number="01"
+          title="Choose the workspace"
+          description="The selected workspace fixes the boundary for every workflow read, import, and run."
+          icon={IconShieldLock}
+        >
+          <Badge variant={activeProject ? "secondary" : "outline"}>
+            {activeProject?.name ?? "Select a workspace in the sidebar"}
+          </Badge>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Your current project role also limits the scopes an agent can use.
+          </p>
+        </StepCard>
+        <StepCard
+          number="02"
+          title="Connect MCP"
+          description="MCP is the authenticated control plane for validation, workflow operations, runs, and diagnostics."
+          icon={IconPlugConnected}
+        >
+          <div className="break-all border bg-background p-3 font-mono text-xs">
+            {setup?.mcpUrl ?? (isLoading ? "Loading…" : "Select a workspace")}
+          </div>
+          <Badge variant="outline">
+            {setup?.authMode === "oauth"
+              ? "OAuth 2.1"
+              : "Project token · controlled self-hosting"}
+          </Badge>
+        </StepCard>
+        <StepCard
+          number="03"
+          title="Install the skill"
+          description="The skill is local guidance that teaches the agent how to inspect repositories and use MCP safely."
+          icon={IconDownload}
+        >
+          <Button
+            variant="outline"
+            disabled={!setup}
+            onClick={() => {
+              if (setup) window.location.assign(setup.skillDownloadUrl);
+            }}
+          >
+            <IconDownload data-icon="inline-start" />
+            Download skill
+          </Button>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Installing the skill does not grant access or upload source code.
+          </p>
+        </StepCard>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              {setup?.authMode === "oauth"
+                ? "Authorize through your identity provider"
+                : "Create a short-lived project token"}
+            </CardTitle>
+            <CardDescription>
+              {setup?.authMode === "oauth"
+                ? "Add the MCP URL to your client. It will open the standard browser authorization flow; Tokyo Tester never receives your provider password."
+                : "The secret is displayed once, stored only as a hash, expires automatically, and can be revoked below."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="flex flex-wrap gap-2">
+              {scopes.map((scope) => (
+                <Badge key={scope} variant="outline">
+                  {scope}
+                </Badge>
+              ))}
+            </div>
+            {setup?.authMode === "personal_token" ? (
+              newToken ? (
+                <div className="flex flex-col gap-2">
+                  <div className="break-all border bg-muted/40 p-3 font-mono text-xs">
+                    {newToken}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Copy this now. It cannot be displayed again.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Use the shortest practical lifetime and revoke tokens when an
+                  agent or workstation no longer needs access.
+                </p>
+              )
+            ) : (
+              <p className="text-xs leading-5 text-muted-foreground">
+                Authorization is audience-bound to this exact project MCP URL.
+                Removing project membership immediately removes access.
+              </p>
+            )}
+          </CardContent>
+          <CardFooter className="justify-end gap-2">
+            {newToken ? (
+              <Button
+                variant="outline"
+                onClick={() => void onCopy(newToken, "Token")}
+              >
+                <IconClipboard data-icon="inline-start" />
+                Copy token
+              </Button>
+            ) : null}
+            {setup?.authMode === "personal_token" ? (
+              <Button
+                disabled={!setup || isLoading}
+                onClick={() => void createToken()}
+              >
+                <IconKey data-icon="inline-start" />
+                {isLoading ? "Working…" : "Create token"}
+              </Button>
+            ) : null}
+          </CardFooter>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Agent client configuration</CardTitle>
+            <CardDescription>
+              Add one Streamable HTTP server. OAuth clients discover
+              authorization automatically; project-token clients add the shown
+              header.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <CommandBlock value={clientConfig} onCopy={onCopy} />
+            {setup?.authMode === "personal_token" ? (
+              <Button
+                variant="outline"
+                disabled={!newToken || isTesting}
+                onClick={() => void testConnection()}
+              >
+                <IconPlugConnected data-icon="inline-start" />
+                {isTesting ? "Testing…" : "Test connection safely"}
+              </Button>
+            ) : (
+              <p className="text-xs leading-5 text-muted-foreground">
+                Finish the browser consent flow in your MCP client, then call
+                <code className="mx-1 font-mono text-foreground">
+                  tokyo_list_projects
+                </code>
+                as the safe connection check.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Install in the agent workspace</CardTitle>
+            <CardDescription>
+              Run from the parent directory that contains the repositories the
+              agent may inspect.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CommandBlock value={installCommand} onCopy={onCopy} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Active project tokens</CardTitle>
+            <CardDescription>
+              Last-used time helps identify stale credentials. Revocation takes
+              effect on the next request.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col divide-y border">
+            {setup?.authMode === "oauth" ? (
+              <p className="p-4 text-xs text-muted-foreground">
+                OAuth access tokens are managed by your identity provider.
+              </p>
+            ) : activeTokens.length > 0 ? (
+              activeTokens.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between gap-4 p-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{item.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Expires {new Date(item.expiresAt).toLocaleDateString()} ·{" "}
+                      {item.lastUsedAt
+                        ? `used ${new Date(item.lastUsedAt).toLocaleString()}`
+                        : "never used"}
+                    </p>
+                  </div>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={`Revoke ${item.name}`}
+                    onClick={() => void revokeToken(item.id)}
+                  >
+                    <IconTrash />
+                  </Button>
+                </div>
+              ))
+            ) : (
+              <p className="p-4 text-xs text-muted-foreground">
+                No active tokens for this workspace.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>First useful prompt</CardTitle>
+          <CardDescription>
+            This makes the boundary between local research, MCP validation, and
+            user approval explicit.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <blockquote className="border-l-2 border-primary bg-muted/30 p-4 text-sm leading-6">
+            Use the Tokyo Tester skill to inspect the repositories in this
+            workspace. Propose a small evidence-based scenario matrix, validate
+            the workflow through MCP, and ask me before importing or running
+            anything.
+          </blockquote>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function ProductionDeploymentDocs({
   onCopy,
 }: {
@@ -372,13 +824,13 @@ function ProductionDeploymentDocs({
         <StepCard
           number="03"
           title="Durable data"
-          description="Runner and identity data live in separate persistent volumes and must be backed up as one deployment set."
+          description="Runner and identity data live in separate schemas on the MySQL volume and must be backed up as one deployment set."
           icon={IconDatabase}
         >
           <Checklist
             items={[
-              "runner_data: workflows, runs, results",
-              "ui_data: users, teams, tokens",
+              "tokyo_runner: workflows, runs, results",
+              "tokyo_ui: users, teams, tokens",
               "Retain matching encryption secrets",
             ]}
           />
@@ -405,6 +857,8 @@ AUTH_URL=https://tokyo.example.com
 TOKYO_TESTER_DOMAIN=tokyo.example.com
 TOKYO_TESTER_PUBLIC_ORIGIN=https://tokyo.example.com
 CORS_ORIGIN=https://tokyo.example.com
+MYSQL_ROOT_PASSWORD=<root-password>
+MYSQL_PASSWORD=<url-safe-app-password>
 WORKFLOW_JOB_ENCRYPTION_KEY=<base64-secret>`}</pre>
             </div>
           </CardContent>
@@ -441,22 +895,21 @@ WORKFLOW_JOB_ENCRYPTION_KEY=<base64-secret>`}</pre>
               Backup before every upgrade
             </CardTitle>
             <CardDescription>
-              Stop writers briefly and archive both SQLite volumes from the same
-              point in time. Store the archives and secrets encrypted off-host.
+              Create a transactionally consistent dump of both MySQL schemas.
+              Store the dump and secrets encrypted off-host.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <Checklist
               items={[
-                "Stop MCP, UI, and runner writers",
-                "Archive runner_data and ui_data",
+                "Dump tokyo_runner and tokyo_ui together",
                 "Create and verify SHA-256 checksums",
                 "Test restoration on another machine",
               ]}
             />
             <p className="text-xs leading-5 text-muted-foreground">
-              PostgreSQL installations must use provider snapshots or
-              `pg_dump`/`pg_restore`, not copied container files.
+              The backup records the deployed Git commit so code, data, and
+              secrets can be restored as one matching set.
             </p>
           </CardContent>
         </Card>
@@ -488,25 +941,28 @@ WORKFLOW_JOB_ENCRYPTION_KEY=<base64-secret>`}</pre>
           <CardTitle>Production MCP boundary</CardTitle>
           <CardDescription>
             Connect agents to `https://your-domain/mcp`; never expose the MCP
-            container port directly. Generate project-scoped tokens from this
-            Docs page and apply least-privilege workspace roles.
+            container port directly. Use OAuth for public registration, or
+            short-lived project tokens for controlled self-hosting.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 lg:grid-cols-[1fr_0.8fr]">
           <div className="flex flex-col gap-2 rounded-none border bg-background p-3 font-mono text-xs">
-            <span>URL https://tokyo.example.com/mcp</span>
+            <span>
+              OAuth URL
+              https://tokyo.example.com/mcp/projects/&lt;project-id&gt;
+            </span>
             <span className="text-muted-foreground">
-              Authorization: Bearer &lt;tt_pat_token&gt;
+              Self-hosted URL https://tokyo.example.com/mcp
             </span>
           </div>
           <p className="text-xs leading-5 text-muted-foreground">
-            Project tokens are the current private-beta mechanism for trusted
-            users. OAuth 2.1 protected-resource discovery is still required
-            before presenting MCP as a broadly public integration.
+            OAuth access is audience-bound and exchanged for a short-lived
+            internal assertion. Personal tokens are hashed, expiring, revocable,
+            and limited by the user's current project role.
           </p>
         </CardContent>
         <CardFooter className="justify-between gap-3">
-          <Badge variant="outline">Trusted-user private beta</Badge>
+          <Badge variant="outline">OAuth 2.1 / controlled self-hosting</Badge>
           <span className="text-xs text-muted-foreground">
             Full commands: docs/production-deployment.md
           </span>

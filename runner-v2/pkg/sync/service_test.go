@@ -3,14 +3,12 @@ package sync
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
+	"github.com/dev-atharva/cots/internal/testmysql"
 	"github.com/dev-atharva/cots/pkg/db"
-	sqlitedb "github.com/dev-atharva/cots/pkg/db/sqlite"
+	mysqldb "github.com/dev-atharva/cots/pkg/db/mysql"
 	"github.com/dev-atharva/cots/pkg/types"
 )
 
@@ -363,37 +361,10 @@ func TestPullChangesIncludesScenariosAndWorkflowRuns(t *testing.T) {
 	}
 }
 
-func newTestService(t *testing.T) (*Service, *sqlitedb.Client) {
+func newTestService(t *testing.T) (*Service, *mysqldb.Client) {
 	t.Helper()
-
-	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "sync-test.db")
-
-	client, err := sqlitedb.NewClient(dbPath)
-	if err != nil {
-		t.Fatalf("NewClient returned error: %v", err)
-	}
-
-	applySQLiteMigration(t, client, filepath.Join(projectRoot(t), "runner-v2", "pkg", "db", "migrations", "sqlite", "001_initial_schema.sql"))
-	applySQLiteMigration(t, client, filepath.Join(projectRoot(t), "runner-v2", "pkg", "db", "migrations", "sqlite", "002_add_session_version.sql"))
-	applySQLiteMigration(t, client, filepath.Join(projectRoot(t), "runner-v2", "pkg", "db", "migrations", "sqlite", "003_scenarios_workflow_runs.sql"))
-	applySQLiteMigration(t, client, filepath.Join(projectRoot(t), "runner-v2", "pkg", "db", "migrations", "sqlite", "004_project_scope.sql"))
-	applySQLiteMigration(t, client, filepath.Join(projectRoot(t), "runner-v2", "pkg", "db", "migrations", "sqlite", "005_session_failover.sql"))
-
+	client := testmysql.NewClient(t, "sync")
 	return NewService(client), client
-}
-
-func applySQLiteMigration(t *testing.T, client *sqlitedb.Client, path string) {
-	t.Helper()
-
-	sqlBytes, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile(%s) returned error: %v", path, err)
-	}
-
-	if _, err := client.GetConnection().Exec(string(sqlBytes)); err != nil {
-		t.Fatalf("Exec migration %s returned error: %v", path, err)
-	}
 }
 
 func newSyncChange(t *testing.T, entityType, entityID, changeType string, payload any, clientTime time.Time) types.SyncChange {
@@ -427,15 +398,4 @@ func rawJSON(t *testing.T, value any) json.RawMessage {
 
 func ptrTime(value time.Time) *time.Time {
 	return &value
-}
-
-func projectRoot(t *testing.T) string {
-	t.Helper()
-
-	_, currentFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-
-	return filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", "..", ".."))
 }

@@ -15,7 +15,7 @@ This repository contains an application which is used to do end to end testing f
 ### Core function 
 
 1. The user defined the graph of services and tests in the UI 
-2. The UI synchronizes the workflow and submits it to the runner's durable SQLite worker.
+2. The UI synchronizes the workflow and submits it to the runner's durable MySQL worker.
 3. The runner creates a Docker network, provisions services, runs tests, persists results, and cleans up after the workflow finishes.
 
 ### Peripheral function 

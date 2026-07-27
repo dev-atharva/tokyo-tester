@@ -1,12 +1,15 @@
 import {
   addEdge,
+  applyEdgeChanges,
   applyNodeChanges,
   type Connection,
+  type EdgeChange,
   type NodeChange,
   useEdgesState,
   useNodesState,
 } from "@xyflow/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { generateId } from "@/lib/generate-id";
 import { layoutArchitecture } from "../lib/architecture-view";
 import {
   inferEdgeData,
@@ -21,7 +24,7 @@ export function useWorkflowGraph(workflowId: string) {
   const updateWorkflowGraph = useWorkflowStore((s) => s.updateWorkflowGraph);
 
   const [nodes, setNodes] = useNodesState<FlowNode>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>([]);
+  const [edges, setEdges] = useEdgesState<FlowEdge>([]);
   const nodesRef = useRef<FlowNode[]>([]);
   const edgesRef = useRef(workflow?.edges ?? []);
   const [editingEdgeId, setEditingEdgeId] = useState<string | null>(null);
@@ -137,6 +140,81 @@ export function useWorkflowGraph(workflowId: string) {
     [setEdges, updateWorkflowGraph, workflow],
   );
 
+  const saveGuidedEdge = useCallback(
+    (definition: {
+      edgeId?: string;
+      source: string;
+      target: string;
+      data?: Partial<EdgeData>;
+    }) => {
+      const source = nodesRef.current.find(
+        (node) => node.id === definition.source,
+      );
+      const target = nodesRef.current.find(
+        (node) => node.id === definition.target,
+      );
+      if (!source || !target || source.id === target.id) return;
+
+      const inferred = inferEdgeData(source, target);
+      const data: EdgeData = {
+        ...inferred,
+        ...definition.data,
+        needsReview: undefined,
+      };
+      const existing = definition.edgeId
+        ? edgesRef.current.find((edge) => edge.id === definition.edgeId)
+        : edgesRef.current.find(
+            (edge) =>
+              edge.source === source.id &&
+              edge.target === target.id &&
+              edge.data?.relation === data.relation,
+          );
+      const nextEdge: FlowEdge = {
+        ...(existing ?? {}),
+        id: existing?.id ?? `edge-${generateId()}`,
+        source: source.id,
+        target: target.id,
+        type: "dataFlow",
+        data,
+      };
+      const newEdges = existing
+        ? edgesRef.current.map((edge) =>
+            edge.id === existing.id ? nextEdge : edge,
+          )
+        : addEdge<FlowEdge>(nextEdge, edgesRef.current);
+
+      setEdges(newEdges);
+      if (workflow) {
+        updateWorkflowGraph(workflow.id, nodesRef.current, newEdges);
+      }
+      return nextEdge;
+    },
+    [setEdges, updateWorkflowGraph, workflow],
+  );
+
+  const deleteEdge = useCallback(
+    (edgeId: string) => {
+      const newEdges = edgesRef.current.filter((edge) => edge.id !== edgeId);
+      setEdges(newEdges);
+      if (workflow) {
+        updateWorkflowGraph(workflow.id, nodesRef.current, newEdges);
+      }
+      if (editingEdgeId === edgeId) setEditingEdgeId(null);
+    },
+    [editingEdgeId, setEdges, updateWorkflowGraph, workflow],
+  );
+
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange<FlowEdge>[]) => {
+      const newEdges = applyEdgeChanges(changes, edgesRef.current);
+      setEdges(newEdges);
+      if (workflow && changes.some((change) => change.type === "remove")) {
+        updateWorkflowGraph(workflow.id, nodesRef.current, newEdges);
+      }
+    },
+    [setEdges, updateWorkflowGraph, workflow],
+  );
+
   const onNodesChange = useCallback(
     (changes: NodeChange<FlowNode>[]) => {
       const nextNodes = applyNodeChanges(changes, nodesRef.current);
@@ -196,6 +274,8 @@ export function useWorkflowGraph(workflowId: string) {
     editingEdgeId,
     setEditingEdgeId,
     updateEdge,
+    saveGuidedEdge,
+    deleteEdge,
     tidyLayout,
   };
 }

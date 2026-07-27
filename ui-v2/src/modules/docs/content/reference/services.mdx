@@ -1,0 +1,29 @@
+Service nodes describe everything the runner must provision before scenarios execute. Choose the focused provider when one exists and Generic for application or custom containers.
+
+## Service types
+
+| Type | Intended use | Typical tests |
+| --- | --- | --- |
+| `generic` | API, frontend, worker, or custom image | HTTP, shell |
+| `postgres` | PostgreSQL database | Database |
+| `mysql` | MySQL database | Database |
+| `mariadb` | MariaDB database | Database |
+| `redis` | Redis cache/data structure store | Cache |
+| `memcached` | Memcached cache | Cache |
+| `mongodb` | MongoDB document database | Document |
+| `rabbitmq` | RabbitMQ broker | Queue |
+| `kafka` | Kafka broker | Queue |
+
+## Generic services
+
+Generic nodes accept an image, command override, environment, ports, readiness, and runtime limits. They are appropriate whenever Tokyo Tester should run the image but does not need provider-specific configuration forms.
+
+## Dependency services
+
+Focused nodes expose the connection and startup fields relevant to their provider. They still create ordinary isolated containers and can be connected to several application nodes.
+
+Provider support does not imply production clustering or managed-cloud emulation. The goal is a real, disposable dependency suitable for an integration scenario.
+
+## Edge relations
+
+`calls` describes service invocation. `reads` and `writes` describe data access. `publishes` and `consumes` describe messaging. Readiness modes are `none`, `source_requires_target`, and `target_requires_source`.

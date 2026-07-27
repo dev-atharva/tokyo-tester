@@ -1,27 +1,16 @@
-import { mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import Database from "better-sqlite3";
+import { readdirSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import mysql from "mysql2/promise";
 import postgres from "postgres";
 
 function getDatabaseConfig() {
-  const type =
-    process.env.DB_TYPE === "postgres"
-      ? "postgres"
-      : process.env.DB_TYPE === "mysql"
-        ? "mysql"
-        : "sqlite";
-  const sqlitePath = resolve(
-    process.env.DB_PATH || "./data/tokyo-tester-auth.db",
-  );
-
-  if (type === "sqlite") {
-    mkdirSync(dirname(sqlitePath), { recursive: true });
+  const type = process.env.DB_TYPE?.trim() || "mysql";
+  if (type !== "mysql" && type !== "postgres") {
+    throw new Error(`Unsupported DB_TYPE=${type}; expected mysql or postgres`);
   }
 
   return {
     type,
-    sqlitePath,
     databaseUrl: process.env.DATABASE_URL,
   };
 }
@@ -29,19 +18,14 @@ function getDatabaseConfig() {
 async function main() {
   const database = getDatabaseConfig();
 
-  if (
-    (database.type === "postgres" || database.type === "mysql") &&
-    !database.databaseUrl
-  ) {
+  if (!database.databaseUrl) {
     throw new Error(`DATABASE_URL must be set when DB_TYPE=${database.type}`);
   }
 
   const folder =
     database.type === "postgres"
       ? "./src/db/migrations/postgres"
-      : database.type === "mysql"
-        ? "./src/db/migrations/mysql"
-        : "./src/db/migrations/sqlite";
+      : "./src/db/migrations/mysql";
   const absoluteFolder = resolve(process.cwd(), folder);
   const migrations = readdirSync(absoluteFolder)
     .filter((entry) => entry.endsWith(".sql"))
@@ -79,55 +63,29 @@ async function main() {
     return;
   }
 
-  if (database.type === "mysql") {
-    const client = mysql.createPool({
-      uri: database.databaseUrl,
-      multipleStatements: true,
-    });
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS \`_ui_schema_migration\` (
-        \`name\` VARCHAR(255) PRIMARY KEY,
-        \`appliedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    for (const migration of migrations) {
-      const [applied] = await client.query(
-        "SELECT 1 FROM `_ui_schema_migration` WHERE `name` = ?",
-        [migration.name],
-      );
-      if (Array.isArray(applied) && applied.length > 0) continue;
-      await client.query(migration.sql);
-      await client.query(
-        "INSERT INTO `_ui_schema_migration` (`name`) VALUES (?)",
-        [migration.name],
-      );
-    }
-    await client.end();
-    return;
-  }
-
-  const client = new Database(database.sqlitePath);
-  client.pragma("journal_mode = WAL");
-  client.exec(`
-    CREATE TABLE IF NOT EXISTS "_ui_schema_migration" (
-      "name" TEXT PRIMARY KEY,
-      "appliedAt" INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  const client = await mysql.createConnection({
+    uri: database.databaseUrl,
+    multipleStatements: true,
+  });
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS \`_ui_schema_migration\` (
+      \`name\` VARCHAR(255) PRIMARY KEY,
+      \`appliedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
-  const isApplied = client.prepare(
-    'SELECT 1 FROM "_ui_schema_migration" WHERE "name" = ?',
-  );
-  const markApplied = client.prepare(
-    'INSERT INTO "_ui_schema_migration" ("name") VALUES (?)',
-  );
   for (const migration of migrations) {
-    if (isApplied.get(migration.name)) continue;
-    client.transaction(() => {
-      client.exec(migration.sql);
-      markApplied.run(migration.name);
-    })();
+    const [applied] = await client.query(
+      "SELECT 1 FROM `_ui_schema_migration` WHERE `name` = ?",
+      [migration.name],
+    );
+    if (Array.isArray(applied) && applied.length > 0) continue;
+    await client.query(migration.sql);
+    await client.query(
+      "INSERT INTO `_ui_schema_migration` (`name`) VALUES (?)",
+      [migration.name],
+    );
   }
-  client.close();
+  await client.end();
 }
 
 main().catch((error) => {

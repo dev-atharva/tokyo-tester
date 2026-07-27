@@ -14,26 +14,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dev-atharva/cots/internal/testmysql"
 	"github.com/dev-atharva/cots/pkg/config"
 	"github.com/dev-atharva/cots/pkg/db"
-	"github.com/dev-atharva/cots/pkg/db/sqlite"
+	mysqldb "github.com/dev-atharva/cots/pkg/db/mysql"
+	"github.com/dev-atharva/cots/pkg/dto"
+	"github.com/dev-atharva/cots/pkg/provider"
 	"github.com/dev-atharva/cots/pkg/workflowrun"
 )
 
-func newWorkflowAPIHarness(t *testing.T) (*Handler, *WorkflowService, *sqlite.Client, []byte) {
+func newWorkflowAPIHarness(t *testing.T) (*Handler, *WorkflowService, *mysqldb.Client, []byte) {
 	return newWorkflowAPIHarnessWithSeed(t, true)
 }
 
-func newWorkflowAPIHarnessWithSeed(t *testing.T, seedWorkflow bool) (*Handler, *WorkflowService, *sqlite.Client, []byte) {
+func newWorkflowAPIHarnessWithSeed(t *testing.T, seedWorkflow bool) (*Handler, *WorkflowService, *mysqldb.Client, []byte) {
 	t.Helper()
-	client, err := sqlite.NewClient(filepath.Join(t.TempDir(), "workflow-api.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = client.Close() })
-	if err := db.NewMigrator(client, "sqlite").RunMigrations(); err != nil {
-		t.Fatal(err)
-	}
+	client := testmysql.NewClient(t, "workflow_api")
 
 	fixturePath := filepath.Join("..", "..", "..", "contracts", "workflow-run-input.json")
 	payload, err := os.ReadFile(fixturePath)
@@ -71,7 +67,9 @@ func newWorkflowAPIHarnessWithSeed(t *testing.T, seedWorkflow bool) (*Handler, *
 	}
 	handler := NewHandler(client, appConfig)
 	service, err := NewWorkflowService(handler, client, client, config.WorkflowWorkerConfig{
-		Concurrency: 1, ScenarioConcurrency: 1, LeaseSeconds: 60,
+		Concurrency: 1, ScenarioConcurrency: 1, MaxQueuedGlobal: 10,
+		MaxQueuedPerUser: 3, MaxQueuedPerProject: 10, MaxRunningPerUser: 1,
+		MaxRunningPerProject: 2, LeaseSeconds: 60,
 		HeartbeatSeconds: 15, MaxRecoveries: 3, EventRetentionDays: 30,
 		EncryptionKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32)),
 	})
@@ -125,7 +123,7 @@ func TestWorkflowRunSubmissionIsIdempotent(t *testing.T) {
 	}
 
 	first := post(payload)
-	if first.Code != http.StatusAccepted || !strings.Contains(first.Body.String(), `"created":true`) || !strings.Contains(first.Body.String(), `"workflowRevisionId"`) {
+	if first.Code != http.StatusAccepted || !strings.Contains(first.Body.String(), `"created":true`) || !strings.Contains(first.Body.String(), `"workflowRevisionId"`) || !strings.Contains(first.Body.String(), `"position":1`) {
 		t.Fatalf("unexpected first submission: status=%d body=%s", first.Code, first.Body.String())
 	}
 	second := post(payload)
@@ -180,6 +178,26 @@ func TestWorkflowSubmissionRejectsCrossProjectGraph(t *testing.T) {
 	NewRouter(handler, nil, false).ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/workflow-runs", bytes.NewReader(changed)))
 	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "does not belong") {
 		t.Fatalf("expected project mismatch rejection, got status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestWorkflowRunCancellationEndpointCancelsPendingRun(t *testing.T) {
+	handler, _, _, payload := newWorkflowAPIHarness(t)
+	router := NewRouter(handler, nil, false)
+	submit := httptest.NewRecorder()
+	router.ServeHTTP(submit, httptest.NewRequest(http.MethodPost, "/api/v1/workflow-runs", bytes.NewReader(payload)))
+	if submit.Code != http.StatusAccepted {
+		t.Fatalf("submission failed: status=%d body=%s", submit.Code, submit.Body.String())
+	}
+	cancel := httptest.NewRecorder()
+	router.ServeHTTP(cancel, httptest.NewRequest(http.MethodDelete, "/api/v1/workflow-runs/run-contract-1?projectId=project-contract-1", nil))
+	if cancel.Code != http.StatusAccepted || !strings.Contains(cancel.Body.String(), `"status":"cancelled"`) {
+		t.Fatalf("unexpected cancellation response: status=%d body=%s", cancel.Code, cancel.Body.String())
+	}
+	snapshot := httptest.NewRecorder()
+	router.ServeHTTP(snapshot, httptest.NewRequest(http.MethodGet, "/api/v1/workflow-runs/run-contract-1?projectId=project-contract-1", nil))
+	if snapshot.Code != http.StatusOK || !strings.Contains(snapshot.Body.String(), `"status":"cancelled"`) {
+		t.Fatalf("cancelled status was not durable: status=%d body=%s", snapshot.Code, snapshot.Body.String())
 	}
 }
 
@@ -257,5 +275,97 @@ func TestWorkflowHeartbeatFailureCancelsExecution(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("heartbeat failure did not cancel workflow execution")
+	}
+}
+
+func TestWriteWorkflowHeartbeatProducesVisibleSSEEvent(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	now := time.Date(2026, time.July, 26, 12, 0, 0, 0, time.UTC)
+	if err := writeWorkflowHeartbeat(recorder, "run-heartbeat", "running", now); err != nil {
+		t.Fatal(err)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "event: heartbeat\n") || !strings.Contains(body, `"workflowRunId":"run-heartbeat"`) || !strings.Contains(body, `"status":"running"`) {
+		t.Fatalf("unexpected heartbeat frame: %q", body)
+	}
+}
+
+func TestSessionHeartbeatRenewsLeaseDuringLongOperation(t *testing.T) {
+	handler, _, client, _ := newWorkflowAPIHarness(t)
+	old := time.Now().UTC().Add(-time.Hour)
+	session := &db.Session{
+		ID: "long-running-session", ProjectID: "project-contract-1", WorkflowRunID: "long-running-run",
+		WorkflowID: "workflow-contract-1", ScenarioID: "long-running-scenario", ScenarioName: "Long running",
+		Status: "running", OwnerID: handler.ownerID, HeartbeatAt: &old, LeaseExpiresAt: &old,
+		Phase: sessionPhaseRunningTests, Version: 1, CreatedAt: old, UpdatedAt: old,
+	}
+	if err := client.UpsertSession(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+
+	handler.sessionHeartbeatInterval = 10 * time.Millisecond
+	handler.leaseDuration = time.Minute
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go handler.heartbeatSession(ctx, session.ID)
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		stored, err := client.GetSession(context.Background(), session.ID)
+		if err == nil && stored.HeartbeatAt != nil && stored.HeartbeatAt.After(old) && stored.LeaseExpiresAt != nil && stored.LeaseExpiresAt.After(time.Now()) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("session heartbeat did not renew the persisted lease")
+}
+
+func TestInterruptedSessionRemainsRecoverable(t *testing.T) {
+	handler, _, client, _ := newWorkflowAPIHarness(t)
+	now := time.Now().UTC()
+	completedAt := now
+	session := &db.Session{
+		ID: "interrupted-session", ProjectID: "project-contract-1", WorkflowRunID: "interrupted-run",
+		WorkflowID: "workflow-contract-1", ScenarioID: "interrupted-scenario", ScenarioName: "Interrupted",
+		Status: "running", Error: "context canceled", CompletedAt: &completedAt,
+		Phase: sessionPhaseRunningTests, CheckpointIndex: 1, Version: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := client.UpsertSession(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+
+	handler.persistInterruptedSession(context.Background(), session.ID)
+	stored, err := client.GetSession(context.Background(), session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "pending" || stored.Phase != sessionPhaseRunningTests || stored.CheckpointIndex != 1 || stored.CompletedAt != nil || stored.Error != "" {
+		t.Fatalf("interrupted session was not left recoverable: %+v", stored)
+	}
+	if isTerminalScenarioCheckpoint(stored) {
+		t.Fatal("interrupted session must not be treated as a terminal scenario checkpoint")
+	}
+	if !isTerminalScenarioCheckpoint(&db.Session{Status: "completed", Phase: sessionPhaseCompleted}) {
+		t.Fatal("completed scenario checkpoint should remain reusable")
+	}
+}
+
+func TestWorkflowResourceMetadataIncludesDurableOwnershipLabels(t *testing.T) {
+	execution := &dto.ExecutionContextDTO{
+		SessionID: "scenario-run-1", WorkflowID: "workflow-1", WorkflowRunID: "workflow-run-1", ScenarioID: "scenario-1",
+	}
+	ctx := withWorkflowResourceMetadata(context.Background(), execution, "backend-session-1")
+	labels := provider.ResourceLabels(ctx, provider.ResourceTypeContainer)
+	want := map[string]string{
+		provider.LabelSessionID:        "scenario-run-1",
+		provider.LabelBackendSessionID: "backend-session-1",
+		provider.LabelWorkflowID:       "workflow-1",
+		provider.LabelWorkflowRunID:    "workflow-run-1",
+		provider.LabelScenarioID:       "scenario-1",
+	}
+	for key, expected := range want {
+		if labels[key] != expected {
+			t.Fatalf("unexpected resource label %s: got %q want %q", key, labels[key], expected)
+		}
 	}
 }

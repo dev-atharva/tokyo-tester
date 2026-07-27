@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "kind": "cots.workflow-bundle",
+  "workflow": {
+    "name": "production-docker-smoke",
+    "nodes": [
+      {
+        "id": "redis-node",
+        "data": {
+          "label": "redis",
+          "service": {
+            "type": "redis",
+            "env": [],
+            "ports": [],
+            "initScripts": []
+          }
+        }
+      }
+    ],
+    "edges": []
+  },
+  "scenarios": [
+    {
+      "name": "redis round trip",
+      "tests": [
+        {
+          "id": "redis-set",
+          "name": "write smoke value",
+          "type": "cache",
+          "targetServices": ["redis"],
+          "cacheConfig": {
+            "service": "redis",
+            "cacheType": "redis",
+            "operation": "set",
+            "key": "tokyo-tester:production-smoke",
+            "value": "ok"
+          }
+        },
+        {
+          "id": "redis-get",
+          "name": "read smoke value",
+          "type": "cache",
+          "targetServices": ["redis"],
+          "cacheConfig": {
+            "service": "redis",
+            "cacheType": "redis",
+            "operation": "get",
+            "key": "tokyo-tester:production-smoke",
+            "expectedValue": "ok"
+          }
+        }
+      ],
+      "testOrder": ["redis-set", "redis-get"]
+    }
+  ]
+}

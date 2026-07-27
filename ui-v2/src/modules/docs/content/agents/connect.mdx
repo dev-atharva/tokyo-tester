@@ -1,0 +1,41 @@
+Connect an agent from the authenticated Agent setup screen. The screen derives its MCP address and allowed scopes from the active workspace.
+
+## Choose authentication
+
+Controlled self-hosted installations can use a short-lived personal token. Internet-facing deployments can expose the OAuth flow with a project-specific MCP audience.
+
+Personal tokens are displayed once, stored only as hashes, expire automatically, and can be revoked. OAuth uses protected-resource metadata and token introspection without forwarding the external access token to the application backend.
+
+## Open Agent setup
+
+[Open Agent setup](/agent-setup), select the Personal or Team workspace, and review the scopes derived from your role. Generate a token only when the screen reports `personal_token`; OAuth clients will open their authorization flow instead.
+
+Download the packaged skill from the same screen and extract it at the agent workspace root:
+
+```bash
+mkdir -p .agents/skills
+curl -fsSL <skill-download-url> | tar -xz -C .agents/skills
+```
+
+## Configure the client
+
+Add one Streamable HTTP MCP server. For a personal token, send the value in the Authorization header:
+
+```json
+{
+  "mcpServers": {
+    "tokyo-tester": {
+      "url": "https://tokyo.example/mcp/projects/project-id",
+      "headers": { "Authorization": "Bearer <token-shown-once>" }
+    }
+  }
+}
+```
+
+## Verify access
+
+Use the verification action in Agent setup or call `tokyo_list_projects`. The result should contain one authorized project and its allowed actions. If it does not, verify the selected workspace, token expiry, MCP URL, and reverse-proxy route.
+
+<Callout title="Do not commit the token" kind="security">
+Store a personal token in the agent client's secret configuration. Never place it in a repository, workflow bundle, prompt, or exported file.
+</Callout>

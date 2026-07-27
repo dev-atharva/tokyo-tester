@@ -1,0 +1,32 @@
+A scenario should read like an outcome a person cares about, while each step remains precise enough for the runner to execute without interpretation.
+
+## Start with an outcome
+
+Prefer `Payment is rejected when fraud score is high` over `Test fraud API`. The first name states the behavior and naturally suggests the required services, action, and evidence.
+
+Write down the precondition, action, and proof before choosing executors. This prevents the available test form from dictating a weak scenario.
+
+## Use recipes
+
+The builder includes starting recipes for API smoke checks, Redis round trips, database connectivity, and message round trips. A recipe adds a useful structure; edit targets and assertions to match the workflow.
+
+Recipes are not special at runtime. They produce ordinary scenario steps that can be reordered and extended.
+
+## Order the steps
+
+Tests execute in scenario order. A robust journey often follows this pattern:
+
+1. Establish or verify the starting state.
+2. Perform the user-visible action through HTTP or messaging.
+3. Observe durable data, cache state, or emitted events.
+4. Assert the response and the important side effects.
+
+Use a delay only when the system's contract is genuinely time-based. It should not compensate for missing readiness.
+
+## Assert what matters
+
+Assert status, selected fields, rows, counts, values, or broker messages that prove the business outcome. Avoid copying whole payloads into equality assertions when IDs, timestamps, or ordering are incidental.
+
+<Callout title="One failure should tell one story" kind="idea">
+When a scenario tests several unrelated outcomes, the first failure hides the rest. Split independent stories into independently selectable scenarios.
+</Callout>

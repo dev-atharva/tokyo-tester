@@ -45,7 +45,7 @@ export const mysqlProjects = mysqlTable(
       length: 255,
     }).generatedAlwaysAs(
       sql`CASE WHEN kind = 'personal' THEN createdBy ELSE NULL END`,
-      { mode: "stored" },
+      { mode: "virtual" },
     ),
     createdAt: timestamp("createdAt", { mode: "date" })
       .notNull()
@@ -95,6 +95,8 @@ export const mysqlAgentTokens = mysqlTable("agent_token", {
     .references(() => mysqlProjects.id, { onDelete: "cascade" }),
   scopes: text("scopes").notNull(),
   expiresAt: timestamp("expiresAt", { mode: "date" }).notNull(),
+  lastUsedAt: timestamp("lastUsedAt", { mode: "date" }),
+  revokedAt: timestamp("revokedAt", { mode: "date" }),
   createdAt: timestamp("createdAt", { mode: "date" })
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),

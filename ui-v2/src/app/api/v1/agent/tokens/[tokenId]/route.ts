@@ -1,7 +1,6 @@
-import { and, eq } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { auth } from "@/auth";
-import { getDb } from "@/db";
+import { revokeAgentToken } from "@/modules/agent/server/auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -15,15 +14,6 @@ export async function DELETE(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { tokenId } = await context.params;
-  const connection = getDb();
-  const where = and(
-    eq(connection.tables.agentTokens.id, tokenId),
-    eq(connection.tables.agentTokens.userId, session.user.id),
-  );
-  if (connection.type !== "sqlite") {
-    await connection.db.delete(connection.tables.agentTokens).where(where);
-  } else {
-    connection.db.delete(connection.tables.agentTokens).where(where).run();
-  }
+  await revokeAgentToken(session.user.id, tokenId);
   return new Response(null, { status: 204 });
 }

@@ -50,22 +50,25 @@ The full matrix is intentionally opt-in through `make test-complex-e2e` because 
 - `runner-v2` is the Go service that provisions containers, runs tests, and cleans up
 - the separately deployed `mcp` process exposes agent-safe tools and has no Docker socket or database access
 - Caddy routes public `/mcp` traffic to that process while keeping the runner private
-- `docker-compose.yml` wires the UI and runner together with separate app databases; SQLite is the default, and PostgreSQL or MySQL can be selected with `DB_TYPE`/`DATABASE_URL`
+- `docker-compose.yml` wires the UI and runner to separate schemas on the same MySQL server; PostgreSQL remains available for explicitly configured non-worker installations
 - the frontend sync layer persists queued edits locally, flushes them to `POST /api/v1/sync/batch`, and hydrates from `GET /api/v1/sync/pull/{clientId}`
-- the runner's embedded durable worker coordinates execution, persists checkpoints, and streams replayable SSE updates to the UI on SQLite or MySQL app databases
+- the runner's embedded durable worker coordinates execution, persists checkpoints, and streams replayable SSE updates to the UI from MySQL
 - when workflow execution or cleanup is enabled, the runner validates Docker reachability during startup and fails before serving if the daemon or socket is unavailable
 
 ## Production Notes
 
 Follow the complete [Production deployment runbook](./docs/production-deployment.md) before exposing Tokyo Tester to a network. It covers DNS/TLS, secrets, migrations, verification, agent access, backups, upgrades, rollback, and incident commands.
 
-For Kubernetes, use the transitional [Kubernetes DinD deployment runbook](./docs/kubernetes-dind-deployment.md). It deploys the runner with a privileged Docker-in-Docker sidecar while keeping the runner private and UI/MCP behind your cluster routing.
+The supported production deployment for this release is a dedicated Linux Docker host. Kubernetes execution, environment profiles, and the previous Docker-in-Docker profile are parked until a native in-cluster backend passes the same execution, cleanup, recovery, and persistence gates as Docker.
 
-- `make prod` builds the standalone UI image and runs the single-server production stack
-- `kubectl apply -k k8s/dind` deploys the Kubernetes runner + DinD profile after you set images, secrets, and domain values
-- `RUNNER_DB_TYPE` and `UI_DB_TYPE` accept `sqlite`, `postgres`, or `mysql`; workflow MySQL service nodes are separate from this app database setting
+- `make prod-check` validates the host, secrets, socket access, Compose definition, and writable volumes
+- `make prod` builds the standalone UI image, migrates both databases, starts the single-server stack, and waits for readiness
+- `make prod-verify` checks public/private health, runs a minimal Docker workflow, and checks for leaked managed resources
+- `make prod-backup` creates one checksummed, transactionally consistent dump of both MySQL databases
+- MySQL is the supported default for the runner and UI; workflow MySQL service nodes are separate from this app database setting
 - production startup detects the host Docker socket before Compose starts, then the runner checks Docker again from inside the container; a bad socket now fails startup instead of waiting until a workflow is run
-- the UI still uses Bun for app scripts, but database migration runs through `node ./src/db/migrate.mjs` because `better-sqlite3` is a Node-only runtime dependency
+- the UI uses Bun for installation, development, migrations, builds, tests, and the standalone production server
+- custom registry hosts support nested repository paths; credentials are session-only, scoped to one workflow/service, and authenticated pulls fail closed without a Docker Hub fallback
 - workflow definitions are synced from the browser, while execution-owned records like workflow runs, scenario runs, and test results are treated as backend-owned during execution
 - if you have an old UI image cached, rebuild the service before retesting production behavior:
 
@@ -122,7 +125,9 @@ For local development, run `make dev`, then run `make agent-dev` in another term
 
 The production Compose stack exposes a remote MCP endpoint at `https://<TOKYO_TESTER_DOMAIN>/mcp`. The MCP process forwards project-scoped operations to the authenticated UI/API and never receives filesystem or Docker access.
 
-The current authentication path is an explicitly private-beta personal token. While signed in, create one with `POST /api/v1/agent/tokens`:
+For internet-facing deployments, set `MCP_AUTH_MODE=oauth` and configure an OAuth 2.1 authorization server that supports RFC 7662 token introspection. It must issue access tokens for the exact per-project resource URL shown in **Docs → Agent setup**. Tokyo Tester publishes protected-resource metadata and exchanges the external identity for a 60-second internal assertion; it never forwards the client access token to application APIs.
+
+Controlled self-hosted deployments can set `MCP_AUTH_MODE=personal_token`. While signed in, create a project token from **Docs → Agent setup** or with `POST /api/v1/agent/tokens`:
 
 ```json
 {
@@ -133,18 +138,18 @@ The current authentication path is an explicitly private-beta personal token. Wh
 }
 ```
 
-The raw `tt_pat_...` token is returned once. Configure the MCP client to send it as `Authorization: Bearer <token>`. Use the repository skill at [`.agents/skills/tokyo-tester`](./.agents/skills/tokyo-tester) to guide repository inspection, workflow authoring, validation, execution, and repair.
+The raw `tt_pat_...` token is returned once and stored only as a hash. Configure the MCP client to send it as `Authorization: Bearer <token>`. The Agent setup page lists last-use and expiry information and supports immediate revocation.
 
-Revoke a token with `DELETE /api/v1/agent/tokens/<token-id>` from an authenticated session.
+Download the packaged skill from the Agent setup page. The skill guides local repository inspection, workflow authoring, approval, validation, execution, and repair; it does not grant access or upload source files.
 
-Before opening MCP registration broadly, replace private-beta tokens with an OAuth 2.1 authorization server and MCP protected-resource discovery. The MCP adapter is intentionally isolated so that authentication transport can change without touching workflow execution.
+Revoke a token with `DELETE /api/v1/agent/tokens/<token-id>` from an authenticated session. Personal-token creation and direct personal-token API authentication are disabled when OAuth mode is active.
 
 ## Built With
 
 - Next.js
 - React
 - Zustand
-- SQLite/MySQL durable worker
+- MySQL durable worker
 - Go
 - Chi
 - Docker

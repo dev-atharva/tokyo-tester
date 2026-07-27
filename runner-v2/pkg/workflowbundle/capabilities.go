@@ -15,9 +15,10 @@ type Capabilities struct {
 }
 
 type TestCapability struct {
-	Type           string   `json:"type"`
-	ConfigField    string   `json:"configField"`
-	RequiredFields []string `json:"requiredFields"`
+	Type           string              `json:"type"`
+	ConfigField    string              `json:"configField"`
+	RequiredFields []string            `json:"requiredFields"`
+	AllowedValues  map[string][]string `json:"allowedValues,omitempty"`
 }
 
 func AgentCapabilities() Capabilities {
@@ -27,11 +28,11 @@ func AgentCapabilities() Capabilities {
 		BundleKind:             BundleKind,
 		ServiceTypes:           []string{"generic", "postgres", "mysql", "mariadb", "redis", "memcached", "mongodb", "rabbitmq", "kafka"},
 		TestTypes: []TestCapability{
-			{Type: "http", ConfigField: "httpConfig", RequiredFields: []string{"method", "path", "port"}},
-			{Type: "database", ConfigField: "databaseConfig", RequiredFields: []string{"driver", "database", "user", "password", "query"}},
-			{Type: "document", ConfigField: "documentConfig", RequiredFields: []string{"service", "database", "collection", "operation"}},
-			{Type: "cache", ConfigField: "cacheConfig", RequiredFields: []string{"service", "cacheType", "operation"}},
-			{Type: "queue", ConfigField: "queueConfig", RequiredFields: []string{"service", "brokerType", "operation"}},
+			{Type: "http", ConfigField: "httpConfig", RequiredFields: []string{"method", "path", "port"}, AllowedValues: map[string][]string{"method": {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}}},
+			{Type: "database", ConfigField: "databaseConfig", RequiredFields: []string{"driver", "database", "query"}, AllowedValues: map[string][]string{"driver": {"postgres", "mysql", "mariadb"}}},
+			{Type: "document", ConfigField: "documentConfig", RequiredFields: []string{"service", "database", "collection", "operation"}, AllowedValues: map[string][]string{"operation": {"insert_one", "find_one", "find_many", "update_one", "delete_one", "count_documents", "exists"}}},
+			{Type: "cache", ConfigField: "cacheConfig", RequiredFields: []string{"service", "cacheType", "operation"}, AllowedValues: map[string][]string{"cacheType": {"redis", "memcached"}, "operation": {"ping", "set", "get", "exists", "delete", "del"}}},
+			{Type: "queue", ConfigField: "queueConfig", RequiredFields: []string{"service", "brokerType", "operation"}, AllowedValues: map[string][]string{"brokerType": {"kafka", "rabbitmq"}, "operation": {"produce", "consume", "produce_and_consume", "check_topic", "list_topics"}}},
 			{Type: "shell", ConfigField: "shellConfig", RequiredFields: []string{"command"}},
 			{Type: "delay", ConfigField: "delayConfig", RequiredFields: []string{"durationMs"}},
 		},

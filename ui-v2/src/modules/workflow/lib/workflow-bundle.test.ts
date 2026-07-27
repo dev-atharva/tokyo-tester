@@ -245,4 +245,54 @@ describe("workflow bundle", () => {
     expect(bundle.workflow.edges[0]?.data?.showLabel).toBeUndefined();
     expect(bundle.workflow.edges[0]?.data?.layoutPoints).toBeUndefined();
   });
+
+  test("round-trips guided connection metadata for the expert graph", () => {
+    const connection: FlowEdge = {
+      id: "guided-edge",
+      source: "node-1",
+      target: "node-2",
+      type: "dataFlow",
+      data: {
+        relation: "writes",
+        readiness: "source_requires_target",
+        protocol: "PostgreSQL",
+        description: "Stores completed orders",
+      },
+    };
+    const bundle = createWorkflowBundle(
+      {
+        name: "Guided workflow",
+        nodes: [
+          ...nodes,
+          {
+            ...nodes[0],
+            id: "node-2",
+            data: {
+              ...nodes[0].data,
+              label: "database",
+              service: {
+                type: "postgres",
+                env: [],
+                ports: [],
+                initScripts: [],
+              },
+            },
+          },
+        ],
+        edges: [connection],
+      },
+      [
+        {
+          name: "Connection round trip",
+          description: "",
+          tests,
+          testOrder: ["test-1", "test-2"],
+        },
+      ],
+    );
+
+    const parsed = parseWorkflowBundle(JSON.stringify(bundle));
+    expect(parsed.workflow.edges[0]).toMatchObject(connection);
+    expect(parsed.workflow.edges[0]?.data?.needsReview).toBeUndefined();
+  });
 });

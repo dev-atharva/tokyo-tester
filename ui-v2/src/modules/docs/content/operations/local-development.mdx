@@ -1,0 +1,44 @@
+The canonical development path uses Docker for the application services and selects a runner mode appropriate to the machine's Docker socket.
+
+## Canonical start
+
+Run the environment checks and start the stack from the repository root:
+
+```bash
+make doctor
+make dev
+```
+
+Pending UI and runner migrations run during startup. Create the initial administrator at `/setup`; subsequent sessions use `/login`.
+
+## Runner modes
+
+`make dev` detects standard and nonstandard Docker sockets. When the socket cannot be mounted into the runner container safely, the development tooling can run the Go runner on the host while the supporting services remain containerized.
+
+Use `make dev-local` when you intentionally want the local development path. Do not mount an arbitrary Docker socket merely to make a container start; the runner needs predictable access and cleanup behavior.
+
+## Agent adapter
+
+After the main stack is healthy, start the local MCP adapter:
+
+```bash
+make agent-dev
+curl http://localhost:8090/health
+```
+
+The local MCP endpoint is `http://localhost:8090/mcp`. Create a project-scoped token from [Agent setup](/agent-setup).
+
+## Daily commands
+
+| Command | Use |
+| --- | --- |
+| `make doctor` | Check local prerequisites and Docker access |
+| `make dev` | Start the canonical development stack |
+| `make agent-dev` | Start the MCP adapter after the stack |
+| `make check` | Run the repository verification suite |
+| `make down` | Stop services and preserve development data |
+| `make reset` | Delete and recreate development data |
+
+<Callout title="Reset is destructive" kind="warning">
+Use `make reset` only when loss of the local UI and runner databases is intentional.
+</Callout>

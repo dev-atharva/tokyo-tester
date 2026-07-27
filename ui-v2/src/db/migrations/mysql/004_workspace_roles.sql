@@ -14,7 +14,7 @@ ALTER TABLE `project`
   ADD COLUMN `personalOwnerKey` VARCHAR(255)
   GENERATED ALWAYS AS (
     CASE WHEN `kind` = 'personal' THEN `createdBy` ELSE NULL END
-  ) STORED;
+  ) VIRTUAL;
 
 CREATE UNIQUE INDEX `project_personal_owner_idx`
 ON `project`(`personalOwnerKey`);

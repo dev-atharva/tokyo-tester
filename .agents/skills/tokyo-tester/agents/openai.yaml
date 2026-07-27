@@ -1,4 +1,4 @@
 interface:
   display_name: "Tokyo Tester"
-  short_description: "Author and run Tokyo Tester workflows"
-  default_prompt: "Use $tokyo-tester to inspect this repository and create a validated Tokyo Tester workflow."
+  short_description: "Model, validate, and run evidence-based workflows"
+  default_prompt: "Use $tokyo-tester to inspect this workspace, explain the proposed scenarios, validate the workflow through the connected MCP server, and ask before importing or running it."

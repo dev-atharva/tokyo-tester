@@ -1,9 +1,10 @@
 "use client";
 
 import { del } from "idb-keyval";
-import { setCurrentSessionUserId } from "./session-user";
 import { setCurrentSessionProjectId } from "../projects/session-project";
 import { syncService } from "../sync/sync-service";
+import { useRegistrySecretStore } from "../workflow/stores/registry-secret-store";
+import { setCurrentSessionUserId } from "./session-user";
 
 const PERSISTED_KEYS = [
   "workflow-store",
@@ -17,12 +18,15 @@ const PROJECT_STATE_KEY_PREFIX = "cots_active_project";
 
 export async function clearProjectScopedClientState() {
   await syncService.flushPending().catch((error) => {
-    console.error("[SyncService] Failed to flush before clearing project state:", error);
+    console.error(
+      "[SyncService] Failed to flush before clearing project state:",
+      error,
+    );
   });
   syncService.clearQueue();
   setCurrentSessionProjectId(null);
+  useRegistrySecretStore.getState().clearAll();
   await Promise.all(PERSISTED_KEYS.map((key) => del(key)));
-  sessionStorage.removeItem("registry-secrets");
 }
 
 export async function clearUserScopedClientState() {
@@ -34,6 +38,7 @@ export async function clearUserScopedClientState() {
   syncService.clearQueue();
   setCurrentSessionUserId(null);
   setCurrentSessionProjectId(null);
+  useRegistrySecretStore.getState().clearAll();
 
   if (typeof window === "undefined") {
     return;
@@ -42,8 +47,9 @@ export async function clearUserScopedClientState() {
   localStorage.removeItem("cots_user_id");
   Object.keys(localStorage)
     .filter((key) => key.startsWith(PROJECT_STATE_KEY_PREFIX))
-    .forEach((key) => localStorage.removeItem(key));
+    .forEach((key) => {
+      localStorage.removeItem(key);
+    });
 
   await Promise.all(PERSISTED_KEYS.map((key) => del(key)));
-  sessionStorage.removeItem("registry-secrets");
 }

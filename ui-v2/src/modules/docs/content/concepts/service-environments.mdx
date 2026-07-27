@@ -1,0 +1,33 @@
+A Tokyo Tester environment is an executable service graph. It explains what must run, how services relate, and what must be ready before another service can begin.
+
+## From diagram to environment
+
+The UI graph is translated into a workflow bundle. The runner validates that bundle again before it creates anything. Each accepted run gets a dedicated Docker network and a predictable set of container aliases.
+
+This is why the graph should describe runtime truth. Decorative connections make the drawing clearer to a person but make the environment ambiguous to the runner.
+
+## Nodes
+
+Use a **Generic** node for application containers: APIs, frontends, workers, and custom infrastructure images. Managed dependency nodes provide focused configuration for PostgreSQL, MySQL, MariaDB, Redis, Memcached, MongoDB, RabbitMQ, and Kafka.
+
+Every runnable node needs enough information to become healthy: image, command when required, environment, ports, and a readiness strategy.
+
+## Connections
+
+An edge records a relation: `calls`, `reads`, `writes`, `publishes`, or `consumes`. Relations improve the architecture view and help the builder suggest sensible test and readiness behavior.
+
+Readiness direction is independent from the descriptive relation:
+
+| Readiness mode | Meaning |
+| --- | --- |
+| `none` | The connection does not constrain startup |
+| `source_requires_target` | Start the target before the source |
+| `target_requires_source` | Start the source before the target |
+
+## Readiness
+
+Container start is not the same as application readiness. Prefer a health check or reachable protocol signal that represents the service's ability to accept work.
+
+<Callout title="Avoid startup sleeps" kind="warning">
+A fixed delay can hide a race on a fast machine and still fail on a slow one. Model dependency direction and use an actual readiness condition whenever possible.
+</Callout>

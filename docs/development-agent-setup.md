@@ -24,7 +24,7 @@ cd tokyo-tester
 make dev
 ```
 
-`make dev` performs the environment checks, detects the Docker socket, builds the development services, and applies both databases' pending migrations. Do not reset either database for a normal upgrade.
+`make dev` performs the environment checks, detects the Docker socket, starts MySQL, builds the development services, and applies both schemas' pending migrations. Do not reset the database for a normal upgrade.
 
 The startup mode depends on the Docker socket:
 

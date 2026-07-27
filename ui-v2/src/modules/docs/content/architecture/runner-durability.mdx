@@ -1,0 +1,29 @@
+The runner is built to execute long enough to provision real dependencies while still surviving browser disconnects and recoverable worker interruptions.
+
+## Durable work
+
+Submitted workflows become MySQL-backed jobs. A runner claims a job with a lease and records progress through durable workflow, scenario, and test checkpoints. If a worker disappears, lease expiry gives recovery logic a bounded way to reason about unfinished work.
+
+Queue concurrency and rate limits protect the host from accepting more environments than it can safely execute.
+
+## Per-run isolation
+
+Each workflow run receives a unique Docker network and its own service containers. Container aliases provide internal discovery. Isolation prevents data, broker messages, and DNS from silently leaking between runs.
+
+The orchestrator translates readiness relationships into topological levels. Independent services in a level can start concurrently; dependent levels wait. Successful providers register runtime aliases, addresses, mapped ports, and container IDs, giving downstream configuration, executors, diagnostics, and cleanup one consistent view of the environment.
+
+The runner attaches identifiers to created resources so cleanup and incident capture can resolve them back to the durable run. See the [execution lifecycle](/docs/concepts/execution-lifecycle) for the detailed provisioning and test diagrams.
+
+## Limits and cancellation
+
+Container CPU, memory, and PID limits bound defective or hostile test workloads. Cancellation is persisted and observed by the worker, which stops new scenario work and proceeds through teardown.
+
+Historical durations support p50/p90 estimates for queued and active work, but estimates do not alter execution semantics.
+
+## Recovery and cleanup
+
+Cleanup runs after success, failure, or acknowledged cancellation. The environment is disposable, but the results and logs remain. Cleanup errors produce `cleanup_failed` so an operator knows the execution host may still contain resources.
+
+<Callout title="Privileged control deserves a dedicated host" kind="security">
+The production runner controls the host Docker daemon. Restrict host access, public ports, images, and workflow authoring permissions accordingly.
+</Callout>

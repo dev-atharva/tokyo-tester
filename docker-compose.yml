@@ -1,3 +1,9 @@
+x-default-logging: &default-logging
+  driver: local
+  options:
+    max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+    max-file: ${CONTAINER_LOG_MAX_FILES:-3}
+
 services:
   runner:
     build:
@@ -10,8 +16,7 @@ services:
       PORT: 8080
       LOG_LEVEL: ${RUNNER_LOG_LEVEL:-info}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
-      DB_TYPE: ${RUNNER_DB_TYPE:-sqlite}
-      DB_PATH: /app/data/cots.db
+      DB_TYPE: ${RUNNER_DB_TYPE:-mysql}
       DATABASE_URL: ${RUNNER_DATABASE_URL:-}
       DOCKER_HOST: ${RUNNER_DOCKER_HOST:-unix:///var/run/docker.sock}
       TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: ${TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE:-/var/run/docker.sock}
@@ -19,44 +24,58 @@ services:
       JANITOR_ENABLED: ${JANITOR_ENABLED:-true}
       WORKFLOW_WORKER_ENABLED: ${WORKFLOW_WORKER_ENABLED:-true}
       WORKFLOW_WORKER_CONCURRENCY: ${WORKFLOW_WORKER_CONCURRENCY:-2}
-      WORKFLOW_SCENARIO_CONCURRENCY: ${WORKFLOW_SCENARIO_CONCURRENCY:-2}
+      WORKFLOW_SCENARIO_CONCURRENCY: ${WORKFLOW_SCENARIO_CONCURRENCY:-1}
+      WORKFLOW_MAX_QUEUED_GLOBAL: ${WORKFLOW_MAX_QUEUED_GLOBAL:-100}
+      WORKFLOW_MAX_QUEUED_PER_USER: ${WORKFLOW_MAX_QUEUED_PER_USER:-3}
+      WORKFLOW_MAX_QUEUED_PER_PROJECT: ${WORKFLOW_MAX_QUEUED_PER_PROJECT:-10}
+      WORKFLOW_SUBMISSIONS_PER_MINUTE_USER: ${WORKFLOW_SUBMISSIONS_PER_MINUTE_USER:-10}
+      WORKFLOW_SUBMISSIONS_PER_MINUTE_PROJECT: ${WORKFLOW_SUBMISSIONS_PER_MINUTE_PROJECT:-60}
+      WORKFLOW_MAX_RUNNING_PER_USER: ${WORKFLOW_MAX_RUNNING_PER_USER:-1}
+      WORKFLOW_MAX_RUNNING_PER_PROJECT: ${WORKFLOW_MAX_RUNNING_PER_PROJECT:-2}
+      WORKFLOW_CONTAINER_MEMORY_MB: ${WORKFLOW_CONTAINER_MEMORY_MB:-1024}
+      WORKFLOW_CONTAINER_CPU_MILLI: ${WORKFLOW_CONTAINER_CPU_MILLI:-1000}
+      WORKFLOW_CONTAINER_PIDS: ${WORKFLOW_CONTAINER_PIDS:-256}
+      TEST_RUN_TIMEOUT_SEC: ${TEST_RUN_TIMEOUT_SEC:-0}
       WORKFLOW_JOB_LEASE_SECONDS: ${WORKFLOW_JOB_LEASE_SECONDS:-60}
       WORKFLOW_JOB_HEARTBEAT_SECONDS: ${WORKFLOW_JOB_HEARTBEAT_SECONDS:-15}
       WORKFLOW_JOB_MAX_RECOVERIES: ${WORKFLOW_JOB_MAX_RECOVERIES:-3}
       WORKFLOW_EVENT_RETENTION_DAYS: ${WORKFLOW_EVENT_RETENTION_DAYS:-30}
       WORKFLOW_JOB_ENCRYPTION_KEY: ${WORKFLOW_JOB_ENCRYPTION_KEY:?WORKFLOW_JOB_ENCRYPTION_KEY must be set}
     volumes:
-      - runner_data:/app/data
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:${CONTAINER_DOCKER_SOCKET_PATH:-/var/run/docker.sock}
     networks:
       - tokyo-tester
     command: ["-migrate"]
     restart: unless-stopped
+    logging: *default-logging
 
   ui:
     build:
-      context: ./ui-v2
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ui-v2/Dockerfile
     container_name: tokyo-tester-ui
     environment:
       NODE_ENV: production
       PORT: 3000
+      HOSTNAME: 0.0.0.0
       COTS_API_BASE_URL: ${COTS_API_BASE_URL:-http://runner:8080}
-      DB_TYPE: ${UI_DB_TYPE:-sqlite}
-      DB_PATH: /app/data/tokyo-tester-auth.db
+      DB_TYPE: ${UI_DB_TYPE:-mysql}
       DATABASE_URL: ${UI_DATABASE_URL:-}
       AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET must be set}
       AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
       AUTH_URL: ${AUTH_URL:-}
-    volumes:
-      - ui_data:/app/data
+      MCP_INTERNAL_SECRET: ${MCP_INTERNAL_SECRET:-local-dev-mcp-internal-secret-32-bytes}
+      MCP_AUTH_MODE: ${MCP_AUTH_MODE:-personal_token}
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-${TOKYO_TESTER_PUBLIC_ORIGIN:-http://localhost:8090}/mcp}
+      MCP_OAUTH_ISSUER: ${MCP_OAUTH_ISSUER:-}
     depends_on:
       runner:
         condition: service_healthy
     networks:
       - tokyo-tester
-    command: ["sh", "-c", "bun run db:migrate && bun run start"]
+    command: ["sh", "-c", "bun run db:migrate && exec bun server.js"]
     restart: unless-stopped
+    logging: *default-logging
 
   mcp:
     profiles: ["agent", "agent-dev"]
@@ -69,12 +88,20 @@ services:
       PORT: 8090
       TOKYO_TESTER_APP_URL: http://ui:3000
       MCP_ALLOWED_ORIGIN: ${TOKYO_TESTER_PUBLIC_ORIGIN:-}
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-${TOKYO_TESTER_PUBLIC_ORIGIN:-http://localhost:8090}/mcp}
+      MCP_AUTH_MODE: ${MCP_AUTH_MODE:-personal_token}
+      MCP_INTERNAL_SECRET: ${MCP_INTERNAL_SECRET:-local-dev-mcp-internal-secret-32-bytes}
+      MCP_OAUTH_ISSUER: ${MCP_OAUTH_ISSUER:-}
+      MCP_OAUTH_INTROSPECTION_URL: ${MCP_OAUTH_INTROSPECTION_URL:-}
+      MCP_OAUTH_CLIENT_ID: ${MCP_OAUTH_CLIENT_ID:-}
+      MCP_OAUTH_CLIENT_SECRET: ${MCP_OAUTH_CLIENT_SECRET:-}
     depends_on:
       ui:
         condition: service_healthy
     networks:
       - tokyo-tester
     restart: unless-stopped
+    logging: *default-logging
 
   edge:
     profiles: ["agent"]
@@ -98,6 +125,41 @@ services:
     networks:
       - tokyo-tester
     restart: unless-stopped
+    logging: *default-logging
+
+  observability:
+    profiles: ["observability"]
+    image: amir20/dozzle:v10.6.2
+    container_name: tokyo-tester-observability
+    environment:
+      DOZZLE_HOSTNAME: ${DOZZLE_HOSTNAME:-tokyo-tester-beta}
+      DOZZLE_BASE: /logs
+      DOZZLE_AUTH_PROVIDER: simple
+      DOZZLE_NO_ANALYTICS: "true"
+      DOZZLE_ENABLE_ACTIONS: "false"
+      DOZZLE_ENABLE_SHELL: "false"
+    volumes:
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro
+      - dozzle_data:/data
+      - ${DOZZLE_USERS_FILE:-./.secrets/dozzle-users.yml}:/data/users.yml:ro
+    networks:
+      - tokyo-tester
+    healthcheck:
+      test: ["CMD", "/dozzle", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: ${DOZZLE_MEMORY_LIMIT:-128m}
+    cpus: ${DOZZLE_CPU_LIMIT:-0.25}
+    pids_limit: 100
+    restart: unless-stopped
+    logging: *default-logging
 
 networks:
   tokyo-tester:
@@ -105,7 +167,6 @@ networks:
     driver: bridge
 
 volumes:
-  runner_data:
-  ui_data:
   caddy_data:
   caddy_config:
+  dozzle_data:

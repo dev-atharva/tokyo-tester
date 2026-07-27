@@ -1,6 +1,5 @@
 "use client";
 
-import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { HomeLayout } from "@/modules/home/layouts/home-layout";
 import { ProjectProvider } from "@/modules/projects/project-context";
@@ -17,9 +16,6 @@ interface AppShellProps {
   projects: ProjectMembership[];
 }
 
-const AUTH_ROUTES = new Set(["/login", "/setup"]);
-const PROTECTED_SHELL_PREFIXES = ["/workflow", "/admin", "/projects", "/docs"];
-
 export function AppShell({
   children,
   userId,
@@ -28,19 +24,10 @@ export function AppShell({
   userRole,
   projects,
 }: AppShellProps) {
-  const pathname = usePathname();
-  const isProtectedRoute = PROTECTED_SHELL_PREFIXES.some((prefix) =>
-    pathname.startsWith(prefix),
-  );
-
   if (userId) {
     setUserId(userId);
   } else {
     clearAuth();
-  }
-
-  if (AUTH_ROUTES.has(pathname) || !isProtectedRoute) {
-    return children;
   }
 
   if (!userId) {

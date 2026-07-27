@@ -34,6 +34,7 @@ func (g *GenericProvider) Provision(ctx context.Context, cfg config.ServiceConfi
 		NetworkAliases: map[string][]string{
 			network.Name: {cfg.Name},
 		},
+		HostConfigModifier: ResourceHostConfigModifier(cfg.Resources),
 	}
 
 	//Set command if specified

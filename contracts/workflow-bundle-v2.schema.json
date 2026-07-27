@@ -128,9 +128,110 @@
         "type": { "enum": ["http", "database", "document", "cache", "queue", "shell", "delay"] },
         "targetServices": { "type": "array", "minItems": 1, "items": { "type": "string" } },
         "dependsOnTestIds": { "type": "array", "items": { "type": "string" } },
-        "httpConfig": { "type": "object" }, "databaseConfig": { "type": "object" }, "documentConfig": { "type": "object" },
-        "cacheConfig": { "type": "object" }, "queueConfig": { "type": "object" }, "shellConfig": { "type": "object" }, "delayConfig": { "type": "object" }
+        "httpConfig": { "$ref": "#/$defs/httpConfig" },
+        "databaseConfig": { "$ref": "#/$defs/databaseConfig" },
+        "documentConfig": { "$ref": "#/$defs/documentConfig" },
+        "cacheConfig": { "$ref": "#/$defs/cacheConfig" },
+        "queueConfig": { "$ref": "#/$defs/queueConfig" },
+        "shellConfig": { "$ref": "#/$defs/shellConfig" },
+        "delayConfig": { "$ref": "#/$defs/delayConfig" }
       },
+      "additionalProperties": false,
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "http" } } }, "then": { "required": ["httpConfig"] } },
+        { "if": { "properties": { "type": { "const": "database" } } }, "then": { "required": ["databaseConfig"] } },
+        { "if": { "properties": { "type": { "const": "document" } } }, "then": { "required": ["documentConfig"] } },
+        { "if": { "properties": { "type": { "const": "cache" } } }, "then": { "required": ["cacheConfig"] } },
+        { "if": { "properties": { "type": { "const": "queue" } } }, "then": { "required": ["queueConfig"] } },
+        { "if": { "properties": { "type": { "const": "shell" } } }, "then": { "required": ["shellConfig"] } },
+        { "if": { "properties": { "type": { "const": "delay" } } }, "then": { "required": ["delayConfig"] } }
+      ]
+    },
+    "httpConfig": {
+      "type": "object",
+      "required": ["method", "path", "port"],
+      "properties": {
+        "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] },
+        "path": { "type": "string", "pattern": "^/" },
+        "port": { "type": "string", "pattern": "^[0-9]{1,5}(/tcp)?$" },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+        "body": { "type": "string" },
+        "expectedStatus": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "expectedBody": {
+          "type": "object",
+          "required": ["mode", "value"],
+          "properties": { "mode": { "enum": ["contains", "json_partial", "json"] }, "value": {} },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "databaseConfig": {
+      "type": "object",
+      "required": ["driver", "database", "query"],
+      "properties": {
+        "driver": { "enum": ["postgres", "mysql", "mariadb"] },
+        "database": { "type": "string", "minLength": 1 },
+        "user": { "type": "string" },
+        "password": { "type": "string", "description": "Use only test-safe credentials; never production secrets." },
+        "query": { "type": "string", "minLength": 1 },
+        "expectedResult": {}
+      },
+      "additionalProperties": false
+    },
+    "documentConfig": {
+      "type": "object",
+      "required": ["service", "database", "collection", "operation"],
+      "properties": {
+        "service": { "type": "string", "minLength": 1 },
+        "database": { "type": "string", "minLength": 1 },
+        "collection": { "type": "string", "minLength": 1 },
+        "operation": { "enum": ["insert_one", "find_one", "find_many", "update_one", "delete_one", "count_documents", "exists"] },
+        "document": { "type": "object" }, "filter": { "type": "object" }, "update": { "type": "object" },
+        "expectedDocument": { "type": "object" }, "expectedDocuments": { "type": "array", "items": { "type": "object" } },
+        "expectedCount": { "type": "integer", "minimum": 0 }, "expectedExists": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "cacheConfig": {
+      "type": "object",
+      "required": ["service", "cacheType", "operation"],
+      "properties": {
+        "service": { "type": "string", "minLength": 1 },
+        "cacheType": { "enum": ["redis", "memcached"] },
+        "operation": { "enum": ["ping", "set", "get", "exists", "delete", "del"] },
+        "key": { "type": "string" }, "value": {}, "expectedValue": {}, "expectedExists": { "type": "boolean" },
+        "ttl": { "type": "integer", "minimum": 0 }, "db": { "type": "integer", "minimum": 0 },
+        "password": { "type": "string", "description": "Use only test-safe credentials; never production secrets." }
+      },
+      "additionalProperties": false
+    },
+    "queueConfig": {
+      "type": "object",
+      "required": ["service", "brokerType", "operation"],
+      "properties": {
+        "service": { "type": "string", "minLength": 1 }, "brokerType": { "enum": ["kafka", "rabbitmq"] },
+        "operation": { "enum": ["produce", "consume", "produce_and_consume", "check_topic", "list_topics"] },
+        "topic": { "type": "string" }, "message": {}, "key": { "type": "string" }, "partition": { "type": "integer", "minimum": 0 },
+        "timeout": { "type": "integer", "minimum": 0, "maximum": 300 }, "fromBeginning": { "type": "boolean" },
+        "expectedCount": { "type": "integer", "minimum": 0 }, "expectedMessage": {}, "expectedExists": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "shellConfig": {
+      "type": "object",
+      "required": ["command"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "env": { "type": "object", "additionalProperties": { "type": "string" } },
+        "expectedOutput": { "type": "string" }, "expectedExitCode": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "delayConfig": {
+      "type": "object",
+      "required": ["durationMs"],
+      "properties": { "durationMs": { "type": "integer", "minimum": 1, "maximum": 86400000 } },
       "additionalProperties": false
     }
   }

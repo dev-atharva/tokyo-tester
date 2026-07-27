@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -9,6 +10,8 @@ import (
 	"github.com/dev-atharva/cots/pkg/provider"
 	"github.com/google/uuid"
 )
+
+var ErrSessionNotFound = errors.New("session not found")
 
 // Represents running session with containers
 type Session struct {
@@ -20,6 +23,7 @@ type Session struct {
 	Execution    *ExecutionContext
 	TestResults  map[string]any
 	resultsMu    sync.RWMutex
+	cleanupMu    sync.Mutex
 }
 
 type ExecutionContext struct {
@@ -34,13 +38,21 @@ type ExecutionContext struct {
 }
 
 type Manager struct {
-	sessions map[string]*Session
-	mu       sync.RWMutex
+	sessions       map[string]*Session
+	cleanupSession func(context.Context, *Session) error
+	mu             sync.RWMutex
 }
 
 func NewManager() *Manager {
+	return NewManagerWithCleanup(func(ctx context.Context, session *Session) error {
+		return session.Orchestrator.CleanUp(ctx)
+	})
+}
+
+func NewManagerWithCleanup(cleanup func(context.Context, *Session) error) *Manager {
 	return &Manager{
-		sessions: make(map[string]*Session),
+		sessions:       make(map[string]*Session),
+		cleanupSession: cleanup,
 	}
 }
 
@@ -107,7 +119,7 @@ func (m *Manager) Get(sessionID string) (*Session, error) {
 
 	session, ok := m.sessions[sessionID]
 	if !ok {
-		return nil, fmt.Errorf("sesion not found : %s", sessionID)
+		return nil, fmt.Errorf("%w: %s", ErrSessionNotFound, sessionID)
 	}
 	return session, nil
 }
@@ -118,19 +130,38 @@ func (m *Manager) Delete(sessionId string) error {
 }
 
 func (m *Manager) DeleteWithContext(ctx context.Context, sessionId string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	m.mu.RLock()
 	session, ok := m.sessions[sessionId]
+	m.mu.RUnlock()
 	if !ok {
-		return fmt.Errorf("session not found : %s", sessionId)
+		return fmt.Errorf("%w: %s", ErrSessionNotFound, sessionId)
+	}
+
+	session.cleanupMu.Lock()
+	defer session.cleanupMu.Unlock()
+
+	m.mu.RLock()
+	current, stillActive := m.sessions[sessionId]
+	m.mu.RUnlock()
+	if !stillActive || current != session {
+		return fmt.Errorf("%w: %s", ErrSessionNotFound, sessionId)
 	}
 
 	session.Cancel()
-	if err := session.Orchestrator.CleanUp(ctx); err != nil {
+	cleanupSession := m.cleanupSession
+	if cleanupSession == nil {
+		cleanupSession = func(ctx context.Context, session *Session) error {
+			return session.Orchestrator.CleanUp(ctx)
+		}
+	}
+	if err := cleanupSession(ctx, session); err != nil {
 		return fmt.Errorf("failed to cleanup the session : %w", err)
 	}
-	delete(m.sessions, sessionId)
+	m.mu.Lock()
+	if m.sessions[sessionId] == session {
+		delete(m.sessions, sessionId)
+	}
+	m.mu.Unlock()
 	return nil
 }
 

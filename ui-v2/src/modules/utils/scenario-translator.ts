@@ -24,7 +24,7 @@ type RegistrySecrets = Record<
   string,
   {
     url?: string;
-    auth_type: "basic" | "token";
+    auth_type: "none" | "basic" | "token";
     username?: string;
     password?: string;
     token?: string;
