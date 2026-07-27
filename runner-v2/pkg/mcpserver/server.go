@@ -166,14 +166,16 @@ func New(config Config) (*Server, error) {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		status, _, err := s.callAppHealth(r.Context())
 		if err != nil || status != http.StatusOK {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
+			writeHealthResponse(w, r, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
-	})
+		writeHealthResponse(w, r, http.StatusOK, map[string]string{"status": "ready"})
+	}
+	mux.HandleFunc("GET /health", healthHandler)
+	mux.HandleFunc("HEAD /health", healthHandler)
 	mux.HandleFunc("POST /mcp", s.handleMCP)
 	mux.HandleFunc("POST /mcp/projects/{projectID}", s.handleMCP)
 	mux.HandleFunc("OPTIONS /mcp", s.handleOptions)
@@ -185,6 +187,15 @@ func (s *Server) Handler() http.Handler {
 		http.Error(w, "SSE subscriptions are not enabled; poll tokyo_get_run", http.StatusMethodNotAllowed)
 	})
 	return s.securityHeaders(mux)
+}
+
+func writeHealthResponse(w http.ResponseWriter, r *http.Request, status int, value any) {
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		return
+	}
+	writeJSON(w, status, value)
 }
 
 func (s *Server) handleOptions(w http.ResponseWriter, _ *http.Request) {

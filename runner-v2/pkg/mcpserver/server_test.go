@@ -24,6 +24,34 @@ func TestMCPListsTools(t *testing.T) {
 	}
 }
 
+func TestMCPHealthSupportsGetAndHead(t *testing.T) {
+	server := newTestServer(t)
+	server.client.Transport = roundTripper(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path != "/api/health" {
+			t.Fatalf("unexpected health dependency path: %s", request.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"status":"ok"}`)),
+		}, nil
+	})
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			server.Handler().ServeHTTP(recorder, httptest.NewRequest(method, "/health", nil))
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+			}
+			if method == http.MethodHead && recorder.Body.Len() != 0 {
+				t.Fatalf("HEAD response body = %q, want empty", recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestMCPListsAndReadsLeanAuthoringResources(t *testing.T) {
 	server := newTestServer(t)
 	listRequest := newMCPRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"resources/list"}`))

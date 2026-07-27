@@ -107,6 +107,20 @@ docker info
 
 Caddy obtains and renews the TLS certificate after DNS resolves and ports 80/443 reach the server.
 
+For a temporary deployment restricted to a trusted network or source IP, HTTP can be enabled explicitly. This sends credentials, session cookies, and MCP tokens without transport encryption and must not be treated as an internet-facing production configuration. Use the same origin everywhere so Caddy serves HTTP and Auth.js emits compatible cookies:
+
+```dotenv
+ALLOW_INSECURE_HTTP=true
+TOKYO_TESTER_DOMAIN=http://192.0.2.10
+TOKYO_TESTER_PUBLIC_URL=http://192.0.2.10
+TOKYO_TESTER_PUBLIC_ORIGIN=http://192.0.2.10
+AUTH_URL=http://192.0.2.10
+CORS_ORIGIN=http://192.0.2.10
+MCP_PUBLIC_URL=http://192.0.2.10/mcp
+```
+
+Replace the example address with the server address and visit it with `http://`, not `https://`. Keep `ALLOW_INSECURE_HTTP` unset or `false` for normal deployments.
+
 ## 4. First boot and verification
 
 ```bash

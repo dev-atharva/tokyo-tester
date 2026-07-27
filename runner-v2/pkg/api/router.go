@@ -47,23 +47,34 @@ func NewRouter(handler *Handler, syncHandler *sync.Handler, tracingEnabled bool)
 		})
 	}
 
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
+		respond := func(status int, body map[string]string) {
+			if r.Method == http.MethodHead {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				return
+			}
+			respondJson(w, status, body)
+		}
+
 		if handler.db == nil {
-			respondJson(w, http.StatusServiceUnavailable, map[string]string{"status": "unhealthy", "error": "database is not configured"})
+			respond(http.StatusServiceUnavailable, map[string]string{"status": "unhealthy", "error": "database is not configured"})
 			return
 		}
 		if err := handler.db.Ping(r.Context()); err != nil {
-			respondJson(w, http.StatusServiceUnavailable, map[string]string{"status": "unhealthy", "error": "database is unavailable"})
+			respond(http.StatusServiceUnavailable, map[string]string{"status": "unhealthy", "error": "database is unavailable"})
 			return
 		}
 		if handler.readinessCheck != nil {
 			if err := handler.readinessCheck(r.Context()); err != nil {
-				respondJson(w, http.StatusServiceUnavailable, map[string]string{"status": "unhealthy", "error": "Docker daemon is unavailable"})
+				respond(http.StatusServiceUnavailable, map[string]string{"status": "unhealthy", "error": "Docker daemon is unavailable"})
 				return
 			}
 		}
-		respondJson(w, 200, map[string]string{"status": "ok"})
-	})
+		respond(http.StatusOK, map[string]string{"status": "ok"})
+	}
+	r.Get("/health", healthHandler)
+	r.Head("/health", healthHandler)
 
 	return r
 }

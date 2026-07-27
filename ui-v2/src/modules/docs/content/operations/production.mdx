@@ -19,6 +19,8 @@ openssl rand -base64 32
 
 Configure `RUNNER_DATABASE_URL` and `UI_DATABASE_URL` with URL-encoded external MySQL credentials, plus the public hostname, authentication secret, and MCP/OAuth values required by the chosen deployment mode. Restrict MySQL network access to the application host and require TLS when the database supports it. Run the preflight before changing a running installation.
 
+For a short-lived deployment restricted to trusted clients, set `ALLOW_INSECURE_HTTP=true` and use the same `http://` origin for `TOKYO_TESTER_DOMAIN`, `TOKYO_TESTER_PUBLIC_URL`, `TOKYO_TESTER_PUBLIC_ORIGIN`, `AUTH_URL`, and `CORS_ORIGIN`; use that origin plus `/mcp` for `MCP_PUBLIC_URL`. This mode leaves credentials, sessions, and MCP tokens unencrypted in transit. HTTPS remains the default and the only supported choice for internet-facing use.
+
 ## Deploy and verify
 
 ```bash

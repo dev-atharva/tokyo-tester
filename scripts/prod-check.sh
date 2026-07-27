@@ -23,6 +23,12 @@ docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is unavailable
 : "${TOKYO_TESTER_PUBLIC_ORIGIN:?TOKYO_TESTER_PUBLIC_ORIGIN must be set in .env}"
 : "${MCP_INTERNAL_SECRET:?MCP_INTERNAL_SECRET must be set in .env}"
 
+allow_insecure_http=${ALLOW_INSECURE_HTTP:-false}
+case "$allow_insecure_http" in
+  true | false) ;;
+  *) fail "ALLOW_INSECURE_HTTP must be true or false" ;;
+esac
+
 [ "${RUNNER_DB_TYPE:-mysql}" = "mysql" ] || fail "production requires RUNNER_DB_TYPE=mysql"
 [ "${UI_DB_TYPE:-mysql}" = "mysql" ] || fail "production requires UI_DB_TYPE=mysql"
 case "${RUNNER_DATABASE_URL}" in
@@ -39,15 +45,36 @@ esac
 
 case "${TOKYO_TESTER_PUBLIC_ORIGIN}" in
   https://*) ;;
-  *) fail "TOKYO_TESTER_PUBLIC_ORIGIN must use HTTPS in production" ;;
+  http://*)
+    [ "$allow_insecure_http" = "true" ] || fail "TOKYO_TESTER_PUBLIC_ORIGIN must use HTTPS unless ALLOW_INSECURE_HTTP=true"
+    case "${TOKYO_TESTER_DOMAIN:-}" in
+      http://*) ;;
+      *) fail "TOKYO_TESTER_DOMAIN must begin with http:// when insecure HTTP is enabled" ;;
+    esac
+    case "${AUTH_URL:-}" in
+      http://*) ;;
+      *) fail "AUTH_URL must use http:// when insecure HTTP is enabled" ;;
+    esac
+    : "${CORS_ORIGIN:?CORS_ORIGIN must be set when insecure HTTP is enabled}"
+    [ "${AUTH_URL%/}" = "${TOKYO_TESTER_PUBLIC_ORIGIN%/}" ] || fail "AUTH_URL must match TOKYO_TESTER_PUBLIC_ORIGIN in insecure HTTP mode"
+    [ "${CORS_ORIGIN%/}" = "${TOKYO_TESTER_PUBLIC_ORIGIN%/}" ] || fail "CORS_ORIGIN must match TOKYO_TESTER_PUBLIC_ORIGIN in insecure HTTP mode"
+    printf 'prod-check: WARNING: insecure HTTP is enabled; credentials, sessions, and MCP tokens are not encrypted in transit.\n' >&2
+    ;;
+  *) fail "TOKYO_TESTER_PUBLIC_ORIGIN must be an http:// or https:// origin" ;;
 esac
 
 MCP_PUBLIC_URL=${MCP_PUBLIC_URL:-${TOKYO_TESTER_PUBLIC_ORIGIN%/}/mcp}
 export MCP_PUBLIC_URL
 case "${MCP_PUBLIC_URL}" in
   https://*/mcp) ;;
-  *) fail "MCP_PUBLIC_URL must be an HTTPS URL ending in /mcp" ;;
+  http://*/mcp)
+    [ "$allow_insecure_http" = "true" ] || fail "MCP_PUBLIC_URL must use HTTPS unless ALLOW_INSECURE_HTTP=true"
+    ;;
+  *) fail "MCP_PUBLIC_URL must be an HTTP(S) URL ending in /mcp" ;;
 esac
+if [[ "${TOKYO_TESTER_PUBLIC_ORIGIN}" == http://* ]]; then
+  [ "${MCP_PUBLIC_URL%/}" = "${TOKYO_TESTER_PUBLIC_ORIGIN%/}/mcp" ] || fail "MCP_PUBLIC_URL must equal TOKYO_TESTER_PUBLIC_ORIGIN plus /mcp in insecure HTTP mode"
+fi
 
 if [ "${AUTH_SECRET}" = "replace-with-a-long-random-secret" ] || [ "${#AUTH_SECRET}" -lt 32 ]; then
   fail "AUTH_SECRET must be a non-placeholder value of at least 32 characters"
