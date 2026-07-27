@@ -2,7 +2,7 @@
 
 set -Eeuo pipefail
 
-compose=(docker compose -f docker-compose.yml --profile agent)
+compose=(docker compose -f docker-compose.yml --profile agent --profile observability)
 
 fail() {
   printf 'prod-verify: %s\n' "$1" >&2
@@ -12,6 +12,7 @@ fail() {
 "${compose[@]}" ps --status running --services | grep -qx runner || fail "runner is not running"
 "${compose[@]}" ps --status running --services | grep -qx ui || fail "UI is not running"
 "${compose[@]}" ps --status running --services | grep -qx mcp || fail "MCP server is not running"
+"${compose[@]}" ps --status running --services | grep -qx observability || fail "observability UI is not running"
 
 "${compose[@]}" exec -T runner wget -q --spider http://localhost:8080/health || fail "private runner health check failed"
 "${compose[@]}" exec -T ui wget -q --spider http://localhost:3000/api/health || fail "private UI readiness check failed"
@@ -19,16 +20,26 @@ fail() {
 
 : "${TOKYO_TESTER_PUBLIC_URL:?TOKYO_TESTER_PUBLIC_URL must be set to the public deployment origin}"
 public_url=${TOKYO_TESTER_PUBLIC_URL}
+logs_headers_file=$(mktemp)
+mcp_config_file=$(mktemp)
+cleanup_verification() {
+  rm -f "$logs_headers_file" "$mcp_config_file"
+}
+trap cleanup_verification EXIT
+
 curl --fail --silent --show-error --max-time 10 "${public_url%/}/api/health" >/dev/null || fail "public UI readiness check failed"
+
+logs_status=$(curl --silent --show-error --max-time 10 --dump-header "$logs_headers_file" --output /dev/null --write-out '%{http_code}' "${public_url%/}/logs/")
+case "$logs_status" in
+  301 | 302 | 303 | 307 | 308) ;;
+  *) fail "anonymous log viewer request was not redirected to login (HTTP $logs_status)" ;;
+esac
+grep -Eqi '^location:[[:space:]]*/logs/login' "$logs_headers_file" || fail "anonymous log viewer request did not redirect to /logs/login"
+curl --fail --silent --show-error --max-time 10 "${public_url%/}/logs/login" >/dev/null || fail "public log viewer login page failed"
 
 mcp_url=${MCP_PUBLIC_URL:-${public_url%/}/mcp}
 : "${MCP_PROD_VERIFY_TOKEN:?MCP_PROD_VERIFY_TOKEN must contain a temporary read token for production verification}"
 mcp_token=${MCP_PROD_VERIFY_TOKEN}
-mcp_config_file=$(mktemp)
-cleanup_mcp_verification() {
-  rm -f "$mcp_config_file"
-}
-trap cleanup_mcp_verification EXIT
 
 if [ "${MCP_AUTH_MODE:-personal_token}" = "oauth" ]; then
   : "${MCP_PROD_VERIFY_TOKEN:?MCP_PROD_VERIFY_TOKEN must contain an OAuth access token for production verification}"
@@ -49,4 +60,4 @@ managed_networks=$(docker network ls -q --filter label=cots.managed=true | wc -l
 [ "$managed_containers" = "0" ] || fail "$managed_containers managed containers leaked after smoke verification"
 [ "$managed_networks" = "0" ] || fail "$managed_networks managed networks leaked after smoke verification"
 
-printf 'prod-verify: Compose, public/private health, authenticated MCP, Docker workflow execution, and cleanup passed.\n'
+printf 'prod-verify: Compose, public/private health, authenticated log viewer and MCP, Docker workflow execution, and cleanup passed.\n'

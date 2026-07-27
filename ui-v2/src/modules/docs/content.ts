@@ -35,6 +35,8 @@ const loaders: Record<string, () => Promise<DocModule>> = {
   "operations/local-development": () =>
     import("./content/operations/local-development.mdx"),
   "operations/production": () => import("./content/operations/production.mdx"),
+  "operations/observability": () =>
+    import("./content/operations/observability.mdx"),
   "operations/backup-upgrade-recovery": () =>
     import("./content/operations/backup-upgrade-recovery.mdx"),
   "operations/troubleshooting": () =>

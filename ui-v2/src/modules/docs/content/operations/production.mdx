@@ -2,7 +2,7 @@ Tokyo Tester's supported production shape is a dedicated Linux Docker host runni
 
 ## Supported topology
 
-The production profile runs the UI, runner, MCP adapter, and edge proxy. It does not start MySQL. The runner and UI connect to separate external `tokyo_runner` and `tokyo_ui` databases and apply their migrations during startup. The runner uses the host Docker socket to create per-run networks and containers, so the host must be dedicated and trusted accordingly.
+The production profiles run the UI, runner, MCP adapter, edge proxy, and an authenticated observability UI at `/logs/`. They do not start MySQL. The runner and UI connect to separate external `tokyo_runner` and `tokyo_ui` databases and apply their migrations during startup. The runner uses the host Docker socket to create per-run networks and containers, so the host must be dedicated and trusted accordingly.
 
 Caddy terminates TLS and routes public application, API, and MCP traffic. Do not expose MySQL or the Docker socket to the public network.
 
@@ -24,6 +24,7 @@ For a short-lived deployment restricted to trusted clients, set `ALLOW_INSECURE_
 ## Deploy and verify
 
 ```bash
+make prod-observe-user
 make prod-check
 make prod
 MCP_PROD_VERIFY_TOKEN=<temporary-read-token> make prod-verify
@@ -34,6 +35,8 @@ After deployment, verify container health, the public `/api/health` response, si
 ```bash
 docker compose --profile agent logs -f --tail=200 runner ui mcp edge
 ```
+
+For the separate live log UI, follow [logs and observability](/docs/operations/observability). Caddy routes `/logs/` to its separate bcrypt login; Tokyo Tester project sessions do not grant access to host logs.
 
 ## Kubernetes status
 

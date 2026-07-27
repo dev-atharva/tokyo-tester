@@ -3,6 +3,13 @@
 
 	respond /api/v1/agent/introspect 404
 
+	@logs path /logs /logs/*
+	handle @logs {
+		reverse_proxy observability:8080 {
+			flush_interval -1
+		}
+	}
+
 	handle /mcp* {
 		request_body {
 			max_size 2MB

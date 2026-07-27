@@ -90,12 +90,13 @@ Both production database variables use normal, URL-encoded MySQL URLs such as `m
 ## 3. Validate and deploy
 
 ```bash
+make prod-observe-user
 make prod-check
 make prod
 make prod-verify
 ```
 
-`make prod-check` validates the external database URLs, required secrets, Docker socket and daemon, Compose configuration, required host tools, and writable Docker volumes. `make prod` then builds the pinned source, applies runner and UI migrations to external MySQL, starts `runner`, `ui`, `mcp`, and `edge`, waits for health checks, and fails if a required service is unhealthy. `make prod-verify` checks private and public readiness, runs a Redis round-trip workflow, and fails if any managed container or network leaks. Do not reset either database during a normal deployment or upgrade.
+`make prod-observe-user` interactively creates the separate bcrypt-protected log administrator in `.secrets/dozzle-users.yml`. `make prod-check` refuses to deploy when that file is missing or contains a non-bcrypt password. It also validates the external database URLs, required secrets, Docker socket and daemon, Compose configuration, required host tools, and writable Docker volumes. `make prod` then builds the pinned source, applies runner and UI migrations to external MySQL, starts `runner`, `ui`, `mcp`, `edge`, and the authenticated observability UI, waits for health checks, and fails if a required service is unhealthy. `make prod-verify` checks private and public readiness, runs a Redis round-trip workflow, and fails if any managed container or network leaks. Do not reset either database during a normal deployment or upgrade.
 
 There is one startup behavior change worth calling out for operators: Docker health is now a startup gate, not a first-workflow failure. If `runner` does not become healthy, check the detected socket in `.env.docker-socket`, the Compose socket mount, and the runner logs before retrying:
 
@@ -132,7 +133,19 @@ curl -fsS https://tokyo.example.com/mcp \
   --data '{"jsonrpc":"2.0","id":1,"method":"ping"}'
 ```
 
-All four services should be healthy. The first external request can take a short time while Caddy obtains the certificate.
+All five services should be healthy. The first external request can take a short time while Caddy obtains the certificate.
+
+The live log UI is routed by Caddy beneath the application origin. Print the configured address:
+
+```bash
+make prod-observe
+```
+
+Open `<TOKYO_TESTER_PUBLIC_ORIGIN>/logs/` and use the log-administrator credentials created before deployment. The log login is intentionally separate from Tokyo Tester project accounts because the viewer can read host-wide Docker logs and much of the Docker API. Actions, shell access, and analytics are disabled, and the container is bounded to 128 MB of memory and 0.25 CPU by default.
+
+Do not expose this path to the public internet over plain HTTP. HTTP leaves the administrator password, session, and log contents unencrypted. For the temporary beta, restrict the application address to the company network or an approved internal reverse proxy; add TLS before broadening access.
+
+Compose services use Docker's rotating `local` logging driver with three 10 MB segments per service by default. Adjust `CONTAINER_LOG_MAX_SIZE`, `CONTAINER_LOG_MAX_FILES`, `DOZZLE_MEMORY_LIMIT`, and `DOZZLE_CPU_LIMIT` only after measuring host capacity.
 
 If `runner` is unhealthy and logs mention Docker reachability, fix Docker or the socket mount first. Restarting the UI or MCP adapter will not repair workflow execution because only the runner has Docker access.
 
@@ -207,7 +220,7 @@ git checkout "$BACKUP_COMMIT"
 install -m 600 /path/to/protected/production.env .env
 (cd "$BACKUP_DIR" && sha256sum -c SHA256SUMS)
 
-docker compose --profile agent down
+docker compose --profile agent --profile observability down
 MYSQL_PWD="$MYSQL_BACKUP_PASSWORD" docker run --rm -i \
   --env MYSQL_PWD \
   mysql:8.4 mysql \
@@ -259,7 +272,7 @@ Database migrations are forward-moving. If a release must be rolled back after m
 
 ```bash
 # Current state
-docker compose --profile agent ps
+docker compose --profile agent --profile observability ps
 
 # Follow service logs
 docker compose --profile agent logs -f --tail=200 runner ui mcp edge
@@ -272,7 +285,7 @@ docker compose --profile agent build --no-cache ui
 docker compose --profile agent up -d ui
 
 # Stop while preserving all volumes
-docker compose --profile agent down
+docker compose --profile agent --profile observability down
 ```
 
 Monitor host disk, memory, Docker container count, workflow queue activity in logs, and certificate renewal. Set conservative workflow and scenario concurrency for the server's capacity. Never run `make reset` in production: it removes persistent database volumes.

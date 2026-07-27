@@ -55,6 +55,8 @@ export const mdxComponents = {
   ),
   Callout,
   LifecycleDiagram,
+  ProvisioningDiagram,
+  TestExecutionDiagram,
   SystemDiagram,
 };
 
@@ -140,6 +142,128 @@ export function SystemDiagram() {
       </div>
       <figcaption>
         SSE accelerates updates; persisted snapshots remain the source of truth.
+      </figcaption>
+    </figure>
+  );
+}
+
+export function ProvisioningDiagram() {
+  const levels = [
+    {
+      label: "Level 01",
+      note: "No unmet dependencies",
+      services: ["PostgreSQL", "Kafka"],
+    },
+    {
+      label: "Level 02",
+      note: "Infrastructure is ready",
+      services: ["Payment API", "Fraud service"],
+    },
+    {
+      label: "Level 03",
+      note: "Application APIs are ready",
+      services: ["Frontend"],
+    },
+  ];
+
+  return (
+    <figure
+      className={styles.provisioningDiagram}
+      aria-label="Dependency-aware service provisioning"
+    >
+      <div className={styles.diagramKicker}>
+        <span>Orchestrator plan</span>
+        <strong>One network · readiness-gated levels</strong>
+      </div>
+      <div className={styles.provisioningPrelude}>
+        <span>Prepare authenticated images</span>
+        <b aria-hidden="true">→</b>
+        <span>Create labeled Docker network</span>
+        <b aria-hidden="true">→</b>
+        <span>Resolve dependency graph</span>
+      </div>
+      <div className={styles.networkFrame}>
+        <div className={styles.networkLabel}>Isolated execution network</div>
+        <div className={styles.provisioningLevels}>
+          {levels.map((level, index) => (
+            <section className={styles.provisioningLevel} key={level.label}>
+              <div>
+                <span>{level.label}</span>
+                <small>{level.note}</small>
+              </div>
+              <ul>
+                {level.services.map((service) => (
+                  <li key={service}>{service}</li>
+                ))}
+              </ul>
+              {index < levels.length - 1 ? <b aria-hidden="true">↓</b> : null}
+            </section>
+          ))}
+        </div>
+      </div>
+      <div className={styles.diagramOutcome}>
+        <span>Runtime registry</span>
+        <strong>Aliases · container IDs · mapped ports</strong>
+        <small>Available to executors and cleanup</small>
+      </div>
+      <figcaption>
+        Services in one level may start together. The next level begins only
+        after the providers for the previous level report readiness.
+      </figcaption>
+    </figure>
+  );
+}
+
+export function TestExecutionDiagram() {
+  const steps = [
+    ["01", "Interpolate", "Resolve runtime service values"],
+    ["02", "Select executor", "HTTP · DB · cache · queue · shell"],
+    ["03", "Execute", "Perform the operation and assertion"],
+    ["04", "Checkpoint", "Persist result and advance the cursor"],
+  ];
+
+  return (
+    <figure
+      className={styles.testExecutionDiagram}
+      aria-label="Ordered scenario test execution"
+    >
+      <div className={styles.diagramKicker}>
+        <span>Scenario loop</span>
+        <strong>Ordered steps · durable evidence</strong>
+      </div>
+      <div className={styles.testExecutionSteps}>
+        {steps.map(([number, title, note]) => (
+          <div className={styles.testExecutionStep} key={number}>
+            <span>{number}</span>
+            <strong>{title}</strong>
+            <small>{note}</small>
+          </div>
+        ))}
+      </div>
+      <div className={styles.testBranches}>
+        <div data-result="pass">
+          <span>Pass</span>
+          <strong>Store evidence</strong>
+          <small>Continue to the next declared step</small>
+        </div>
+        <div data-result="fail">
+          <span>Fail</span>
+          <strong>Capture error + service logs</strong>
+          <small>Persist the failure before continuing</small>
+        </div>
+      </div>
+      <div className={styles.testCleanupRail}>
+        <span>After the scenario</span>
+        <b aria-hidden="true">→</b>
+        <strong>Terminate containers</strong>
+        <b aria-hidden="true">→</b>
+        <strong>Remove network</strong>
+        <b aria-hidden="true">→</b>
+        <strong>Finalize status</strong>
+      </div>
+      <figcaption>
+        A browser disconnect does not own this loop. Checkpoints let the durable
+        worker and UI reason about completed work independently.
       </figcaption>
     </figure>
   );

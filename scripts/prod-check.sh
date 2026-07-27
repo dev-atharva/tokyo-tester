@@ -2,7 +2,7 @@
 
 set -Eeuo pipefail
 
-compose=(docker compose -f docker-compose.yml --profile agent)
+compose=(docker compose -f docker-compose.yml --profile agent --profile observability)
 
 fail() {
   printf 'prod-check: %s\n' "$1" >&2
@@ -22,6 +22,12 @@ docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is unavailable
 : "${UI_DATABASE_URL:?UI_DATABASE_URL must point to the external tokyo_ui MySQL database}"
 : "${TOKYO_TESTER_PUBLIC_ORIGIN:?TOKYO_TESTER_PUBLIC_ORIGIN must be set in .env}"
 : "${MCP_INTERNAL_SECRET:?MCP_INTERNAL_SECRET must be set in .env}"
+
+dozzle_users_file=${DOZZLE_USERS_FILE:-./.secrets/dozzle-users.yml}
+[ -f "$dozzle_users_file" ] || fail "authenticated log user file is missing: $dozzle_users_file (run 'make prod-observe-user')"
+[ -r "$dozzle_users_file" ] || fail "authenticated log user file is not readable: $dozzle_users_file"
+grep -Eq '^users:' "$dozzle_users_file" || fail "authenticated log user file must contain a users mapping"
+grep -Eq 'password:[[:space:]]+\$2[aby]\$' "$dozzle_users_file" || fail "authenticated log passwords must use bcrypt"
 
 allow_insecure_http=${ALLOW_INSECURE_HTTP:-false}
 case "$allow_insecure_http" in

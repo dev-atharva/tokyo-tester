@@ -12,8 +12,8 @@ git diff --stat > "$destination/tracked-patch-stat.txt"
 git diff --binary | sed -E '/(secret|password|token|credential|database_url|auth_url|private_key)/I s/^([+-][^:=]*[:=]).*/\1 <redacted>/' > "$destination/tracked-files.redacted.patch"
 docker version --format 'client={{.Client.Version}} server={{.Server.Version}}' > "$destination/docker-version.txt"
 docker compose version > "$destination/compose-version.txt"
-docker compose -f docker-compose.yml --profile agent config --services > "$destination/compose-services.txt"
-docker compose -f docker-compose.yml --profile agent config --volumes > "$destination/compose-volumes.txt"
+docker compose -f docker-compose.yml --profile agent --profile observability config --services > "$destination/compose-services.txt"
+docker compose -f docker-compose.yml --profile agent --profile observability config --volumes > "$destination/compose-volumes.txt"
 
 if [ -f .env ]; then
   sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/p' .env | sort -u > "$destination/environment-variable-names.txt"

@@ -10,7 +10,9 @@ Queue concurrency and rate limits protect the host from accepting more environme
 
 Each workflow run receives a unique Docker network and its own service containers. Container aliases provide internal discovery. Isolation prevents data, broker messages, and DNS from silently leaking between runs.
 
-The runner attaches identifiers to created resources so cleanup and incident capture can resolve them back to the durable run.
+The orchestrator translates readiness relationships into topological levels. Independent services in a level can start concurrently; dependent levels wait. Successful providers register runtime aliases, addresses, mapped ports, and container IDs, giving downstream configuration, executors, diagnostics, and cleanup one consistent view of the environment.
+
+The runner attaches identifiers to created resources so cleanup and incident capture can resolve them back to the durable run. See the [execution lifecycle](/docs/concepts/execution-lifecycle) for the detailed provisioning and test diagrams.
 
 ## Limits and cancellation
 

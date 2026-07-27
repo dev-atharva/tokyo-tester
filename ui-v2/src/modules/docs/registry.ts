@@ -347,6 +347,23 @@ export const docsEntries: readonly DocEntry[] = [
     ],
   },
   {
+    slug: "operations/observability",
+    title: "Logs and observability",
+    summary:
+      "Open the private beta log UI, investigate incidents, and understand retention limits.",
+    section: "operations",
+    keywords: ["dozzle", "logs", "observability", "SSH tunnel", "rotation"],
+    headings: [
+      { id: "open-the-log-ui", title: "Open the log UI" },
+      { id: "investigate-an-incident", title: "Investigate an incident" },
+      {
+        id: "retention-and-resource-bounds",
+        title: "Retention and resource bounds",
+      },
+      { id: "security-boundary", title: "Security boundary" },
+    ],
+  },
+  {
     slug: "operations/troubleshooting",
     title: "Troubleshooting",
     summary:

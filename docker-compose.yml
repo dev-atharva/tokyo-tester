@@ -1,3 +1,9 @@
+x-default-logging: &default-logging
+  driver: local
+  options:
+    max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+    max-file: ${CONTAINER_LOG_MAX_FILES:-3}
+
 services:
   runner:
     build:
@@ -41,6 +47,7 @@ services:
       - tokyo-tester
     command: ["-migrate"]
     restart: unless-stopped
+    logging: *default-logging
 
   ui:
     build:
@@ -68,6 +75,7 @@ services:
       - tokyo-tester
     command: ["sh", "-c", "bun run db:migrate && exec bun server.js"]
     restart: unless-stopped
+    logging: *default-logging
 
   mcp:
     profiles: ["agent", "agent-dev"]
@@ -93,6 +101,7 @@ services:
     networks:
       - tokyo-tester
     restart: unless-stopped
+    logging: *default-logging
 
   edge:
     profiles: ["agent"]
@@ -116,6 +125,41 @@ services:
     networks:
       - tokyo-tester
     restart: unless-stopped
+    logging: *default-logging
+
+  observability:
+    profiles: ["observability"]
+    image: amir20/dozzle:v10.6.2
+    container_name: tokyo-tester-observability
+    environment:
+      DOZZLE_HOSTNAME: ${DOZZLE_HOSTNAME:-tokyo-tester-beta}
+      DOZZLE_BASE: /logs
+      DOZZLE_AUTH_PROVIDER: simple
+      DOZZLE_NO_ANALYTICS: "true"
+      DOZZLE_ENABLE_ACTIONS: "false"
+      DOZZLE_ENABLE_SHELL: "false"
+    volumes:
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro
+      - dozzle_data:/data
+      - ${DOZZLE_USERS_FILE:-./.secrets/dozzle-users.yml}:/data/users.yml:ro
+    networks:
+      - tokyo-tester
+    healthcheck:
+      test: ["CMD", "/dozzle", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: ${DOZZLE_MEMORY_LIMIT:-128m}
+    cpus: ${DOZZLE_CPU_LIMIT:-0.25}
+    pids_limit: 100
+    restart: unless-stopped
+    logging: *default-logging
 
 networks:
   tokyo-tester:
@@ -125,3 +169,4 @@ networks:
 volumes:
   caddy_data:
   caddy_config:
+  dozzle_data:

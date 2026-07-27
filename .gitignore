@@ -19,6 +19,7 @@ runner-v2/.env
 .env.docker-socket
 .env
 backups/
+.secrets/
 
 # ui db
 ui-v2/data/

@@ -416,7 +416,9 @@
 }
 
 .lifecycle,
-.systemDiagram {
+.systemDiagram,
+.provisioningDiagram,
+.testExecutionDiagram {
   display: grid;
   margin: 2rem 0;
   border: 1px solid var(--docs-amber-line);
@@ -467,7 +469,9 @@
 }
 
 .lifecycle figcaption,
-.systemDiagram figcaption {
+.systemDiagram figcaption,
+.provisioningDiagram figcaption,
+.testExecutionDiagram figcaption {
   grid-column: 1 / -1;
   margin-top: 0.75rem;
   font-size: 0.7rem;
@@ -497,6 +501,224 @@
 
 .systemDiagram small {
   color: color-mix(in oklab, var(--docs-ink) 52%, transparent);
+}
+
+.provisioningDiagram,
+.testExecutionDiagram {
+  gap: 0.85rem;
+}
+
+.diagramKicker {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.15rem 0.1rem 0.35rem;
+}
+
+.diagramKicker span,
+.networkLabel,
+.diagramOutcome span,
+.provisioningLevel > div span,
+.testExecutionStep > span,
+.testBranches span,
+.testCleanupRail span {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--docs-amber);
+}
+
+.diagramKicker strong {
+  font-size: 0.78rem;
+  color: color-mix(in oklab, var(--docs-ink) 66%, transparent);
+}
+
+.provisioningPrelude {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.provisioningPrelude span {
+  border: 1px solid var(--docs-rule);
+  border-radius: 999px;
+  padding: 0.55rem 0.7rem;
+  text-align: center;
+  font-size: 0.66rem;
+  color: color-mix(in oklab, var(--docs-ink) 68%, transparent);
+}
+
+.provisioningPrelude b,
+.testCleanupRail b {
+  color: var(--docs-amber);
+}
+
+.networkFrame {
+  position: relative;
+  border: 1px dashed var(--docs-amber-line);
+  border-radius: 0.65rem;
+  background:
+    linear-gradient(var(--docs-amber-soft), var(--docs-amber-soft)),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 2.5rem,
+      color-mix(in oklab, var(--docs-rule) 45%, transparent) 2.5rem,
+      color-mix(in oklab, var(--docs-rule) 45%, transparent) calc(2.5rem + 1px)
+    );
+  padding: 1.9rem 0.8rem 0.8rem;
+}
+
+.networkLabel {
+  position: absolute;
+  top: 0.55rem;
+  left: 0.75rem;
+}
+
+.provisioningLevels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.provisioningLevel {
+  position: relative;
+  border: 1px solid var(--docs-rule);
+  border-radius: 0.5rem;
+  background: var(--docs-paper-raised);
+  padding: 0.75rem;
+}
+
+.provisioningLevel > div {
+  display: flex;
+  min-height: 2.2rem;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.provisioningLevel small,
+.testExecutionStep small,
+.testBranches small,
+.diagramOutcome small {
+  font-size: 0.63rem;
+  line-height: 1.4;
+  color: color-mix(in oklab, var(--docs-ink) 52%, transparent);
+}
+
+.provisioningLevel ul {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.55rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.provisioningLevel li {
+  border-left: 2px solid var(--docs-amber);
+  background: var(--docs-amber-soft);
+  padding: 0.45rem 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.provisioningLevel > b {
+  position: absolute;
+  right: -0.48rem;
+  bottom: 50%;
+  z-index: 2;
+  color: var(--docs-amber);
+  transform: rotate(-90deg);
+}
+
+.diagramOutcome {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.7rem;
+  border: 1px solid var(--docs-rule);
+  border-radius: 0.5rem;
+  padding: 0.7rem 0.8rem;
+}
+
+.diagramOutcome strong {
+  font-size: 0.72rem;
+}
+
+.testExecutionSteps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.testExecutionStep {
+  position: relative;
+  display: flex;
+  min-height: 7rem;
+  border: 1px solid var(--docs-rule);
+  border-radius: 0.5rem;
+  background: var(--docs-amber-soft);
+  padding: 0.75rem;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.testExecutionStep:not(:last-child)::after {
+  position: absolute;
+  top: 50%;
+  right: -0.44rem;
+  z-index: 2;
+  color: var(--docs-amber);
+  content: "→";
+}
+
+.testExecutionStep strong {
+  margin-top: auto;
+  font-size: 0.75rem;
+}
+
+.testBranches {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.testBranches > div {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.2rem 0.7rem;
+  border: 1px solid var(--docs-rule);
+  border-radius: 0.5rem;
+  padding: 0.7rem 0.8rem;
+}
+
+.testBranches > div[data-result="pass"] {
+  border-left: 3px solid #4e8a68;
+}
+
+.testBranches > div[data-result="fail"] {
+  border-left: 3px solid var(--docs-amber);
+}
+
+.testBranches small {
+  grid-column: 2;
+}
+
+.testCleanupRail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  border: 1px dashed var(--docs-amber-line);
+  border-radius: 999px;
+  padding: 0.65rem 0.85rem;
+}
+
+.testCleanupRail strong {
+  font-size: 0.65rem;
 }
 
 .toc {
@@ -876,6 +1098,31 @@
   .systemDiagram b {
     text-align: center;
     transform: rotate(90deg);
+  }
+
+  .diagramKicker,
+  .testCleanupRail {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .provisioningPrelude,
+  .provisioningLevels,
+  .testExecutionSteps,
+  .testBranches,
+  .diagramOutcome {
+    grid-template-columns: 1fr;
+  }
+
+  .provisioningPrelude b,
+  .provisioningLevel > b,
+  .testExecutionStep:not(:last-child)::after,
+  .testCleanupRail b {
+    display: none;
+  }
+
+  .testBranches small {
+    grid-column: 1;
   }
 }
 

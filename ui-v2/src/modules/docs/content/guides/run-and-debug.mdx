@@ -12,6 +12,8 @@ Realtime events update service and test state as they arrive. If the browser dis
 
 Use paginated logs for long runs. Separate provisioning failure from scenario failure; an unhealthy container has a different remedy from a mismatched assertion.
 
+For host-level beta incidents, use the private [logs and observability](/docs/operations/observability) UI to correlate runner orchestration messages with UI, MCP, edge, and still-running ephemeral container output. Treat that view as transient operational context; return to the execution record for durable results.
+
 ## Read a failure
 
 Work outward from the failed layer:

@@ -2,6 +2,7 @@
 
 COMPOSE := docker compose
 COMPOSE_FILES := -f docker-compose.yml
+PROD_PROFILES := --profile agent --profile observability
 DEV_COMPOSE_FILES := -f docker-compose.yml -f docker-compose.dev.yml
 TEST_COMPOSE_FILES := --project-name tokyo-tester-tests -f docker-compose.test.yml
 SOCKET_ENV_FILE := .env.docker-socket
@@ -12,7 +13,7 @@ ENV_LOADER = set -a; \
 	if [ -f ./.env ]; then . ./.env; fi; \
 	set +a;
 
-.PHONY: help package-skill ensure-docker-socket doctor dev dev-docker dev-mysql dev-host-runner dev-local dev-support runner-dev ui-dev agent-dev prod prod-check prod-verify prod-backup prod-capture e2e e2e-install e2e-docker e2e-docker-leak down reset test test-mysql-up test-mysql-down test-go test-ui test-test-api test-api-build test-complex-e2e test-soak check compose-check
+.PHONY: help package-skill ensure-docker-socket doctor dev dev-docker dev-mysql dev-host-runner dev-local dev-support runner-dev ui-dev agent-dev prod prod-check prod-observe-user prod-observe prod-verify prod-backup prod-capture e2e e2e-install e2e-docker e2e-docker-leak down reset test test-mysql-up test-mysql-down test-go test-ui test-test-api test-api-build test-complex-e2e test-soak check compose-check
 
 package-skill: ## Package the installable Tokyo Tester skill for local UI downloads
 	@bash ./scripts/package-skill.sh
@@ -114,7 +115,13 @@ prod-check: ensure-docker-socket ## Validate the dedicated Docker production hos
 	@$(ENV_LOADER) bash ./scripts/prod-check.sh
 
 prod: prod-check ## Build, migrate, and start the supported production stack
-	@$(ENV_LOADER) $(COMPOSE) $(COMPOSE_FILES) --profile agent up --build -d --wait --wait-timeout "$${PROD_WAIT_TIMEOUT:-180}"
+	@$(ENV_LOADER) $(COMPOSE) $(COMPOSE_FILES) $(PROD_PROFILES) up --build -d --wait --wait-timeout "$${PROD_WAIT_TIMEOUT:-180}"
+
+prod-observe-user: ## Create or replace the authenticated log-viewer administrator
+	@$(ENV_LOADER) bash ./scripts/prod-observe-user.sh
+
+prod-observe: ## Show the authenticated production log-viewer URL
+	@$(ENV_LOADER) printf "Authenticated log UI: %s/logs/\n" "$${TOKYO_TESTER_PUBLIC_ORIGIN%/}"
 
 prod-verify: ## Verify production health, execute a Docker smoke workflow, and check for leaks
 	@$(ENV_LOADER) bash ./scripts/prod-verify.sh
@@ -170,7 +177,7 @@ e2e-docker-leak: ensure-docker-socket ## Repeat the Docker cleanup journey 20 ti
 		bun run test:docker --grep "guided application and Redis workflow executes"
 
 compose-check: ## Validate production, development, and test Compose files
-	@AUTH_SECRET=compose-check-auth-secret RUNNER_DATABASE_URL=mysql://tokyo:password@db.example.internal:3306/tokyo_runner UI_DATABASE_URL=mysql://tokyo:password@db.example.internal:3306/tokyo_ui WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" $(COMPOSE) $(COMPOSE_FILES) --profile agent config --quiet
+	@AUTH_SECRET=compose-check-auth-secret RUNNER_DATABASE_URL=mysql://tokyo:password@db.example.internal:3306/tokyo_runner UI_DATABASE_URL=mysql://tokyo:password@db.example.internal:3306/tokyo_ui WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" $(COMPOSE) $(COMPOSE_FILES) $(PROD_PROFILES) config --quiet
 	@AUTH_SECRET=compose-check-auth-secret MYSQL_ROOT_PASSWORD=compose-check-root-password MYSQL_PASSWORD=compose-check-app-password WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" $(COMPOSE) $(DEV_COMPOSE_FILES) config --quiet
 	@$(COMPOSE) $(TEST_COMPOSE_FILES) config --quiet
 
@@ -179,7 +186,7 @@ check: test compose-check ## Run tests and validate deployment configuration
 	@cd ui-v2 && bunx biome check $(UI_RUNNER_CHECK_PATHS)
 
 down: ## Stop the stack while preserving database volumes
-	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) --profile agent --profile agent-dev down --remove-orphans
+	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) --profile agent --profile agent-dev --profile observability down --remove-orphans
 
 reset: ## Stop the dev stack and delete all local database volumes
-	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) --profile agent --profile agent-dev down --volumes --remove-orphans
+	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) --profile agent --profile agent-dev --profile observability down --volumes --remove-orphans
