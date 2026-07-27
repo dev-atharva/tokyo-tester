@@ -151,6 +151,7 @@ test-ui: test-mysql-up ## Type-check and test the UI against MySQL
 	@cd ui-v2 && UI_AUTH_TEST_DATABASE_URL="$${UI_AUTH_TEST_DATABASE_URL:-mysql://root:tokyo-test-root-password@127.0.0.1:$${MYSQL_TEST_PORT:-33306}/ui_auth_test}" UI_PROJECTS_TEST_DATABASE_URL="$${UI_PROJECTS_TEST_DATABASE_URL:-mysql://root:tokyo-test-root-password@127.0.0.1:$${MYSQL_TEST_PORT:-33306}/ui_projects_test}" UI_MYSQL_TEST_DATABASE_URL="$${UI_MYSQL_TEST_DATABASE_URL:-mysql://root:tokyo-test-root-password@127.0.0.1:$${MYSQL_TEST_PORT:-33306}/ui_integration_test}" node --import tsx --test --test-concurrency=1 src/db/mysql.integration.test.ts src/modules/auth/server/service.test.ts src/modules/projects/server/service.integration.test.ts
 
 test-test-api: ## Type-check and unit-test the reusable test application
+	@cd test-api && bun install --frozen-lockfile
 	@cd test-api && bun run typecheck && bun test
 
 test-api-build: ensure-docker-socket ## Build both compatible tags for the workflow fixture image
