@@ -1,0 +1,29 @@
+Tokyo Tester is built around a simple belief: integration confidence should come from **reproducible evidence**, not from knowing how to nurse a shared staging environment.
+
+## Systems over endpoints
+
+A customer journey rarely ends at one HTTP handler. It can cross an API, a database, a cache, a queue, and one or more workers. Tokyo Tester models that connected system first, then attaches tests to the journey through it.
+
+The graph is not presentation-only. Nodes become runnable services, edges describe runtime relationships, and scenarios define the order of observations and actions.
+
+## Isolation over coordination
+
+Shared environments make teams coordinate branches, seeded data, credentials, and reset windows. Tokyo Tester gives every run its own Docker network and container set. A run cannot silently inherit the previous run's database rows or queue messages.
+
+Isolation makes failures easier to reproduce and makes parallel work less political: teams do not need to negotiate ownership of one staging state.
+
+## Evidence over guesswork
+
+Every step produces an explicit result. Failed assertions retain the request, response, and redacted diagnostics needed to understand the mismatch. Durable run state remains available even when the realtime connection was interrupted.
+
+“Green” means the selected scenarios completed against the environment described by the pinned workflow revision—not merely that an endpoint returned once.
+
+## Automation with boundaries
+
+Tokyo Tester supports coding agents, but automation does not erase approval. Agents research repositories locally, review a plan, validate an exact bundle, and ask before importing, restoring, or running.
+
+<Callout title="Local-first is a trust decision" kind="security">
+The agent reads source code in its own workspace. Tokyo Tester's MCP adapter receives workflow data and authorized operations, not a copy of the repositories.
+</Callout>
+
+That boundary is the same philosophy applied to automation: make the action repeatable, make its authority narrow, and keep the evidence.

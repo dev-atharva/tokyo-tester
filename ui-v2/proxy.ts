@@ -1,11 +1,18 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { isPublicSitePath } from "@/modules/auth/public-paths";
 import { isSetupComplete } from "@/modules/auth/server/service";
 
-const PUBLIC_ROUTES = new Set(["/login", "/setup"]);
+const PUBLIC_ROUTES = new Set(["/", "/login", "/setup"]);
+const AUTH_ROUTES = new Set(["/login", "/setup"]);
 
 export default auth(async (request) => {
   const pathname = request.nextUrl.pathname;
+
+  if (isPublicSitePath(pathname)) {
+    return NextResponse.next();
+  }
+
   const setupComplete = await isSetupComplete();
   const isAuthenticated = Boolean(request.auth?.user);
   const isPublicRoute = PUBLIC_ROUTES.has(pathname);
@@ -20,7 +27,7 @@ export default auth(async (request) => {
     );
   }
 
-  if (isPublicRoute && isAuthenticated) {
+  if (AUTH_ROUTES.has(pathname) && isAuthenticated) {
     return NextResponse.redirect(new URL("/workflow", request.url));
   }
 
@@ -40,6 +47,6 @@ export default auth(async (request) => {
 
 export const config = {
   matcher: [
-    "/((?!api/auth|api/health|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!$|docs(?:/|$)|api/auth|api/health|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

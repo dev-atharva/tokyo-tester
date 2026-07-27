@@ -1,0 +1,36 @@
+A useful graph is a compact statement of runtime truth: which containers exist, how they communicate, and which dependencies gate startup.
+
+## Choose a builder mode
+
+Use **Guided** mode when you want recommended fields, connection suggestions, and recipes. Use **Expert** mode when you need to control image commands, health behavior, ports, or less common infrastructure settings. Both modes edit the same workflow definition, so switching modes does not create another copy.
+
+## Add services
+
+Add application containers as Generic services and choose the focused node type for supported infrastructure. Give nodes stable, descriptive names because scenarios and diagnostics use them to explain where work occurred.
+
+For each application service, identify:
+
+- The image and optional command.
+- The port other containers should use.
+- Required environment variables.
+- A readiness condition.
+- Any CPU, memory, or PID guard appropriate for the test workload.
+
+## Connect services
+
+Connect nodes with the relation that best communicates intent: `calls`, `reads`, `writes`, `publishes`, or `consumes`. Then configure whether the source or target requires the other to be ready.
+
+Do not infer startup from the arrow direction alone. A worker may consume from Kafka, but the important executable rule is that Kafka must be ready before the worker begins.
+
+## Review the graph
+
+Before adding scenarios, read the graph like an incident diagram:
+
+1. Can every application resolve the service names it expects?
+2. Are databases and brokers ready before their clients start?
+3. Does every exposed port represent container-to-container traffic correctly?
+4. Are unrelated systems excluded from this environment?
+
+<Callout title="Keep the graph purposeful" kind="idea">
+Add a node because the journey depends on its runtime behavior—not merely because it exists somewhere in the production estate.
+</Callout>

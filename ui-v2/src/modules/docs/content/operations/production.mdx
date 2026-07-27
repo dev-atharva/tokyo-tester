@@ -1,0 +1,42 @@
+Tokyo Tester's supported production shape is a dedicated Linux Docker host running the application stack behind Caddy, with durable state in externally managed MySQL. This keeps the runner close to the Docker daemon it controls without colocating the application database.
+
+## Supported topology
+
+The production profile runs the UI, runner, MCP adapter, and edge proxy. It does not start MySQL. The runner and UI connect to separate external `tokyo_runner` and `tokyo_ui` databases and apply their migrations during startup. The runner uses the host Docker socket to create per-run networks and containers, so the host must be dedicated and trusted accordingly.
+
+Caddy terminates TLS and routes public application, API, and MCP traffic. Do not expose MySQL or the Docker socket to the public network.
+
+## Prepare the host
+
+Copy the example environment file, restrict its permissions, and generate unique secrets:
+
+```bash
+cp .env.example .env
+chmod 600 .env
+openssl rand -hex 32
+openssl rand -base64 32
+```
+
+Configure `RUNNER_DATABASE_URL` and `UI_DATABASE_URL` with URL-encoded external MySQL credentials, plus the public hostname, authentication secret, and MCP/OAuth values required by the chosen deployment mode. Restrict MySQL network access to the application host and require TLS when the database supports it. Run the preflight before changing a running installation.
+
+## Deploy and verify
+
+```bash
+make prod-check
+make prod
+MCP_PROD_VERIFY_TOKEN=<temporary-read-token> make prod-verify
+```
+
+After deployment, verify container health, the public `/api/health` response, sign-in, a small workflow run, cleanup, and the backup path. Follow logs without discarding history:
+
+```bash
+docker compose --profile agent logs -f --tail=200 runner ui mcp edge
+```
+
+## Kubernetes status
+
+<Callout title="Kubernetes DinD is not a supported production path" kind="warning">
+The repository contains a parked historical Kubernetes/Docker-in-Docker document. It is retained as engineering context, not as a deployment recommendation or supported topology.
+</Callout>
+
+Do not infer Kubernetes support from that file. The current supported production target is the dedicated Docker Compose host described above.

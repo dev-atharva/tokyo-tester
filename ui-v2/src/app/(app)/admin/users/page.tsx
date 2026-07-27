@@ -1,13 +1,11 @@
-import {
-  toggleUserActiveAction,
-} from "@/modules/admin/actions";
-import { AdminShell } from "@/modules/admin/components/admin-shell";
-import { CreateUserForm } from "@/modules/admin/components/create-user-form";
-import { getAllUsers } from "@/modules/auth/server/service";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { toggleUserActiveAction } from "@/modules/admin/actions";
+import { AdminShell } from "@/modules/admin/components/admin-shell";
+import { CreateUserForm } from "@/modules/admin/components/create-user-form";
+import { getAllUsers } from "@/modules/auth/server/service";
 
 export default async function AdminUsersPage() {
   const users = await getAllUsers();

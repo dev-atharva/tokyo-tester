@@ -29,6 +29,16 @@ func testAdmissionPolicy() db.WorkflowAdmissionPolicy {
 	}
 }
 
+func seedTestWorkflow(t *testing.T, client *Client, now time.Time) {
+	t.Helper()
+	if err := client.UpsertWorkflow(context.Background(), &db.Workflow{
+		ID: "workflow-1", ProjectID: "project-1", Name: "Workflow",
+		NodesConfig: `[]`, EdgesConfig: `[]`, Version: 1, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWorkflowDurationEstimateUsesHistoricalPercentilesAndCost(t *testing.T) {
 	estimate := workflowDurationEstimate([]float64{1, 2, 3, 4, 10}, 2)
 	if estimate == nil || estimate.P50Seconds != 6 || estimate.P90Seconds != 20 || estimate.SampleSize != 5 {
@@ -513,6 +523,7 @@ func TestPendingWorkflowCancellationIsImmediateAndDurable(t *testing.T) {
 	client := newMySQLIntegrationClient(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
+	seedTestWorkflow(t, client, now)
 	job := testWorkflowJob("cancel-pending", now)
 	run := &db.WorkflowRun{ID: job.WorkflowRunID, ProjectID: job.ProjectID, WorkflowID: "workflow-1", Status: "pending", UserID: job.UserID, Version: 1, CreatedAt: now, UpdatedAt: now}
 	session := &db.Session{ID: "cancel-pending-session", ProjectID: job.ProjectID, WorkflowRunID: job.WorkflowRunID, WorkflowID: "workflow-1", ScenarioID: "scenario-1", Status: "pending", Version: 1, CreatedAt: now, UpdatedAt: now}
@@ -534,6 +545,7 @@ func TestPendingWorkflowCancellationWhileProjectIsAtRunningCapacity(t *testing.T
 	client := newMySQLIntegrationClient(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
+	seedTestWorkflow(t, client, now)
 	policy := testAdmissionPolicy()
 	policy.MaxRunningPerProject = 1
 
@@ -564,6 +576,7 @@ func TestRunningWorkflowCancellationStopsHeartbeatAndFinalizes(t *testing.T) {
 	client := newMySQLIntegrationClient(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
+	seedTestWorkflow(t, client, now)
 	job := testWorkflowJob("cancel-running", now)
 	run := &db.WorkflowRun{ID: job.WorkflowRunID, ProjectID: job.ProjectID, WorkflowID: "workflow-1", Status: "pending", UserID: job.UserID, Version: 1, CreatedAt: now, UpdatedAt: now}
 	if _, _, err := client.AdmitWorkflowJob(ctx, job, run, nil, testAdmissionPolicy()); err != nil {
@@ -593,6 +606,7 @@ func TestCancellationSurvivesWorkerCrashAndLeaseRecovery(t *testing.T) {
 	client := newMySQLIntegrationClient(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
+	seedTestWorkflow(t, client, now)
 	job := testWorkflowJob("cancel-recovery", now)
 	run := &db.WorkflowRun{ID: job.WorkflowRunID, ProjectID: job.ProjectID, WorkflowID: "workflow-1", Status: "pending", UserID: job.UserID, Version: 1, CreatedAt: now, UpdatedAt: now}
 	if _, _, err := client.AdmitWorkflowJob(ctx, job, run, nil, testAdmissionPolicy()); err != nil {

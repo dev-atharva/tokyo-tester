@@ -1,0 +1,41 @@
+Tokyo Tester keeps definitions and execution evidence in durable databases. Treat those stores and deployment secrets as release-critical state.
+
+## What to protect
+
+Protect both UI-owned data—users, workspaces, workflow definitions, revisions—and runner-owned data—queued jobs, workflow runs, scenario runs, test results, events, and checkpoints. Protect `.env` separately because database dumps do not contain deployment secrets.
+
+Container images can be pulled again; workflow registry credentials are session-only and are not part of a backup.
+
+## Backup
+
+Capture a verified backup before an upgrade or risky operational change. `make prod-backup` uses the external connection configured by `MYSQL_BACKUP_HOST`, `MYSQL_BACKUP_USER`, `MYSQL_BACKUP_PASSWORD`, and `MYSQL_BACKUP_SSL_MODE`; it does not connect to a Compose database:
+
+```bash
+make prod-backup
+make prod-capture
+```
+
+Store backups away from the Docker host and periodically prove they can be restored. A successful dump command is not the same as a tested recovery.
+
+## Upgrade
+
+Upgrade to an explicit release, run checks, and preserve a rollback decision point:
+
+```bash
+git fetch --tags
+TOKYO_TESTER_RELEASE=v1.2.3
+git checkout "$TOKYO_TESTER_RELEASE"
+make prod-check
+make prod
+MCP_PROD_VERIFY_TOKEN=<temporary-read-token> make prod-verify
+```
+
+Read the release change before applying migrations. Avoid upgrading while large workflows are running unless the release procedure explicitly supports it.
+
+## Recover
+
+Stop new executions, capture current logs and state, identify the last known-good external MySQL backup and release, then follow the repository production runbook and database-provider guidance for restore. Verify authentication, workflow definitions, runner queue health, a small execution, and cleanup before reopening normal use.
+
+<Callout title="Preserve evidence before repair" kind="note">
+An incident capture can explain why durable state and actual containers diverged. Collect it before manually removing resources or restoring a database.
+</Callout>

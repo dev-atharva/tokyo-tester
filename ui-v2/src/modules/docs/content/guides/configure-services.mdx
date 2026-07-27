@@ -1,0 +1,27 @@
+Service configuration is the bridge between a diagram and a runnable container. Tokyo Tester keeps durable runtime configuration in the workflow while treating registry credentials as transient secrets.
+
+## Application services
+
+Generic services can represent APIs, web frontends, background workers, or custom dependency images. Configure the container image, command override when necessary, environment, ports, and health behavior.
+
+Use container-network addresses between services. Host-published ports are for access from outside the run network and should not replace internal service discovery.
+
+## Managed dependency nodes
+
+Focused nodes reduce repeated configuration for PostgreSQL, MySQL, MariaDB, Redis, Memcached, MongoDB, RabbitMQ, and Kafka. Their forms expose the credentials, database names, or broker settings relevant to that provider.
+
+These are real containers. A database test talks to the started database; a queue test produces or consumes through the broker.
+
+## Health and startup
+
+Readiness should prove the protocol your dependent service needs. Use database connectivity for a database, broker availability for a queue, and an application health endpoint for an API.
+
+If a service needs migrations, decide whether its image performs them before becoming healthy or whether a dedicated service or shell step owns that work. Keep the behavior deterministic.
+
+## Private images
+
+Registry credentials are entered for a specific workflow and service during the session. They are not stored in the workflow database, included in exports, or written into revision history.
+
+<Callout title="Secrets are deliberately session-only" kind="security">
+If the browser session loses a required registry credential, enter it again before the next run. This inconvenience prevents a portable workflow from becoming a portable credential leak.
+</Callout>

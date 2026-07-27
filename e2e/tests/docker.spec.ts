@@ -80,7 +80,7 @@ test("agent setup verifies MCP, skill download, origin protection, and revocatio
   page,
   request,
 }) => {
-  await page.goto("/docs");
+  await page.goto("/agent-setup");
   const createToken = page.getByRole("button", {
     name: "Create token",
     exact: true,

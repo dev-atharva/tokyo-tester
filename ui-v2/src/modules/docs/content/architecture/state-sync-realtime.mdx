@@ -1,0 +1,23 @@
+Tokyo Tester combines an optimistic authoring experience with durable execution records. Realtime messages improve latency; they do not become the only copy of state.
+
+## Browser state
+
+Workflow editing uses Zustand stores so graph and scenario changes appear immediately. IndexedDB and local storage support client identity and pending synchronization where appropriate. The browser can therefore continue presenting a coherent draft while network writes are queued.
+
+## Sync queue
+
+The sync service batches local mutations and sends them to the backend endpoint. Backend operations persist the corresponding workflow entities and return authoritative versions. Version checks prevent a stale editor from silently replacing newer durable state.
+
+The queue is for UI-authored definitions. Runner-owned test results do not flow back through the authoring mutation queue.
+
+## Realtime fast path
+
+SSE carries workflow, scenario, test, and log progress while a run is active. It makes the interface feel immediate and reduces polling, but a disconnected tab can miss events.
+
+## Durable source of truth
+
+Run snapshots, results, and event history live in durable storage. On reconnect or refresh, the UI reconciles against that state rather than trusting its last in-memory event.
+
+<Callout title="SSE is acceleration, not durability" kind="idea">
+If realtime delivery and the persisted snapshot disagree, the persisted runner state wins. This is what allows a run to outlive a browser session.
+</Callout>

@@ -1,9 +1,10 @@
 "use client";
 
 import {
-  IconChevronDown,
   IconBook2,
+  IconChevronDown,
   IconFolders,
+  IconRobot,
   IconTopologyRing2,
   IconUserShield,
   IconUsers,
@@ -149,6 +150,11 @@ export const HomeSidebar = ({ userRole }: { userRole: string | null }) => {
       title: "Docs",
       url: "/docs",
       icon: IconBook2,
+    },
+    {
+      title: "Agent setup",
+      url: "/agent-setup",
+      icon: IconRobot,
     },
   ];
 

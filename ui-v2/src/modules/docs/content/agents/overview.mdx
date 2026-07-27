@@ -1,0 +1,31 @@
+Tokyo Tester agent integration has two deliberately separate parts: a local skill that teaches the workflow, and an authenticated MCP adapter that exposes controlled product operations.
+
+## Two parts, one boundary
+
+The **skill** lives in the coding agent's workspace. It explains how to inspect repositories, map services and dependencies, propose scenarios, validate bundles, request approval, and repair failures.
+
+The **MCP adapter** is the control plane. It exposes capabilities, workflow operations, runs, and diagnostics for one authorized workspace. It has no filesystem, Docker socket, or direct database access.
+
+## What stays local
+
+Repository source, Compose files, Dockerfiles, migrations, API definitions, and existing tests are read by the coding agent in its local workspace. Installing the skill grants no Tokyo Tester permission and uploads no repository.
+
+The agent converts its research into compact service inventory, dependency, and scenario information before sending workflow data for validation.
+
+## What MCP can do
+
+Depending on scope, MCP can list and inspect workflows, review a research plan, validate a bundle, import or run it after approval, manage revisions, poll durable run state, and retrieve redacted diagnostics.
+
+Read operations and mutations are annotated distinctly. Restore, import, and run paths carry explicit approval and idempotency expectations.
+
+## Recommended flow
+
+1. Start the agent from a parent workspace that contains the relevant repositories.
+2. Install the Tokyo Tester skill.
+3. Authorize exactly one Tokyo Tester workspace.
+4. Ask for a small scenario matrix and review it.
+5. Validate the exact bundle.
+6. Approve import or selected scenarios.
+7. Use run diagnostics to repair failures.
+
+Continue with [Connect a coding agent](/docs/agents/connect).

@@ -1,0 +1,25 @@
+The agent workflow separates research, review, validation, and mutation so a plausible guess cannot quietly become a running environment.
+
+## Research first
+
+The agent inspects repositories locally for Compose files, Dockerfiles, ports, health endpoints, migrations, API contracts, queue topics, and existing tests. It records evidence and asks about unresolved decisions instead of inventing credentials or runtime behavior.
+
+## Review the plan
+
+For a multi-repository system, `tokyo_review_workflow_plan` accepts compact repository, service inventory, dependency, and scenario summaries. It returns warnings only. It does not import, run, or block.
+
+Review the proposed system boundary and scenario matrix before the agent writes a large bundle. This is the cheapest point to discover a missing worker or an incorrect dependency direction.
+
+## Validate before mutation
+
+`tokyo_validate_workflow` is authoritative. It normalizes the exact workflow bundle and returns diagnostics plus a short-lived validation receipt. Import and import-and-run operations reject a changed bundle or an expired receipt.
+
+Validation proves schema and authoring rules; it does not replace a person's decision that the environment is appropriate to run.
+
+## Approval and retries
+
+Import, restore, and run operations require explicit approval. Mutating calls use a stable idempotency key so retrying the same request does not create duplicate work. Never reuse one key for a different bundle or run selection.
+
+<Callout title="Approve the exact action" kind="warning">
+Approval should name the workspace, workflow, selected scenarios, and whether the action imports, runs, or restores. “Do whatever is needed” erases the safety boundary.
+</Callout>

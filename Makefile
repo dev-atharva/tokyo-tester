@@ -21,7 +21,7 @@ help: ## Show available commands
 	@printf "Tokyo Tester commands\n\n"
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-8s %s\n", $$1, $$2}'
-	@printf "\nOptional env: use .env for app overrides. MySQL is the default; PostgreSQL remains available when explicitly configured. Docker socket settings are auto-detected into $(SOCKET_ENV_FILE).\n"
+	@printf "\nOptional env: use .env for app overrides. Production requires external MySQL URLs; development and tests use isolated local MySQL containers. Docker socket settings are auto-detected into $(SOCKET_ENV_FILE).\n"
 
 ensure-docker-socket: ## Detect the Docker socket and write .env.docker-socket
 	@bash ./scripts/detect-docker-socket.sh
@@ -119,7 +119,7 @@ prod: prod-check ## Build, migrate, and start the supported production stack
 prod-verify: ## Verify production health, execute a Docker smoke workflow, and check for leaks
 	@$(ENV_LOADER) bash ./scripts/prod-verify.sh
 
-prod-backup: ## Create a consistent checksummed MySQL backup of both databases
+prod-backup: ## Back up both external MySQL databases with checksums
 	@$(ENV_LOADER) bash ./scripts/prod-backup.sh
 
 prod-capture: ## Capture a redacted deployment baseline before reconciling server-only changes
@@ -170,7 +170,7 @@ e2e-docker-leak: ensure-docker-socket ## Repeat the Docker cleanup journey 20 ti
 		bun run test:docker --grep "guided application and Redis workflow executes"
 
 compose-check: ## Validate production, development, and test Compose files
-	@AUTH_SECRET=compose-check-auth-secret MYSQL_ROOT_PASSWORD=compose-check-root-password MYSQL_PASSWORD=compose-check-app-password WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" $(COMPOSE) $(COMPOSE_FILES) --profile agent config --quiet
+	@AUTH_SECRET=compose-check-auth-secret RUNNER_DATABASE_URL=mysql://tokyo:password@db.example.internal:3306/tokyo_runner UI_DATABASE_URL=mysql://tokyo:password@db.example.internal:3306/tokyo_ui WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" $(COMPOSE) $(COMPOSE_FILES) --profile agent config --quiet
 	@AUTH_SECRET=compose-check-auth-secret MYSQL_ROOT_PASSWORD=compose-check-root-password MYSQL_PASSWORD=compose-check-app-password WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" $(COMPOSE) $(DEV_COMPOSE_FILES) config --quiet
 	@$(COMPOSE) $(TEST_COMPOSE_FILES) config --quiet
 

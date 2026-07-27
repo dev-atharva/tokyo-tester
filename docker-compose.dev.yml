@@ -1,7 +1,26 @@
 services:
   mysql:
+    image: mysql:8.4
+    container_name: tokyo-tester-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-tokyo-dev-root-password}
+      MYSQL_DATABASE: tokyo_runner
+      MYSQL_USER: tokyo
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-tokyo-dev-password}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./scripts/mysql-init.sh:/docker-entrypoint-initdb.d/001-tokyo-databases.sh:ro
+    networks:
+      - tokyo-tester
     ports:
       - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping --host=127.0.0.1 --user=root --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
 
   runner:
     build:
@@ -21,6 +40,9 @@ services:
     volumes:
       - ./runner-v2:/app
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:${CONTAINER_DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+    depends_on:
+      mysql:
+        condition: service_healthy
 
   ui:
     build:
@@ -43,6 +65,11 @@ services:
       - ./ui-v2:/app
       - /app/node_modules
       - /app/.next
+    depends_on:
+      mysql:
+        condition: service_healthy
+      runner:
+        condition: service_healthy
     command: ["sh", "-c", "bun run db:migrate && bun run dev"]
 
   mcp:
@@ -55,3 +82,6 @@ services:
       MCP_PUBLIC_URL: http://localhost:8090/mcp
       MCP_AUTH_MODE: personal_token
       MCP_INTERNAL_SECRET: ${MCP_INTERNAL_SECRET:-local-dev-mcp-internal-secret-32-bytes}
+
+volumes:
+  mysql_data:

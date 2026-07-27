@@ -1,0 +1,41 @@
+This tutorial models a backend that depends on PostgreSQL, then proves both the public HTTP behavior and the database state behind it.
+
+## The system
+
+Use a small application image that exposes an HTTP port and accepts its database connection through environment variables. The second node is a managed PostgreSQL dependency.
+
+The finished environment is conceptually:
+
+```text
+HTTP test → backend service → PostgreSQL
+                         ↘ database assertion
+```
+
+## Build the graph
+
+1. Create a workflow and give it a name that describes the system, not the test case.
+2. Add a **Generic service** for the backend. Configure its image, container port, environment, and readiness check.
+3. Add a **PostgreSQL** node. Set database, user, and password values for this disposable environment.
+4. Connect the backend to PostgreSQL with a `reads` or `writes` relation.
+5. Set readiness so the backend requires PostgreSQL before it starts.
+
+Guided mode provides safe defaults and connection suggestions. Expert mode exposes the complete runtime configuration.
+
+## Add a scenario
+
+Create a scenario named `Create and retrieve order` with two ordered tests:
+
+1. An HTTP `POST` to create an order. Assert the expected status and relevant response fields.
+2. A PostgreSQL query that selects the created record. Assert the row or scalar value that proves persistence.
+
+The second step should verify the business outcome, not every implementation detail. Assertions that mirror an entire response become noisy when harmless fields change.
+
+## Run and read
+
+Select the scenario and run the workflow. Watch the environment move from provisioning to ready, then follow each test result. A completed workflow means every selected scenario passed and cleanup succeeded.
+
+If the HTTP step passes but the database assertion fails, open the step's response and diagnostics. If provisioning fails first, inspect the service logs and readiness configuration before changing the scenario.
+
+<Callout title="Cleanup is part of correctness" kind="idea">
+Tokyo Tester keeps the workflow definition and run evidence, then removes the containers and network. A cleanup failure is reported separately instead of being hidden behind passing tests.
+</Callout>

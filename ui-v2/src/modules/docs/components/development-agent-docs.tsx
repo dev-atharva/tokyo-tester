@@ -361,11 +361,14 @@ interface AgentTokenItem {
   revokedAt: string | null;
 }
 
-function AgentSetupDocs({
-  onCopy,
+export function AgentSetupDocs({
+  onCopy = async (value, label) => {
+    await navigator.clipboard.writeText(value);
+    toast.success(`${label} copied`);
+  },
 }: {
-  onCopy: (value: string, label: string) => Promise<void>;
-}) {
+  onCopy?: (value: string, label: string) => Promise<void>;
+} = {}) {
   const { activeProject } = useProjectContext();
   const [setup, setSetup] = useState<AgentSetup | null>(null);
   const [tokens, setTokens] = useState<AgentTokenItem[]>([]);

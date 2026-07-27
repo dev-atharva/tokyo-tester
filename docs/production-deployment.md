@@ -1,6 +1,6 @@
 # Production deployment runbook
 
-This runbook deploys Tokyo Tester to one Linux server with Docker Compose. Caddy is the only public entry point. The UI, MCP adapter, runner, app databases, and Docker socket stay on the internal Compose network.
+This runbook deploys Tokyo Tester to one Linux server with Docker Compose. Caddy is the only public entry point. The UI, MCP adapter, runner, and Docker socket stay on the internal Compose network; durable state lives in an externally managed MySQL server.
 
 The supported production topology for this release is one dedicated Linux Docker host. Kubernetes execution and the former Docker-in-Docker deployment profile are deferred until the native in-cluster backend reaches Docker feature and recovery parity.
 
@@ -29,7 +29,6 @@ git checkout "$TOKYO_TESTER_RELEASE"
 cp .env.example .env
 chmod 600 .env
 openssl rand -hex 32
-openssl rand -hex 24
 openssl rand -base64 32
 ```
 
@@ -43,8 +42,10 @@ AUTH_SECRET=<openssl-rand-hex-value>
 AUTH_TRUST_HOST=true
 AUTH_URL=https://tokyo.example.com
 
-MYSQL_ROOT_PASSWORD=<first-openssl-rand-hex-value>
-MYSQL_PASSWORD=<second-openssl-rand-hex-value>
+RUNNER_DB_TYPE=mysql
+UI_DB_TYPE=mysql
+RUNNER_DATABASE_URL=mysql://tokyo:<encoded-password>@mysql.internal:3306/tokyo_runner
+UI_DATABASE_URL=mysql://tokyo:<encoded-password>@mysql.internal:3306/tokyo_ui
 
 TOKYO_TESTER_DOMAIN=tokyo.example.com
 TOKYO_TESTER_PUBLIC_URL=https://tokyo.example.com
@@ -74,9 +75,9 @@ WORKFLOW_CONTAINER_PIDS=256
 TEST_RUN_TIMEOUT_SEC=0
 ```
 
-Keep the MySQL passwords, `AUTH_SECRET`, and `WORKFLOW_JOB_ENCRYPTION_KEY` in a protected password manager or secret store in addition to `.env`. Losing the workflow encryption key can make queued execution payloads unreadable. Changing these values is an intentional rotation procedure, not a routine deployment step.
+Keep the MySQL credentials, `AUTH_SECRET`, and `WORKFLOW_JOB_ENCRYPTION_KEY` in a protected password manager or secret store in addition to `.env`. Losing the workflow encryption key can make queued execution payloads unreadable. Changing these values is an intentional rotation procedure, not a routine deployment step.
 
-The default deployment uses one persistent `mysql_data` volume with separate `tokyo_runner` and `tokyo_ui` schemas. MySQL is the supported app database for the durable workflow worker and the default for the UI. Workflow MySQL service nodes are separate from this app database setting.
+Production requires externally managed MySQL with separate `tokyo_runner` and `tokyo_ui` databases. The application server must be allowed to reach MySQL, while port `3306` remains restricted from the public internet. The application credentials need enough authority to apply forward migrations. Workflow MySQL service nodes are separate from this application database setting.
 
 Workflow submissions are admitted transactionally. Duplicate submissions with the same run ID remain idempotent, while durable per-user and per-project rate limits and queue limits return `429` with `Retry-After`; the global queue cap returns `503`. Pending work is scheduled FIFO within priority while reserving running capacity across users and projects. The UI displays approximate queue position and historical p50/p90 duration ranges once enough completed-run history exists. Workflow and scenario leases are renewed independently of the browser connection, so closing the page does not stop a run.
 
@@ -84,7 +85,7 @@ Every workflow-created container receives runner-owned CPU, memory, swap, and PI
 
 Workflow progress is stored in an append-only event journal. Workflow and scenario rows retain only a bounded recent tail; older logs remain available through cursor pagination in the execution drawer. Cancellation is durable: pending jobs stop immediately, while running jobs transition through cleanup before becoming `cancelled`.
 
-For MySQL, the UI expects a normal MySQL URL such as `mysql://user:pass@host:3306/tokyo_ui`. The runner accepts either that URL shape or the Go MySQL DSN shape such as `user:pass@tcp(host:3306)/tokyo_runner`; it enables `parseTime=true` and `multiStatements=true` automatically.
+Both production database variables use normal, URL-encoded MySQL URLs such as `mysql://user:pass@host:3306/tokyo_ui`. The runner enables `parseTime=true` and `multiStatements=true` automatically.
 
 ## 3. Validate and deploy
 
@@ -94,7 +95,7 @@ make prod
 make prod-verify
 ```
 
-`make prod-check` validates required secrets, the Docker socket and daemon, Compose configuration, required host tools, and writable Docker volumes. `make prod` then builds the pinned source, applies runner and UI migrations, starts `runner`, `ui`, `mcp`, and `edge`, waits for health checks, and fails if a required service is unhealthy. `make prod-verify` checks private and public readiness, runs a Redis round-trip workflow, and fails if any managed container or network leaks. Do not reset either database during a normal deployment or upgrade.
+`make prod-check` validates the external database URLs, required secrets, Docker socket and daemon, Compose configuration, required host tools, and writable Docker volumes. `make prod` then builds the pinned source, applies runner and UI migrations to external MySQL, starts `runner`, `ui`, `mcp`, and `edge`, waits for health checks, and fails if a required service is unhealthy. `make prod-verify` checks private and public readiness, runs a Redis round-trip workflow, and fails if any managed container or network leaks. Do not reset either database during a normal deployment or upgrade.
 
 There is one startup behavior change worth calling out for operators: Docker health is now a startup gate, not a first-workflow failure. If `runner` does not become healthy, check the detected socket in `.env.docker-socket`, the Compose socket mount, and the runner logs before retrying:
 
@@ -109,7 +110,8 @@ Caddy obtains and renews the TLS certificate after DNS resolves and ports 80/443
 ## 4. First boot and verification
 
 ```bash
-TOKYO_TESTER_PUBLIC_URL=https://tokyo.example.com make prod-verify
+MCP_PROD_VERIFY_TOKEN=<temporary-read-token> \
+  TOKYO_TESTER_PUBLIC_URL=https://tokyo.example.com make prod-verify
 docker compose --profile agent logs --tail=200 runner ui mcp edge
 curl -fsS https://tokyo.example.com/mcp \
   -H 'content-type: application/json' \
@@ -157,11 +159,19 @@ Tokyo Tester exposes RFC 9728 protected-resource metadata at `/.well-known/oauth
 
 For a controlled self-hosted deployment with trusted users, `MCP_AUTH_MODE=personal_token` remains supported. Generate the project token in Agent setup, store the one-time value in the MCP client's secret storage, and revoke it from the same page when it is no longer needed. Effective scopes are checked against current workspace membership on every request.
 
-Run `make prod-verify` after setup. Personal-token mode creates and removes a 10-minute verification credential automatically. OAuth mode requires `MCP_PROD_VERIFY_TOKEN` and `MCP_VERIFY_PROJECT_ID` for an audience-bound read check.
+Run `make prod-verify` after setup with a temporary read-only credential in `MCP_PROD_VERIFY_TOKEN`, then revoke it. OAuth mode also requires `MCP_VERIFY_PROJECT_ID` for an audience-bound read check. Verification never writes directly to the external database.
 
 ## 6. Back up MySQL
 
-Create a backup before every upgrade and on a regular schedule. The supported command uses `mysqldump --single-transaction` to export both application schemas into one file and writes its SHA-256 checksum:
+Create a backup before every upgrade and on a regular schedule. Prefer provider snapshots when available. The supported command runs a disposable MySQL client, uses `mysqldump --single-transaction` against the external server, exports both application databases, and writes a SHA-256 checksum. Configure a dedicated backup account:
+
+```dotenv
+MYSQL_BACKUP_HOST=mysql.internal
+MYSQL_BACKUP_PORT=3306
+MYSQL_BACKUP_USER=tokyo_backup
+MYSQL_BACKUP_PASSWORD=<backup-password>
+MYSQL_BACKUP_SSL_MODE=REQUIRED
+```
 
 ```bash
 make prod-backup
@@ -184,18 +194,20 @@ install -m 600 /path/to/protected/production.env .env
 (cd "$BACKUP_DIR" && sha256sum -c SHA256SUMS)
 
 docker compose --profile agent down
-docker compose up -d --wait mysql
-docker compose exec -T mysql sh -c \
-  'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql --user=root' \
+MYSQL_PWD="$MYSQL_BACKUP_PASSWORD" docker run --rm -i \
+  --env MYSQL_PWD \
+  mysql:8.4 mysql \
+  --host="$MYSQL_BACKUP_HOST" \
+  --port="${MYSQL_BACKUP_PORT:-3306}" \
+  --user="$MYSQL_BACKUP_USER" \
+  --ssl-mode="${MYSQL_BACKUP_SSL_MODE:-REQUIRED}" \
   < "$BACKUP_DIR/tokyo-mysql.sql"
 
 make prod
-make prod-verify
+MCP_PROD_VERIFY_TOKEN=<temporary-read-token> make prod-verify
 ```
 
-Run the external health checks and a smoke workflow before allowing normal use. Restore into a separate server first whenever possible.
-
-The MySQL transition does not delete legacy database volumes. If an existing deployment still contains data from an older database backend, stop before the first MySQL deployment and migrate a verified copy of that data; starting MySQL creates empty application schemas and does not convert legacy records automatically. `make prod-check` blocks the first MySQL deployment when it detects the former application volumes without a MySQL volume.
+Run the external health checks and a smoke workflow before allowing normal use. Restore into a separate database server first whenever possible and follow provider-specific recovery guidance when it is stricter than this generic client procedure.
 
 ## 7. Upgrade safely
 
@@ -222,7 +234,8 @@ export TOKYO_TESTER_RELEASE=v1.2.3
 git checkout "$TOKYO_TESTER_RELEASE"
 make prod-check
 make prod
-TOKYO_TESTER_PUBLIC_URL=https://tokyo.example.com make prod-verify
+MCP_PROD_VERIFY_TOKEN=<temporary-read-token> \
+  TOKYO_TESTER_PUBLIC_URL=https://tokyo.example.com make prod-verify
 docker compose --profile agent logs -f --tail=200 runner ui mcp edge
 ```
 

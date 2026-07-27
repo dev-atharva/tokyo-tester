@@ -1,0 +1,31 @@
+Workspaces keep workflow ownership and execution authority explicit. A user can work privately and participate in team environments without mixing their permissions.
+
+## Workspace types
+
+Every user receives a personal workspace. Team workspaces group shared workflows and memberships. Selecting a workspace changes the boundary used by the builder, runs, revisions, and Agent setup.
+
+Platform administrators manage users and projects, but workflow actions still communicate the active workspace clearly.
+
+## Roles
+
+| Workspace role | View | Edit | Run | Manage members |
+| --- | --- | --- | --- | --- |
+| Runner | Yes | No | Yes | No |
+| Editor | Yes | Yes | Yes | No |
+| Owner | Yes | Yes | Yes | Yes |
+
+An owner is responsible for membership. Editors author and execute. Runners can inspect and execute without changing workflow definitions.
+
+## Agent scopes
+
+Agent credentials are narrower expressions of workspace authority:
+
+- `read` lists projects, workflows, revisions, capabilities, and run evidence.
+- `workflow:write` validates and imports definitions or creates revisions.
+- `run` executes workflows and obtains run diagnostics.
+
+The application grants only scopes compatible with the current user's workspace role.
+
+## Practical policy
+
+Give people and agents the least authority required for their work. Use Runner for release execution, Editor for test authors, and Owner for the small set of people managing the team boundary. Revoke agent tokens when a task ends or a credential may have been exposed.

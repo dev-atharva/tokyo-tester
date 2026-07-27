@@ -1,0 +1,25 @@
+Pressing Run starts a durable job, not a browser-bound script. The worker continues even if the page is refreshed or its realtime connection drops.
+
+## Lifecycle at a glance
+
+<LifecycleDiagram />
+
+The UI translates the selected workflow and scenarios into an execution input. The runner validates the definition again, persists the run, and claims work through the durable queue.
+
+## Provisioning
+
+The runner creates a unique Docker network, obtains images, starts dependency containers in readiness order, then starts application services. Provisioning logs belong to the run and remain available for diagnosis.
+
+Private-registry credentials may be attached to the job, but they are encrypted in transit to the worker, excluded from exported workflows, and cleared after a terminal state.
+
+## Scenario execution
+
+Selected scenarios execute their tests in declared order. Workflow, scenario, and test records are checkpointed as execution progresses. SSE sends fresh changes to the UI, while durable snapshots reconcile anything missed.
+
+Cancellation is cooperative: the runner observes the cancellation request, stops new work, tears down active resources, and records the resulting state.
+
+## Terminal states
+
+`completed` means selected tests and cleanup succeeded. `failed` indicates execution could not complete. `partial_failed` preserves the distinction when some scenarios pass and others fail. `cancelled` records an acknowledged cancellation, and `cleanup_failed` makes leaked runtime resources visible.
+
+See [run statuses and limits](/docs/reference/run-statuses-limits) for the exact state vocabulary.

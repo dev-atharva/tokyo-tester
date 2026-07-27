@@ -1,25 +1,4 @@
 services:
-  mysql:
-    image: mysql:8.4
-    container_name: tokyo-tester-mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
-      MYSQL_DATABASE: tokyo_runner
-      MYSQL_USER: tokyo
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./scripts/mysql-init.sh:/docker-entrypoint-initdb.d/001-tokyo-databases.sh:ro
-    networks:
-      - tokyo-tester
-    healthcheck:
-      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping --host=127.0.0.1 --user=root --silent"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-      start_period: 20s
-    restart: unless-stopped
-
   runner:
     build:
       context: ./runner-v2
@@ -32,7 +11,7 @@ services:
       LOG_LEVEL: ${RUNNER_LOG_LEVEL:-info}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
       DB_TYPE: ${RUNNER_DB_TYPE:-mysql}
-      DATABASE_URL: ${RUNNER_DATABASE_URL:-tokyo:${MYSQL_PASSWORD}@tcp(mysql:3306)/tokyo_runner}
+      DATABASE_URL: ${RUNNER_DATABASE_URL:-}
       DOCKER_HOST: ${RUNNER_DOCKER_HOST:-unix:///var/run/docker.sock}
       TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: ${TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE:-/var/run/docker.sock}
       TESTCONTAINERS_HOST_OVERRIDE: ${TESTCONTAINERS_HOST_OVERRIDE:-host.docker.internal}
@@ -58,9 +37,6 @@ services:
       WORKFLOW_JOB_ENCRYPTION_KEY: ${WORKFLOW_JOB_ENCRYPTION_KEY:?WORKFLOW_JOB_ENCRYPTION_KEY must be set}
     volumes:
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:${CONTAINER_DOCKER_SOCKET_PATH:-/var/run/docker.sock}
-    depends_on:
-      mysql:
-        condition: service_healthy
     networks:
       - tokyo-tester
     command: ["-migrate"]
@@ -77,7 +53,7 @@ services:
       HOSTNAME: 0.0.0.0
       COTS_API_BASE_URL: ${COTS_API_BASE_URL:-http://runner:8080}
       DB_TYPE: ${UI_DB_TYPE:-mysql}
-      DATABASE_URL: ${UI_DATABASE_URL:-mysql://tokyo:${MYSQL_PASSWORD}@mysql:3306/tokyo_ui}
+      DATABASE_URL: ${UI_DATABASE_URL:-}
       AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET must be set}
       AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
       AUTH_URL: ${AUTH_URL:-}
@@ -86,8 +62,6 @@ services:
       MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-${TOKYO_TESTER_PUBLIC_ORIGIN:-http://localhost:8090}/mcp}
       MCP_OAUTH_ISSUER: ${MCP_OAUTH_ISSUER:-}
     depends_on:
-      mysql:
-        condition: service_healthy
       runner:
         condition: service_healthy
     networks:
@@ -149,6 +123,5 @@ networks:
     driver: bridge
 
 volumes:
-  mysql_data:
   caddy_data:
   caddy_config:

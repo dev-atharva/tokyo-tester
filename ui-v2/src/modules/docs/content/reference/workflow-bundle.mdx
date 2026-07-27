@@ -1,0 +1,37 @@
+Workflow bundle v2 is the portable contract between authoring, import, agent tooling, and the runner-facing translation path. The JSON Schema in `contracts/workflow-bundle-v2.schema.json` is the precise machine-readable reference.
+
+## Bundle shape
+
+A bundle carries a version, workflow identity and metadata, service nodes, edges, and scenarios with ordered tests. A simplified outline is:
+
+```json
+{
+  "version": "2",
+  "workflow": {
+    "name": "Checkout platform",
+    "nodes": [],
+    "edges": [],
+    "scenarios": []
+  }
+}
+```
+
+Use the exported bundle produced by the application as the safest starting point; it already reflects the current schema and normalized defaults.
+
+## Validation
+
+The UI validates authoring fields and translation. Import and MCP validation apply the authoritative contract before persistence. The runner validates executable input again before provisioning.
+
+Agent validation returns the normalized bundle plus a short-lived receipt. Import-and-run accepts only the exact validated content associated with that receipt.
+
+## Portability
+
+Bundles are suitable for review and transfer between workspaces or installations. They do not contain session-only registry credentials, run results, or active container information. Environment-specific image names and configuration remain the author's responsibility.
+
+## Size and compatibility
+
+The MCP capability contract limits a bundle to 10 MiB. Preserve the declared version and validate after editing JSON by hand. A newer product may support fields an older installation rejects, so validation against the target installation is the compatibility check.
+
+<Callout title="Schema-valid is not deployment-ready" kind="note">
+Validation can prove structure and supported values. It cannot prove that an image exists, a private registry credential is available, or an application will become healthy.
+</Callout>

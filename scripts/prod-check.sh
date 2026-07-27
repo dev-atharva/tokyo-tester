@@ -16,23 +16,26 @@ done
 docker info >/dev/null 2>&1 || fail "Docker daemon is unavailable to the deployment user"
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is unavailable"
 
-project_name=${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}
-mysql_volume="${project_name}_mysql_data"
-legacy_runner_volume="${project_name}_runner_data"
-legacy_ui_volume="${project_name}_ui_data"
-if ! docker volume inspect "$mysql_volume" >/dev/null 2>&1 && {
-  docker volume inspect "$legacy_runner_volume" >/dev/null 2>&1 ||
-    docker volume inspect "$legacy_ui_volume" >/dev/null 2>&1
-}; then
-  fail "legacy database volumes were found but $mysql_volume does not exist; migrate and verify the existing data before the first MySQL deployment"
-fi
-
 : "${AUTH_SECRET:?AUTH_SECRET must be set in .env}"
 : "${WORKFLOW_JOB_ENCRYPTION_KEY:?WORKFLOW_JOB_ENCRYPTION_KEY must be set in .env}"
-: "${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set in .env}"
-: "${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set in .env}"
+: "${RUNNER_DATABASE_URL:?RUNNER_DATABASE_URL must point to the external tokyo_runner MySQL database}"
+: "${UI_DATABASE_URL:?UI_DATABASE_URL must point to the external tokyo_ui MySQL database}"
 : "${TOKYO_TESTER_PUBLIC_ORIGIN:?TOKYO_TESTER_PUBLIC_ORIGIN must be set in .env}"
 : "${MCP_INTERNAL_SECRET:?MCP_INTERNAL_SECRET must be set in .env}"
+
+[ "${RUNNER_DB_TYPE:-mysql}" = "mysql" ] || fail "production requires RUNNER_DB_TYPE=mysql"
+[ "${UI_DB_TYPE:-mysql}" = "mysql" ] || fail "production requires UI_DB_TYPE=mysql"
+case "${RUNNER_DATABASE_URL}" in
+  mysql://*) ;;
+  *) fail "RUNNER_DATABASE_URL must use a mysql:// URL" ;;
+esac
+case "${UI_DATABASE_URL}" in
+  mysql://*) ;;
+  *) fail "UI_DATABASE_URL must use a mysql:// URL" ;;
+esac
+case "${RUNNER_DATABASE_URL}${UI_DATABASE_URL}" in
+  *replace-with*) fail "production database URLs still contain placeholder credentials" ;;
+esac
 
 case "${TOKYO_TESTER_PUBLIC_ORIGIN}" in
   https://*) ;;
@@ -48,14 +51,6 @@ esac
 
 if [ "${AUTH_SECRET}" = "replace-with-a-long-random-secret" ] || [ "${#AUTH_SECRET}" -lt 32 ]; then
   fail "AUTH_SECRET must be a non-placeholder value of at least 32 characters"
-fi
-
-if [ "${MYSQL_ROOT_PASSWORD}" = "replace-with-a-long-random-root-password" ] || [ "${#MYSQL_ROOT_PASSWORD}" -lt 16 ]; then
-  fail "MYSQL_ROOT_PASSWORD must be a non-placeholder value of at least 16 characters"
-fi
-
-if [ "${MYSQL_PASSWORD}" = "replace-with-a-long-url-safe-app-password" ] || [ "${#MYSQL_PASSWORD}" -lt 16 ]; then
-  fail "MYSQL_PASSWORD must be a non-placeholder value of at least 16 characters"
 fi
 
 if [ "${MCP_INTERNAL_SECRET}" = "replace-with-a-separate-long-random-secret" ] || [ "${#MCP_INTERNAL_SECRET}" -lt 32 ]; then
@@ -78,12 +73,6 @@ case "${MCP_AUTH_MODE:-personal_token}" in
   *) fail "MCP_AUTH_MODE must be personal_token or oauth" ;;
 esac
 
-if [ -z "${RUNNER_DATABASE_URL:-}" ] || [ -z "${UI_DATABASE_URL:-}" ]; then
-  case "${MYSQL_PASSWORD}" in
-    *[!A-Za-z0-9._~-]*) fail "MYSQL_PASSWORD must be URL-safe unless both database URLs are set explicitly" ;;
-  esac
-fi
-
 decoded_key_length=$(printf '%s' "${WORKFLOW_JOB_ENCRYPTION_KEY}" | openssl base64 -d -A 2>/dev/null | wc -c | tr -d ' ')
 if [ "$decoded_key_length" != "32" ]; then
   fail "WORKFLOW_JOB_ENCRYPTION_KEY must be a base64-encoded 32-byte key"
@@ -103,4 +92,4 @@ trap cleanup_probe EXIT
 docker volume create "$probe_volume" >/dev/null
 docker run --rm --volume "$probe_volume:/probe" alpine:3.22 sh -c 'touch /probe/write-check && test -w /probe/write-check' >/dev/null
 
-printf 'prod-check: Docker, secrets, Compose configuration, socket access, and writable volumes are ready.\n'
+printf 'prod-check: Docker, external MySQL URLs, secrets, Compose configuration, socket access, and writable volumes are ready.\n'

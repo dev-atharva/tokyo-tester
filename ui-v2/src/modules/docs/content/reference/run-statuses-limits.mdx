@@ -1,0 +1,30 @@
+Run states distinguish queueing, active work, cancellation, test outcomes, and cleanup. This prevents one generic “failed” label from hiding the operator action required.
+
+## Statuses
+
+| Status | Meaning |
+| --- | --- |
+| `pending` | Durable job exists and is waiting for a runner |
+| `running` | A runner owns the lease and execution is active |
+| `cancelling` | Cancellation is recorded and awaiting acknowledgement |
+| `cancelled` | Work stopped and cancellation reached a terminal state |
+| `completed` | Selected scenarios and cleanup succeeded |
+| `failed` | Execution could not complete successfully |
+| `partial_failed` | Some selected scenarios passed and others failed |
+| `cleanup_failed` | Execution ended but runtime cleanup was incomplete |
+
+## Terminal outcomes
+
+`completed`, `failed`, `partial_failed`, `cancelled`, and `cleanup_failed` are terminal outcomes. Read scenario and test records to understand a partial failure; read runner cleanup diagnostics for cleanup failure.
+
+## Queues and estimates
+
+The runner applies concurrency and rate safeguards to avoid exhausting the Docker host. Pending runs retain their place in durable work. Historical p50 and p90 durations provide estimates for planning and UI feedback, not deadlines or guarantees.
+
+## Resource guards
+
+Workflow services can carry CPU, memory, and PID limits. The platform also limits workflow bundle size and paginates long logs. Leases bound worker ownership; cancellation and cleanup bound the lifecycle of runtime resources.
+
+<Callout title="Limits protect the runner, not application correctness" kind="idea">
+A container killed by its memory limit is a useful failure signal. Raise the limit only after confirming the scenario legitimately needs more capacity.
+</Callout>

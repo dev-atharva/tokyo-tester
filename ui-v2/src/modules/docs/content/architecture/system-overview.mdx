@@ -1,0 +1,30 @@
+Tokyo Tester separates authoring from execution. The browser can be optimistic and interactive; the runner must be durable, isolated, and able to finish without that browser.
+
+## Major components
+
+<SystemDiagram />
+
+The Next.js application owns authentication, workspaces, workflow authoring, revisions, and the user-facing run view. The Go runner owns environment provisioning and test execution. MySQL-backed worker state connects the submitted definition to durable processing.
+
+The MCP adapter is a separate authenticated control plane. It proxies allowed workflow operations without receiving filesystem, Docker, or direct database authority.
+
+## Authoring path
+
+The builder updates Zustand stores immediately. A frontend sync service queues changes and sends them to the backend, which persists workflow definitions, graph nodes, edges, and scenarios. On first render, the UI hydrates from the backend before continuing local edits.
+
+Before a run, the UI translates the graph into the runner contract. Both UI and runner validation protect the boundary.
+
+## Execution path
+
+The submitted job enters the durable worker store. A runner claims it using a lease, creates an isolated network, provisions services, runs selected scenarios, writes checkpoints and results, then cleans up. The UI observes persisted state and realtime events.
+
+## Ownership boundaries
+
+| State | Owner |
+| --- | --- |
+| Workflow definitions, graph, scenarios, revisions | UI application |
+| Workflow runs, scenario runs, test results | Runner during execution |
+| Local optimistic edits and pending sync queue | Browser |
+| Registry secrets | Browser session and encrypted job payload only |
+
+These boundaries prevent the UI from rewriting execution truth and prevent the runner from becoming an authoring database.

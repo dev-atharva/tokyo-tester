@@ -1,0 +1,47 @@
+This path starts the complete development stack with Docker, creates the initial administrator, and opens the workflow builder.
+
+## Prerequisites
+
+You need Git, GNU Make, Docker with Compose support, and enough local resources to run Tokyo Tester plus the services in your workflow. A small API-and-database workflow is modest; the repository's full payment-platform examples can require 4–6 GB of memory.
+
+Run the environment check before debugging individual containers:
+
+```bash
+make doctor
+```
+
+## Start the stack
+
+From the repository root:
+
+```bash
+make dev
+```
+
+`make dev` runs migrations and detects whether the Docker socket can be used from the containerized runner. On machines with a nonstandard socket, it can select the supported host-runner path.
+
+If you intentionally want every service to run directly on the host development path, use:
+
+```bash
+make dev-local
+```
+
+## First sign-in
+
+On the first boot, open `/setup` and create the initial administrator. After setup, sign in at `/login`; authenticated users land in the workflow workspace.
+
+<Callout title="The public pages are independent" kind="note">
+The landing page and `/docs` remain readable before setup and do not need a working application database. Builder, administration, and Agent setup routes remain protected.
+</Callout>
+
+## Stop or reset
+
+Use `make down` to stop the development stack while preserving its data. Use `make reset` only when you deliberately want to remove development databases and recreate the installation.
+
+```bash
+make down
+# destructive to development data:
+make reset
+```
+
+Next, [build your first workflow](/docs/start/first-workflow).
