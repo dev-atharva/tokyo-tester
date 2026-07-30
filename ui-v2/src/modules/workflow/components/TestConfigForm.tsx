@@ -20,6 +20,7 @@ import type {
   JsonValue,
   ScenarioTestDefinition,
 } from "../types/react-flow-cots";
+import { ContextHelp } from "./BuilderHelp";
 import { DraftJsonTextarea, DraftNumberInput } from "./DraftFields";
 import { ServiceSelector } from "./ServiceSelector";
 
@@ -418,9 +419,16 @@ export const TestConfigForm = ({
 
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
-                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Test Type
-                  </Label>
+                  <div className="flex items-center gap-1">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Test Type
+                    </Label>
+                    <ContextHelp label="test type">
+                      Choose the executor that matches the behavior you need to
+                      prove: HTTP, database, document, shell, cache, queue, or a
+                      deliberate delay.
+                    </ContextHelp>
+                  </div>
                   <Select
                     value={test.type}
                     onValueChange={(value) =>
@@ -455,9 +463,16 @@ export const TestConfigForm = ({
                 </div>
 
                 <div>
-                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Target Services
-                  </Label>
+                  <div className="flex items-center gap-1">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Target Service
+                    </Label>
+                    <ContextHelp label="target service">
+                      The target is the workflow service this test talks to.
+                      Tokyo Tester resolves it by its network alias inside the
+                      isolated run.
+                    </ContextHelp>
+                  </div>
                   <div className="mt-1.5">
                     <ServiceSelector
                       value={test.targetServices[0] || ""}
@@ -679,9 +694,16 @@ export const TestConfigForm = ({
                     </div>
 
                     <div>
-                      <Label htmlFor={`http-expected-body-mode-${test.id}`}>
-                        Expected Body Mode
-                      </Label>
+                      <div className="flex items-center gap-1">
+                        <Label htmlFor={`http-expected-body-mode-${test.id}`}>
+                          Expected Body Mode
+                        </Label>
+                        <ContextHelp label="expected HTTP body mode">
+                          “Contains text” looks for a fragment. “JSON partial”
+                          checks only the fields you provide and ignores
+                          harmless extra fields.
+                        </ContextHelp>
+                      </div>
                       <Select
                         value={
                           test.httpConfig?.expectedBody?.mode || "contains"
@@ -934,7 +956,14 @@ export const TestConfigForm = ({
 
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
-                      <Label>Expected Result Mode</Label>
+                      <div className="flex items-center gap-1">
+                        <Label>Expected Result Mode</Label>
+                        <ContextHelp label="expected database result mode">
+                          Choose whether the query should return any rows, one
+                          exact scalar, a value list, or structured row and
+                          column constraints.
+                        </ContextHelp>
+                      </div>
                       <Select
                         value={
                           typeof test.databaseConfig?.expectedResult ===

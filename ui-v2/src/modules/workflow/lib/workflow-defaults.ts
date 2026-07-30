@@ -17,6 +17,8 @@ const labels: Record<ServiceType, string> = {
   kafka: "Kafka",
   rabbitmq: "RabbitMQ",
   mongodb: "MongoDB",
+  nginx: "Nginx",
+  mockserver: "MockServer",
 };
 
 const images: Record<ServiceType, string> = {
@@ -29,18 +31,22 @@ const images: Record<ServiceType, string> = {
   kafka: "confluentinc/confluent-local:7.5.0",
   rabbitmq: "rabbitmq:3.13-management-alpine",
   mongodb: "mongo:7",
+  nginx: "nginx:1.30.4-alpine",
+  mockserver: "mockserver/mockserver:5.15.0",
 };
 
-const ports: Record<ServiceType, string> = {
-  generic: "8080",
-  postgres: "5432",
-  mysql: "3306",
-  mariadb: "3306",
-  redis: "6379",
-  memcached: "11211",
-  kafka: "9092",
-  rabbitmq: "5672",
-  mongodb: "27017",
+const ports: Record<ServiceType, string[]> = {
+  generic: ["8080"],
+  postgres: ["5432"],
+  mysql: ["3306"],
+  mariadb: ["3306"],
+  redis: ["6379"],
+  memcached: ["11211"],
+  kafka: ["9092"],
+  rabbitmq: ["5672"],
+  mongodb: ["27017"],
+  nginx: ["80", "443"],
+  mockserver: ["1080"],
 };
 
 const environmentPresets: Partial<
@@ -76,7 +82,7 @@ const environmentPresets: Partial<
 };
 
 export function serviceTypeDefaults(type: ServiceType): ServiceNodeData {
-  const port = ports[type];
+  const servicePorts = ports[type];
   return {
     label: labels[type],
     service: {
@@ -87,20 +93,19 @@ export function serviceTypeDefaults(type: ServiceType): ServiceNodeData {
         id: generateId(),
         ...entry,
       })),
-      ports: [
-        {
-          id: generateId(),
-          hostPort: port,
-          containerPort: port,
-        },
-      ],
+      ports: servicePorts.map((port) => ({
+        id: generateId(),
+        hostPort: port,
+        containerPort: port,
+      })),
       waitStratergy: {
         enabled: true,
         type: "port",
-        target: port,
+        target: servicePorts[0],
         timeout: 30,
       },
       initScripts: [],
+      mockServer: type === "mockserver" ? { expectations: [] } : undefined,
     },
   };
 }
@@ -145,15 +150,21 @@ export function createDefaultTest(
 
   switch (type) {
     case "http": {
-      const node = firstService(nodes, ["generic"]);
+      const node = firstService(nodes, ["generic", "nginx", "mockserver"]);
+      const serviceType = node?.data.service.type;
       return {
         id,
-        name: "Check application health",
+        name:
+          serviceType === "nginx"
+            ? "Check Nginx response"
+            : serviceType === "mockserver"
+              ? "Check mocked response"
+              : "Check application health",
         type,
         targetServices: targetName(node) ? [targetName(node)] : [],
         httpConfig: {
           method: "GET",
-          path: "/health",
+          path: serviceType === "nginx" ? "/" : "/health",
           port: node?.data.service.ports?.[0]?.containerPort || "8080",
           expectedStatus: 200,
         },

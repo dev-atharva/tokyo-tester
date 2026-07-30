@@ -438,7 +438,16 @@ export const docsEntries: readonly DocEntry[] = [
     title: "Service reference",
     summary: "Supported application and infrastructure node types.",
     section: "reference",
-    keywords: ["postgres", "mysql", "redis", "kafka", "rabbitmq", "mongodb"],
+    keywords: [
+      "postgres",
+      "mysql",
+      "redis",
+      "kafka",
+      "rabbitmq",
+      "mongodb",
+      "nginx",
+      "mockserver",
+    ],
     headings: [
       { id: "service-types", title: "Service types" },
       { id: "generic-services", title: "Generic services" },

@@ -26,11 +26,13 @@ import {
   FieldSet,
   FieldTitle,
 } from "@/components/ui/field";
+import { GUIDED_DOCUMENTATION } from "../lib/builder-experience";
 import type {
   FlowNode,
   Scenario,
   TranslationError,
 } from "../types/react-flow-cots";
+import { ContextHelp, DocumentationLink } from "./BuilderHelp";
 
 interface RunWorkflowDialogProps {
   open: boolean;
@@ -66,6 +68,9 @@ export function RunWorkflowDialog({
           <DialogDescription>
             Select the scenarios for this isolated workflow run.
           </DialogDescription>
+          <DocumentationLink href={GUIDED_DOCUMENTATION.lifecycle.href}>
+            Understand provisioning and cleanup
+          </DocumentationLink>
         </DialogHeader>
         <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-2">
           <div className="flex items-start gap-2">
@@ -84,7 +89,13 @@ export function RunWorkflowDialog({
           <div className="flex items-start gap-2">
             <IconShieldCheck className="mt-0.5 size-4 text-muted-foreground" />
             <div>
-              <p className="text-sm font-medium">Automatic cleanup</p>
+              <div className="flex items-center gap-1">
+                <p className="text-sm font-medium">Automatic cleanup</p>
+                <ContextHelp label="automatic cleanup">
+                  Tokyo Tester removes the containers and private Docker network
+                  after the run, whether the scenarios pass or fail.
+                </ContextHelp>
+              </div>
               <p className="text-xs text-muted-foreground">
                 Managed containers and the isolated network are removed after
                 the run.

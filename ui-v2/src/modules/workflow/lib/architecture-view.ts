@@ -37,7 +37,7 @@ export const ROLE_META: Record<
 const messagingTypes = new Set<ServiceType>(["kafka", "rabbitmq"]);
 
 export function architectureRole(type: ServiceType): ArchitectureRole {
-  if (type === "generic") return "application";
+  if (["generic", "nginx", "mockserver"].includes(type)) return "application";
   if (messagingTypes.has(type)) return "messaging";
   return "data";
 }
@@ -53,6 +53,8 @@ export function friendlyName(value: string): string {
     redis: "Redis",
     postgres: "Postgres",
     memcached: "Memcached",
+    nginx: "Nginx",
+    mockserver: "MockServer",
   };
   return value
     .split(/[_-]+/)
@@ -74,6 +76,8 @@ export function inferredProtocol(type: ServiceType): string | undefined {
     mongodb: "MongoDB",
     rabbitmq: "AMQP",
     kafka: "Kafka protocol",
+    nginx: "HTTP/HTTPS",
+    mockserver: "HTTP",
   };
   return protocols[type];
 }

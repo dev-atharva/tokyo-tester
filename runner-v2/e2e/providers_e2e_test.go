@@ -303,6 +303,50 @@ func TestProvidersAndExecutorsE2E(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "nginx http",
+			servicesReq: dto.CreateServicesRequest{
+				Services: []dto.ServiceDTO{{Name: "nginx", Type: "nginx"}},
+			},
+			testsReq: dto.RunTestRequest{
+				Tests: []dto.TestDTO{{
+					Name: "nginx-default-page",
+					Type: "http",
+					Config: map[string]any{
+						"service": "nginx", "method": "GET", "path": "/", "port": "80",
+						"expected_status": 200, "expected_body": "Welcome to nginx!",
+					},
+				}},
+			},
+		},
+		{
+			name: "mockserver http expectation",
+			servicesReq: dto.CreateServicesRequest{
+				Services: []dto.ServiceDTO{{
+					Name: "mock-api",
+					Type: "mockserver",
+					MockServerExpectations: []dto.MockServerExpectationDTO{{
+						ID:      "user-by-id",
+						Request: dto.MockServerExpectationMatchDTO{Method: "GET", Path: "/api/users/42"},
+						Response: dto.MockServerExpectationReplyDTO{
+							StatusCode: 200,
+							Headers:    map[string]string{"Content-Type": "application/json"},
+							Body:       `{"id":42,"name":"Tokyo"}`,
+						},
+					}},
+				}},
+			},
+			testsReq: dto.RunTestRequest{
+				Tests: []dto.TestDTO{{
+					Name: "mock-user-response",
+					Type: "http",
+					Config: map[string]any{
+						"service": "mock-api", "method": "GET", "path": "/api/users/42", "port": "1080",
+						"expected_status": 200, "expected_body": map[string]any{"id": 42, "name": "Tokyo"},
+					},
+				}},
+			},
+		},
 	}
 
 	client := &http.Client{Timeout: 30 * time.Minute}

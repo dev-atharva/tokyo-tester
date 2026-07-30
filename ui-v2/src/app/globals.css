@@ -254,3 +254,56 @@
   background-color: var(--primary-foreground);
   color: var(--accent-foreground);
 }
+
+@keyframes workflow-shell-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes workflow-stage-enter {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes workflow-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.workflow-shell-enter {
+  animation: workflow-shell-enter 200ms ease-out both;
+}
+
+.workflow-stage-enter {
+  animation: workflow-stage-enter 180ms ease-out both;
+}
+
+.workflow-card-enter {
+  animation: workflow-card-enter 220ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workflow-shell-enter,
+  .workflow-stage-enter,
+  .workflow-card-enter {
+    animation: none;
+  }
+}

@@ -16,6 +16,7 @@ import {
   invalidateRoutesForMovedNodes,
   normalizeEdges,
 } from "../lib/edge-model";
+import { removeServiceFromGraph } from "../lib/workflow-presentation";
 import { useWorkflowStore } from "../stores/workflow.store.sync";
 import type { EdgeData, FlowEdge, FlowNode } from "../types/react-flow-cots";
 
@@ -48,9 +49,10 @@ export function useWorkflowGraph(workflowId: string) {
   // Delete node
   const deleteNode = useCallback(
     (nodeId: string) => {
-      const newNodes = nodesRef.current.filter((n) => n.id !== nodeId);
-      const newEdges = edgesRef.current.filter(
-        (e) => e.source !== nodeId && e.target !== nodeId,
+      const { nodes: newNodes, edges: newEdges } = removeServiceFromGraph(
+        nodesRef.current,
+        edgesRef.current,
+        nodeId,
       );
 
       setNodes(newNodes);

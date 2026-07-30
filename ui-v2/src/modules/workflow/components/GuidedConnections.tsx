@@ -26,6 +26,13 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import {
   Field,
   FieldDescription,
   FieldGroup,
@@ -40,6 +47,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { GUIDED_DOCUMENTATION } from "../lib/builder-experience";
 import { suggestConnections } from "../lib/connection-suggestions";
 import {
   defaultReadiness,
@@ -53,6 +61,7 @@ import type {
   FlowEdge,
   FlowNode,
 } from "../types/react-flow-cots";
+import { ContextHelp, DocumentationLink } from "./BuilderHelp";
 
 interface ConnectionDraft {
   edgeId?: string;
@@ -140,13 +149,27 @@ export function GuidedConnections({
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b pb-4">
         <div>
-          <h2 className="text-lg font-semibold">How services work together</h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="mb-1 text-[0.66rem] font-semibold tracking-[0.14em] text-primary uppercase">
+            Stage 2 · Topology
+          </p>
+          <div className="flex items-center gap-1">
+            <h2 className="text-lg font-semibold tracking-tight">
+              How services work together
+            </h2>
+            <ContextHelp label="connections">
+              Connections document runtime intent and startup order. They do not
+              expose ports or create a second network.
+            </ContextHelp>
+          </div>
+          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
             Review the information moving between services. These connections
             are the same ones shown in the expert graph.
           </p>
+          <DocumentationLink href={GUIDED_DOCUMENTATION.connections.href}>
+            Understand service connections
+          </DocumentationLink>
         </div>
         {canEdit && nodes.length > 1 ? (
           <Button onClick={() => setDraft(newDraft(nodes))}>
@@ -251,7 +274,14 @@ export function GuidedConnections({
                   </Select>
                 </Field>
                 <Field>
-                  <FieldLabel>Relationship</FieldLabel>
+                  <div className="flex items-center gap-1">
+                    <FieldLabel>Relationship</FieldLabel>
+                    <ContextHelp label="connection relationship">
+                      Read this as a sentence from source to destination, such
+                      as “API reads from PostgreSQL.” It describes data flow,
+                      not startup order.
+                    </ContextHelp>
+                  </div>
                   <Select
                     value={draft.relation}
                     onValueChange={(relation) => {
@@ -328,9 +358,15 @@ export function GuidedConnections({
                 <CollapsibleContent className="pt-3">
                   <FieldGroup>
                     <Field>
-                      <FieldLabel htmlFor="guided-connection-protocol">
-                        Technology or protocol
-                      </FieldLabel>
+                      <div className="flex items-center gap-1">
+                        <FieldLabel htmlFor="guided-connection-protocol">
+                          Technology or protocol
+                        </FieldLabel>
+                        <ContextHelp label="connection protocol">
+                          Use the protocol that best explains the traffic, such
+                          as HTTP, PostgreSQL, AMQP, or Redis.
+                        </ContextHelp>
+                      </div>
                       <Input
                         id="guided-connection-protocol"
                         value={draft.protocol}
@@ -345,7 +381,13 @@ export function GuidedConnections({
                       />
                     </Field>
                     <Field>
-                      <FieldLabel>Startup behavior</FieldLabel>
+                      <div className="flex items-center gap-1">
+                        <FieldLabel>Startup behavior</FieldLabel>
+                        <ContextHelp label="startup behavior">
+                          Readiness controls which service must become healthy
+                          first. It is independent of the connection arrow.
+                        </ContextHelp>
+                      </div>
                       <Select
                         value={draft.readiness}
                         onValueChange={(readiness) =>
@@ -396,16 +438,18 @@ export function GuidedConnections({
       ) : null}
 
       {edges.length === 0 ? (
-        <div className="flex min-h-48 flex-col items-center justify-center gap-3 border border-dashed p-6 text-center">
-          <IconRoute />
-          <div>
-            <p className="text-sm font-medium">No confirmed connections yet</p>
-            <p className="text-xs text-muted-foreground">
+        <Empty className="min-h-48 border bg-muted/15">
+          <EmptyHeader>
+            <EmptyMedia variant="icon" className="size-10">
+              <IconRoute className="size-5" />
+            </EmptyMedia>
+            <EmptyTitle>No confirmed connections yet</EmptyTitle>
+            <EmptyDescription>
               Add how services communicate so the expert graph and export stay
               accurate.
-            </p>
-          </div>
-        </div>
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
           {edges.map((edge) => {
@@ -451,9 +495,9 @@ export function GuidedConnections({
                   {canEdit ? (
                     <>
                       <Button
-                        size="icon"
+                        size="sm"
                         variant="ghost"
-                        title="Edit connection"
+                        aria-label={`Edit connection from ${source?.data.label ?? edge.source} to ${target?.data.label ?? edge.target}`}
                         onClick={() =>
                           setDraft({
                             edgeId: edge.id,
@@ -465,15 +509,18 @@ export function GuidedConnections({
                           })
                         }
                       >
-                        <IconEdit />
+                        <IconEdit data-icon="inline-start" />
+                        Edit
                       </Button>
                       <Button
-                        size="icon"
+                        size="sm"
                         variant="ghost"
-                        title="Delete connection"
+                        className="text-destructive hover:text-destructive"
+                        aria-label={`Delete connection from ${source?.data.label ?? edge.source} to ${target?.data.label ?? edge.target}`}
                         onClick={() => onDelete(edge.id)}
                       >
-                        <IconTrash />
+                        <IconTrash data-icon="inline-start" />
+                        Remove
                       </Button>
                     </>
                   ) : null}

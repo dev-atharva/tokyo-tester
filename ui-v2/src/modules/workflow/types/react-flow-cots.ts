@@ -15,7 +15,33 @@ export type ServiceType =
   | "memcached"
   | "kafka"
   | "rabbitmq"
-  | "mongodb";
+  | "mongodb"
+  | "nginx"
+  | "mockserver";
+
+export type MockServerHttpMethod =
+  | "GET"
+  | "POST"
+  | "PUT"
+  | "PATCH"
+  | "DELETE"
+  | "HEAD"
+  | "OPTIONS";
+
+export interface MockServerExpectation {
+  id: string;
+  request: {
+    method: MockServerHttpMethod;
+    path: string;
+    headers?: Record<string, string>;
+    body?: string;
+  };
+  response: {
+    statusCode: number;
+    headers?: Record<string, string>;
+    body?: string;
+  };
+}
 
 export interface ServiceConfig {
   name: string;
@@ -27,6 +53,15 @@ export interface ServiceConfig {
   depends_on?: string[];
   wait_strategy?: WaitStratergyConfig;
   init_scripts?: string[];
+  mockserver_expectations?: Array<{
+    id: string;
+    request: MockServerExpectation["request"];
+    response: {
+      status_code: number;
+      headers?: Record<string, string>;
+      body?: string;
+    };
+  }>;
   registry?: RegistryConfig;
 }
 
@@ -120,6 +155,9 @@ export interface ServiceNodeData {
       timeout?: number;
     };
     initScripts?: InitScript[];
+    mockServer?: {
+      expectations: MockServerExpectation[];
+    };
     registry?: {
       url: string;
       auth_type: "none" | "basic" | "token";

@@ -342,6 +342,7 @@ function sanitizeNodesForBundle(nodes: FlowNode[]): FlowNode[] {
         env: cloneValue(node.data.service.env),
         waitStratergy: cloneValue(node.data.service.waitStratergy),
         initScripts: cloneValue(node.data.service.initScripts),
+        mockServer: cloneValue(node.data.service.mockServer),
       },
       tests: undefined,
       onDelete: undefined,

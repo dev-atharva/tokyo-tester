@@ -25,7 +25,7 @@ export const SCENARIO_RECIPES: ScenarioRecipe[] = [
     label: "API smoke check",
     description:
       "Call an application endpoint and expect a successful response.",
-    serviceTypes: ["generic"],
+    serviceTypes: ["generic", "nginx", "mockserver"],
   },
   {
     kind: "redis-round-trip",
@@ -75,6 +75,7 @@ export function createScenarioRecipe(
   switch (kind) {
     case "http-smoke": {
       const port = node.data.service.ports?.[0]?.containerPort || "80";
+      const expectation = node.data.service.mockServer?.expectations[0];
       return [
         {
           id: generateId(),
@@ -83,7 +84,7 @@ export function createScenarioRecipe(
           targetServices: [service],
           httpConfig: {
             method: "GET",
-            path: "/",
+            path: expectation?.request.path ?? "/",
             port,
             expectedStatus: 200,
           },

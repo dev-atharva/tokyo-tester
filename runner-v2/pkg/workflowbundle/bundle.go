@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"regexp"
 	"slices"
 	"strconv"
@@ -43,14 +44,38 @@ type FlowNodeData struct {
 }
 
 type ServiceNodeData struct {
-	Type          string                 `json:"type"`
-	Image         string                 `json:"image,omitempty"`
-	Command       []string               `json:"command,omitempty"`
-	Ports         []PortMapping          `json:"ports,omitempty"`
-	Env           []EnvironmentVariable  `json:"env,omitempty"`
-	WaitStratergy *WaitStrategyState     `json:"waitStratergy,omitempty"`
-	InitScripts   []InitScript           `json:"initScripts,omitempty"`
-	Registry      *config.RegistryConfig `json:"registry,omitempty"`
+	Type          string                   `json:"type"`
+	Image         string                   `json:"image,omitempty"`
+	Command       []string                 `json:"command,omitempty"`
+	Ports         []PortMapping            `json:"ports,omitempty"`
+	Env           []EnvironmentVariable    `json:"env,omitempty"`
+	WaitStratergy *WaitStrategyState       `json:"waitStratergy,omitempty"`
+	InitScripts   []InitScript             `json:"initScripts,omitempty"`
+	MockServer    *MockServerServiceConfig `json:"mockServer,omitempty"`
+	Registry      *config.RegistryConfig   `json:"registry,omitempty"`
+}
+
+type MockServerServiceConfig struct {
+	Expectations []MockServerExpectation `json:"expectations"`
+}
+
+type MockServerExpectation struct {
+	ID       string                        `json:"id"`
+	Request  MockServerExpectationRequest  `json:"request"`
+	Response MockServerExpectationResponse `json:"response"`
+}
+
+type MockServerExpectationRequest struct {
+	Method  string            `json:"method"`
+	Path    string            `json:"path"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Body    string            `json:"body,omitempty"`
+}
+
+type MockServerExpectationResponse struct {
+	StatusCode int               `json:"statusCode"`
+	Headers    map[string]string `json:"headers,omitempty"`
+	Body       string            `json:"body,omitempty"`
 }
 
 type PortMapping struct {
@@ -486,7 +511,7 @@ func validateScenario(graph workflowServiceGraph, scenario BundleScenario, index
 }
 
 func supportedServiceType(value string) bool {
-	return slices.Contains([]string{"generic", "postgres", "mysql", "mariadb", "redis", "memcached", "mongodb", "rabbitmq", "kafka"}, value)
+	return slices.Contains([]string{"generic", "postgres", "mysql", "mariadb", "redis", "memcached", "mongodb", "rabbitmq", "kafka", "nginx", "mockserver"}, value)
 }
 
 func supportedTestType(value string) bool {
@@ -535,7 +560,61 @@ func validateServiceRuntime(node FlowNode) error {
 			return fmt.Errorf("service %q contains an empty init script", node.Data.Label)
 		}
 	}
+	if service.MockServer != nil && service.Type != "mockserver" {
+		return fmt.Errorf("service %q has MockServer expectations but type is %q", node.Data.Label, service.Type)
+	}
+	if service.MockServer != nil {
+		seenExpectations := make(map[string]struct{}, len(service.MockServer.Expectations))
+		for _, expectation := range service.MockServer.Expectations {
+			if strings.TrimSpace(expectation.ID) == "" {
+				return fmt.Errorf("service %q contains a MockServer expectation without an id", node.Data.Label)
+			}
+			if _, duplicate := seenExpectations[expectation.ID]; duplicate {
+				return fmt.Errorf("service %q contains duplicate MockServer expectation id %q", node.Data.Label, expectation.ID)
+			}
+			seenExpectations[expectation.ID] = struct{}{}
+			if !slices.Contains([]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodHead, http.MethodOptions}, expectation.Request.Method) {
+				return fmt.Errorf("service %q MockServer expectation %q has invalid method %q", node.Data.Label, expectation.ID, expectation.Request.Method)
+			}
+			if !strings.HasPrefix(expectation.Request.Path, "/") {
+				return fmt.Errorf("service %q MockServer expectation %q path must start with /", node.Data.Label, expectation.ID)
+			}
+			if expectation.Response.StatusCode < 100 || expectation.Response.StatusCode > 599 {
+				return fmt.Errorf("service %q MockServer expectation %q status code must be between 100 and 599", node.Data.Label, expectation.ID)
+			}
+			if err := validateHeaderMap(expectation.Request.Headers); err != nil {
+				return fmt.Errorf("service %q MockServer expectation %q request headers: %w", node.Data.Label, expectation.ID, err)
+			}
+			if err := validateHeaderMap(expectation.Response.Headers); err != nil {
+				return fmt.Errorf("service %q MockServer expectation %q response headers: %w", node.Data.Label, expectation.ID, err)
+			}
+		}
+	}
 	return nil
+}
+
+func validateHeaderMap(headers map[string]string) error {
+	for name := range headers {
+		if strings.TrimSpace(name) == "" || !validHTTPHeaderName(name) {
+			return fmt.Errorf("invalid header name %q", name)
+		}
+	}
+	return nil
+}
+
+func validHTTPHeaderName(name string) bool {
+	for _, char := range name {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') {
+			continue
+		}
+		switch char {
+		case '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~':
+			continue
+		default:
+			return false
+		}
+	}
+	return name != ""
 }
 
 func validPort(value string) bool {
@@ -792,6 +871,25 @@ func translateServices(nodes []FlowNode, serviceDeps map[string][]string) ([]con
 			cfg.InitScripts = make([]string, 0, len(scripts))
 			for _, script := range scripts {
 				cfg.InitScripts = append(cfg.InitScripts, normalizeServiceReferences(script.Script, aliases))
+			}
+		}
+		if mockServer := node.Data.Service.MockServer; mockServer != nil {
+			cfg.MockServerExpectations = make([]config.MockServerExpectation, 0, len(mockServer.Expectations))
+			for _, expectation := range mockServer.Expectations {
+				cfg.MockServerExpectations = append(cfg.MockServerExpectations, config.MockServerExpectation{
+					ID: expectation.ID,
+					Request: config.MockServerExpectationMatch{
+						Method:  expectation.Request.Method,
+						Path:    expectation.Request.Path,
+						Headers: expectation.Request.Headers,
+						Body:    expectation.Request.Body,
+					},
+					Response: config.MockServerExpectationReply{
+						StatusCode: expectation.Response.StatusCode,
+						Headers:    expectation.Response.Headers,
+						Body:       expectation.Response.Body,
+					},
+				})
 			}
 		}
 		if deps := serviceDeps[serviceName]; len(deps) > 0 {

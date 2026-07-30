@@ -26,7 +26,7 @@ func AgentCapabilities() Capabilities {
 		SchemaVersion:          SchemaVersion,
 		AcceptedSchemaVersions: []int{legacySchemaVersion, SchemaVersion},
 		BundleKind:             BundleKind,
-		ServiceTypes:           []string{"generic", "postgres", "mysql", "mariadb", "redis", "memcached", "mongodb", "rabbitmq", "kafka"},
+		ServiceTypes:           []string{"generic", "postgres", "mysql", "mariadb", "redis", "memcached", "mongodb", "rabbitmq", "kafka", "nginx", "mockserver"},
 		TestTypes: []TestCapability{
 			{Type: "http", ConfigField: "httpConfig", RequiredFields: []string{"method", "path", "port"}, AllowedValues: map[string][]string{"method": {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}}},
 			{Type: "database", ConfigField: "databaseConfig", RequiredFields: []string{"driver", "database", "query"}, AllowedValues: map[string][]string{"driver": {"postgres", "mysql", "mariadb"}}},
@@ -44,6 +44,7 @@ func AgentCapabilities() Capabilities {
 			"Review complex or multi-repo plans with tokyo_review_workflow_plan before authoring the bundle.",
 			"Use container ports and validated sanitized service labels in tests.",
 			"Keep waitStratergy spelling in workflow JSON for schema version 2.",
+			"Define MockServer request/response expectations on mockserver services; verify them with ordinary HTTP tests on container port 1080.",
 		},
 		ResourceURIs: []string{
 			"tokyo://authoring",

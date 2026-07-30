@@ -31,7 +31,10 @@ import type React from "react";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { SyncStatusIndicator } from "@/modules/sync/SyncProvider";
+import type { AuthoringMode } from "../../lib/builder-experience";
 import type { FlowEdge, FlowNode } from "../../types/react-flow-cots";
+import { AuthoringModeControl } from "../AuthoringModeControl";
+import { BuilderHelpMenu, DisabledActionHelp } from "../BuilderHelp";
 import { ArchitectureBackdrop } from "./ArchitectureBackdrop";
 import { ArchitectureLegend } from "./ArchitectureLegend";
 import { ArchitectureStoryPanel } from "./ArchitectureStoryPanel";
@@ -55,9 +58,12 @@ interface FlowCanvasProps {
   onOpenShortcuts: () => void;
   onOpenHistory: () => void;
   onOpenVersions: () => void;
-  onOpenGuided: () => void;
+  authoringMode: AuthoringMode;
+  onAuthoringModeChange: (mode: AuthoringMode) => void;
+  onShowChecklist: () => void;
   isExecuting: boolean;
   canExecute: boolean;
+  runDisabledReason?: string;
   canEdit: boolean;
   hasActiveExecution: boolean;
   reviewEdgeCount: number;
@@ -87,9 +93,12 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
   onOpenShortcuts,
   onOpenHistory,
   onOpenVersions,
-  onOpenGuided,
+  authoringMode,
+  onAuthoringModeChange,
+  onShowChecklist,
   isExecuting,
   canExecute,
+  runDisabledReason,
   canEdit,
   hasActiveExecution,
   reviewEdgeCount,
@@ -232,10 +241,13 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
             </span>{" "}
             checks
           </div>
-          <Button size="sm" variant="secondary" onClick={onOpenGuided}>
-            <IconListDetails className="mr-1.5 size-4" />
-            Guided setup
-          </Button>
+          <div className="flex items-center gap-1 border bg-background/95 p-1 shadow-sm">
+            <AuthoringModeControl
+              value={authoringMode}
+              onValueChange={onAuthoringModeChange}
+            />
+            <BuilderHelpMenu onShowChecklist={onShowChecklist} />
+          </div>
           {reviewEdgeCount > 0 ? (
             <div className="flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-background/95 px-2.5 py-1.5 text-xs text-amber-700 shadow-sm dark:text-amber-300">
               <IconAlertTriangle className="size-3.5" />
@@ -370,15 +382,20 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
 
       {/* Bottom Center Execute Button */}
       <Panel position="bottom-center">
-        <Button
-          disabled={!canExecute}
-          className="cursor-pointer shadow-lg px-6 h-10 font-semibold"
-          onClick={onExecute}
-          title="Run workflow (Ctrl+Enter)"
+        <DisabledActionHelp
+          reason={!canExecute || isExecuting ? runDisabledReason : undefined}
         >
-          <IconRun className="mr-2 size-4" />
-          {isExecuting ? "Running..." : "Run Workflow"}
-        </Button>
+          <Button
+            disabled={!canExecute}
+            className="cursor-pointer px-6 shadow-lg"
+            size="lg"
+            onClick={onExecute}
+            title="Run workflow (Ctrl+Enter)"
+          >
+            <IconRun data-icon="inline-start" />
+            {isExecuting ? "Running..." : "Run Workflow"}
+          </Button>
+        </DisabledActionHelp>
       </Panel>
 
       <Panel position="bottom-left">

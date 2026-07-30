@@ -213,6 +213,66 @@ func TestTranslatePreservesCustomImageForPredefinedService(t *testing.T) {
 	}
 }
 
+func TestDecodeAndTranslateMockServerExpectations(t *testing.T) {
+	raw := `{
+		"schemaVersion": 2,
+		"kind": "cots.workflow-bundle",
+		"workflow": {
+			"name": "Mock API",
+			"nodes": [{
+				"id": "mock-api",
+				"data": {
+					"label": "Mock API",
+					"service": {
+						"type": "mockserver",
+						"mockServer": {"expectations": [{
+							"id": "user-by-id",
+							"request": {"method": "GET", "path": "/api/users/42", "headers": {"X-Tenant": "tokyo"}},
+							"response": {"statusCode": 200, "headers": {"Content-Type": "application/json"}, "body": "{\"id\":42}"}
+						}]}
+					}
+				}
+			}],
+			"edges": []
+		},
+		"scenarios": [{
+			"name": "contract",
+			"tests": [{"id": "request-user", "name": "returns user", "type": "http", "targetServices": ["mock_api"], "httpConfig": {"method": "GET", "path": "/api/users/42", "port": "1080", "expectedStatus": 200}}],
+			"testOrder": ["request-user"]
+		}]
+	}`
+
+	bundle, err := Decode(strings.NewReader(raw))
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	translated, err := bundle.TranslateScenario(bundle.Scenarios[0])
+	if err != nil {
+		t.Fatalf("TranslateScenario() error = %v", err)
+	}
+	got := translated.Services[0].MockServerExpectations
+	if len(got) != 1 || got[0].Request.Path != "/api/users/42" || got[0].Response.StatusCode != 200 {
+		t.Fatalf("unexpected translated expectations: %#v", got)
+	}
+}
+
+func TestMockServerExpectationValidation(t *testing.T) {
+	node := workflowNode("mock-api", "mockserver")
+	node.Data.Service.MockServer = &MockServerServiceConfig{Expectations: []MockServerExpectation{{
+		ID:       "broken",
+		Request:  MockServerExpectationRequest{Method: "TRACE", Path: "relative", Headers: map[string]string{"Bad Header": "value"}},
+		Response: MockServerExpectationResponse{StatusCode: 99},
+	}}}
+	if err := validateServiceRuntime(node); err == nil {
+		t.Fatal("expected malformed MockServer expectation to be rejected")
+	}
+
+	node.Data.Service.Type = "nginx"
+	if err := validateServiceRuntime(node); err == nil || !strings.Contains(err.Error(), "type is") {
+		t.Fatalf("expected provider-specific configuration error, got %v", err)
+	}
+}
+
 func TestTranslateQueueOmitsExpectedMessageWhenAbsent(t *testing.T) {
 	raw := `{
 		"schemaVersion": 2,

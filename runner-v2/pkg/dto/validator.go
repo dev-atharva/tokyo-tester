@@ -14,7 +14,71 @@ func init() {
 }
 
 func Validate(s any) error {
-	return validate.Struct(s)
+	if err := validate.Struct(s); err != nil {
+		return err
+	}
+	switch value := s.(type) {
+	case ServiceDTO:
+		return validateMockServerService(value)
+	case *ServiceDTO:
+		if value != nil {
+			return validateMockServerService(*value)
+		}
+	case CreateServicesRequest:
+		for _, service := range value.Services {
+			if err := validateMockServerService(service); err != nil {
+				return err
+			}
+		}
+	case *CreateServicesRequest:
+		if value != nil {
+			for _, service := range value.Services {
+				if err := validateMockServerService(service); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateMockServerService(service ServiceDTO) error {
+	seenIDs := make(map[string]struct{}, len(service.MockServerExpectations))
+	for _, expectation := range service.MockServerExpectations {
+		if _, duplicate := seenIDs[expectation.ID]; duplicate {
+			return fmt.Errorf("duplicate MockServer expectation id %q", expectation.ID)
+		}
+		seenIDs[expectation.ID] = struct{}{}
+		for name := range expectation.Request.Headers {
+			if !validHTTPHeaderName(name) {
+				return fmt.Errorf("MockServer expectation %q has invalid request header name %q", expectation.ID, name)
+			}
+		}
+		for name := range expectation.Response.Headers {
+			if !validHTTPHeaderName(name) {
+				return fmt.Errorf("MockServer expectation %q has invalid response header name %q", expectation.ID, name)
+			}
+		}
+	}
+	return nil
+}
+
+func validHTTPHeaderName(name string) bool {
+	if strings.TrimSpace(name) == "" {
+		return false
+	}
+	for _, char := range name {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') {
+			continue
+		}
+		switch char {
+		case '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func FormatValidationErrors(err error) map[string]string {

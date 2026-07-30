@@ -18,6 +18,8 @@ describe("workflow defaults", () => {
       "kafka",
       "rabbitmq",
       "mongodb",
+      "nginx",
+      "mockserver",
     ];
     for (const type of types) {
       const defaults = serviceTypeDefaults(type);
@@ -28,6 +30,14 @@ describe("workflow defaults", () => {
       });
     }
     expect(serviceTypeDefaults("generic").service.image).toBe("");
+    expect(
+      serviceTypeDefaults("nginx").service.ports?.map(
+        (port) => port.containerPort,
+      ),
+    ).toEqual(["80", "443"]);
+    expect(serviceTypeDefaults("mockserver").service.mockServer).toEqual({
+      expectations: [],
+    });
   });
 
   test("uses application health defaults and its first container port", () => {

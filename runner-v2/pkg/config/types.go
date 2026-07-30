@@ -6,17 +6,37 @@ type Config struct {
 }
 
 type ServiceConfig struct {
-	Name          string                  `yaml:"name" json:"name"`
-	Type          string                  `yaml:"type" json:"type"` // "generic", "postgres","redis","mysql","mariadb"
-	Image         string                  `yaml:"image" json:"image"`
-	Command       []string                `yaml:"command,omitempty" json:"command,omitempty"`
-	Env           map[string]string       `yaml:"env,omitempty" json:"env,omitempty"`
-	Ports         []string                `yaml:"ports,omitempty" json:"ports,omitempty"` //Format : "host:container"
-	DependsOn     []string                `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
-	WaitStratergy WaitStratergyConfig     `yaml:"wait_stratergy" json:"wait_stratergy"`
-	InitScripts   []string                `yaml:"init_scripts,omitempty" json:"init_scripts,omitempty"`
-	Registry      *RegistryConfig         `yaml:"registry" json:"registry"`
-	Resources     ContainerResourceLimits `yaml:"-" json:"-"`
+	Name                   string                  `yaml:"name" json:"name"`
+	Type                   string                  `yaml:"type" json:"type"`
+	Image                  string                  `yaml:"image" json:"image"`
+	Command                []string                `yaml:"command,omitempty" json:"command,omitempty"`
+	Env                    map[string]string       `yaml:"env,omitempty" json:"env,omitempty"`
+	Ports                  []string                `yaml:"ports,omitempty" json:"ports,omitempty"` // Format: "host:container"
+	DependsOn              []string                `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
+	WaitStratergy          WaitStratergyConfig     `yaml:"wait_stratergy" json:"wait_stratergy"`
+	InitScripts            []string                `yaml:"init_scripts,omitempty" json:"init_scripts,omitempty"`
+	MockServerExpectations []MockServerExpectation `yaml:"mockserver_expectations,omitempty" json:"mockserver_expectations,omitempty"`
+	Registry               *RegistryConfig         `yaml:"registry" json:"registry"`
+	Resources              ContainerResourceLimits `yaml:"-" json:"-"`
+}
+
+type MockServerExpectation struct {
+	ID       string                     `yaml:"id" json:"id"`
+	Request  MockServerExpectationMatch `yaml:"request" json:"request"`
+	Response MockServerExpectationReply `yaml:"response" json:"response"`
+}
+
+type MockServerExpectationMatch struct {
+	Method  string            `yaml:"method" json:"method"`
+	Path    string            `yaml:"path" json:"path"`
+	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+	Body    string            `yaml:"body,omitempty" json:"body,omitempty"`
+}
+
+type MockServerExpectationReply struct {
+	StatusCode int               `yaml:"status_code" json:"status_code"`
+	Headers    map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+	Body       string            `yaml:"body,omitempty" json:"body,omitempty"`
 }
 
 // ContainerResourceLimits is assigned by the trusted runner. It is excluded

@@ -74,6 +74,72 @@ export function validateWorkflowGraph(
         field: "service.image",
       });
     }
+
+    if (
+      node.data.service.mockServer &&
+      node.data.service.type !== "mockserver"
+    ) {
+      errors.push({
+        nodeId: node.id,
+        message:
+          "MockServer expectations can only be used by MockServer services",
+        field: "service.mockServer",
+      });
+    }
+
+    const expectationIds = new Set<string>();
+    for (const expectation of node.data.service.mockServer?.expectations ??
+      []) {
+      if (!expectation.id?.trim() || expectationIds.has(expectation.id)) {
+        errors.push({
+          nodeId: node.id,
+          message: "MockServer expectations must have unique ids",
+          field: "service.mockServer.expectations",
+        });
+      }
+      expectationIds.add(expectation.id);
+      if (
+        !["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(
+          expectation.request?.method,
+        )
+      ) {
+        errors.push({
+          nodeId: node.id,
+          message: `MockServer expectation "${expectation.id}" has an invalid HTTP method`,
+          field: "service.mockServer.expectations",
+        });
+      }
+      if (!expectation.request?.path?.startsWith("/")) {
+        errors.push({
+          nodeId: node.id,
+          message: `MockServer expectation "${expectation.id}" path must start with /`,
+          field: "service.mockServer.expectations",
+        });
+      }
+      if (
+        expectation.response?.statusCode < 100 ||
+        expectation.response?.statusCode > 599
+      ) {
+        errors.push({
+          nodeId: node.id,
+          message: `MockServer expectation "${expectation.id}" status must be between 100 and 599`,
+          field: "service.mockServer.expectations",
+        });
+      }
+      const headerNamePattern = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+      for (const name of [
+        ...Object.keys(expectation.request?.headers ?? {}),
+        ...Object.keys(expectation.response?.headers ?? {}),
+      ]) {
+        if (!headerNamePattern.test(name)) {
+          errors.push({
+            nodeId: node.id,
+            message: `MockServer expectation "${expectation.id}" has invalid header name "${name}"`,
+            field: "service.mockServer.expectations",
+          });
+        }
+      }
+    }
   }
 
   const graph = buildServiceDependencies(nodes, edges, buildNodeMap(nodes));
@@ -326,7 +392,7 @@ function translateServices(
         type: data.service.type,
       };
 
-      if (data.service.type === "generic" && data.service.image) {
+      if (data.service.image) {
         config.image = data.service.image;
       }
       if (data.service.command?.length) {
@@ -362,6 +428,19 @@ function translateServices(
           .map((script) =>
             normalizeServiceReferences(script.script, serviceAliases),
           );
+      }
+      if (data.service.type === "mockserver") {
+        config.mockserver_expectations = (
+          data.service.mockServer?.expectations ?? []
+        ).map((expectation) => ({
+          id: expectation.id,
+          request: structuredClone(expectation.request),
+          response: {
+            status_code: expectation.response.statusCode,
+            headers: structuredClone(expectation.response.headers),
+            body: expectation.response.body,
+          },
+        }));
       }
 
       const dependencies = serviceDeps.get(serviceName) || [];

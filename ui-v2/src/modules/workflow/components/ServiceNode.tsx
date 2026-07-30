@@ -1,4 +1,5 @@
 "use client";
+import { IconApi, IconServer, IconWorldWww } from "@tabler/icons-react";
 import type { NodeProps } from "@xyflow/react";
 import type { ElementType } from "react";
 import { BaseExecutionNode } from "@/components/react-flow/base-execution-node";
@@ -41,6 +42,15 @@ export function ServiceNode(props: NodeProps<FlowNode>) {
       break;
     case "rabbitmq":
       icon = RabbitMQIcon;
+      break;
+    case "memcached":
+      icon = IconServer;
+      break;
+    case "nginx":
+      icon = IconWorldWww;
+      break;
+    case "mockserver":
+      icon = IconApi;
       break;
     default:
       icon = DockerIcon;

@@ -1,6 +1,13 @@
 "use client";
 
-import { IconCube, IconPlus, IconSettings } from "@tabler/icons-react";
+import {
+  IconApi,
+  IconCube,
+  IconPlus,
+  IconServer,
+  IconSettings,
+  IconWorldWww,
+} from "@tabler/icons-react";
 import type React from "react";
 import type { SVGProps } from "react";
 import { useEffect, useState } from "react";
@@ -14,6 +21,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { GUIDED_DOCUMENTATION } from "../lib/builder-experience";
+import type { ServiceType } from "../types/react-flow-cots";
+import { ContextHelp, DocumentationLink } from "./BuilderHelp";
 import { DockerIcon } from "./logos/DockerIcon";
 import { ApacheKafkaIcon } from "./logos/KafkaIcon";
 import { MariaDBIcon } from "./logos/MariadbIcon";
@@ -26,17 +36,7 @@ import { RedisIcon } from "./logos/RedisIcon";
 interface NodeDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddNode: (
-    type:
-      | "postgres"
-      | "mariadb"
-      | "mysql"
-      | "generic"
-      | "redis"
-      | "kafka"
-      | "rabbitmq"
-      | "mongodb",
-  ) => void;
+  onAddNode: (type: ServiceType) => void;
   currentWorkflowName?: string;
   onWorkflowNameChange?: (name: string) => void;
 }
@@ -65,15 +65,7 @@ export const NodeDrawer: React.FC<NodeDrawerProps> = ({
   };
 
   const nodeTypes: Array<{
-    type:
-      | "postgres"
-      | "mariadb"
-      | "mysql"
-      | "redis"
-      | "kafka"
-      | "rabbitmq"
-      | "mongodb"
-      | "generic";
+    type: ServiceType;
     label: string;
     icon: NodeIconComponent;
     description: string;
@@ -103,6 +95,12 @@ export const NodeDrawer: React.FC<NodeDrawerProps> = ({
       description: "Redis cache service",
     },
     {
+      type: "memcached",
+      label: "Memcached",
+      icon: IconServer,
+      description: "Memcached cache service",
+    },
+    {
       type: "kafka",
       label: "Kafka",
       icon: ApacheKafkaIcon,
@@ -119,6 +117,18 @@ export const NodeDrawer: React.FC<NodeDrawerProps> = ({
       label: "MongoDB",
       icon: MongoDBIcon,
       description: "MongoDB document database",
+    },
+    {
+      type: "nginx",
+      label: "Nginx",
+      icon: IconWorldWww,
+      description: "Nginx web server and reverse proxy",
+    },
+    {
+      type: "mockserver",
+      label: "MockServer",
+      icon: IconApi,
+      description: "HTTP service with configurable mock responses",
     },
     {
       type: "generic",
@@ -143,6 +153,9 @@ export const NodeDrawer: React.FC<NodeDrawerProps> = ({
               <SheetDescription className="text-xs mt-0.5">
                 Configure workflow and add services to your graph
               </SheetDescription>
+              <DocumentationLink href={GUIDED_DOCUMENTATION.services.href}>
+                Learn how services are configured
+              </DocumentationLink>
             </div>
           </div>
         </SheetHeader>
@@ -191,10 +204,17 @@ export const NodeDrawer: React.FC<NodeDrawerProps> = ({
 
           <section className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold tracking-tight text-foreground/90 uppercase flex items-center gap-2">
-                <IconPlus className="size-4" />
-                Add Services
-              </h3>
+              <div className="flex items-center gap-1">
+                <h3 className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground/90 uppercase">
+                  <IconPlus className="size-4" />
+                  Add Services
+                </h3>
+                <ContextHelp label="service catalog">
+                  Choose a managed dependency such as PostgreSQL or MockServer,
+                  or choose Application for a container image that belongs to
+                  your system.
+                </ContextHelp>
+              </div>
               <span className="text-xs text-muted-foreground font-medium">
                 {nodeTypes.length} available
               </span>

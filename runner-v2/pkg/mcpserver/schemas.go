@@ -10,13 +10,31 @@ func workflowBundleToolSchema() map[string]any {
 		"required":             []string{"type"},
 		"additionalProperties": false,
 		"properties": map[string]any{
-			"type":          map[string]any{"type": "string", "enum": []string{"generic", "postgres", "mysql", "mariadb", "redis", "memcached", "mongodb", "rabbitmq", "kafka"}, "description": "Service provider type."},
+			"type":          map[string]any{"type": "string", "enum": []string{"generic", "postgres", "mysql", "mariadb", "redis", "memcached", "mongodb", "rabbitmq", "kafka", "nginx", "mockserver"}, "description": "Service provider type."},
 			"image":         stringValue("Required image reference for generic services; optional override for providers."),
 			"command":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Container command and arguments."},
 			"ports":         map[string]any{"type": "array", "description": "Container ports. hostPort may be empty for automatic allocation.", "items": map[string]any{"type": "object", "required": []string{"hostPort", "containerPort"}, "additionalProperties": false, "properties": map[string]any{"id": map[string]any{"type": "string"}, "hostPort": map[string]any{"type": "string"}, "containerPort": stringValue("Container port from 1 to 65535.")}}},
 			"env":           map[string]any{"type": "array", "description": "Non-secret environment variables. Runtime references use ${service.host} or ${service.env.KEY}.", "items": map[string]any{"type": "object", "required": []string{"key", "value"}, "additionalProperties": false, "properties": map[string]any{"id": map[string]any{"type": "string"}, "key": stringValue("Environment variable name."), "value": map[string]any{"type": "string", "description": "Non-secret value or runtime reference."}}}},
 			"waitStratergy": map[string]any{"type": "object", "description": "Readiness strategy; preserve the waitStratergy spelling.", "required": []string{"enabled", "type"}, "additionalProperties": false, "properties": map[string]any{"enabled": map[string]any{"type": "boolean"}, "type": map[string]any{"type": "string", "enum": []string{"log", "port", "exec"}}, "target": map[string]any{"type": "string"}, "timeout": map[string]any{"type": "integer", "minimum": 0, "maximum": 3600}}},
 			"initScripts":   map[string]any{"type": "array", "items": map[string]any{"type": "object", "required": []string{"order", "script"}, "additionalProperties": false, "properties": map[string]any{"id": map[string]any{"type": "string"}, "order": map[string]any{"type": "integer"}, "script": stringValue("Initialization script content."), "description": map[string]any{"type": "string"}}}},
+			"mockServer": map[string]any{
+				"type": "object", "description": "MockServer expectations loaded before the service becomes ready.", "required": []string{"expectations"}, "additionalProperties": false,
+				"properties": map[string]any{"expectations": map[string]any{
+					"type": "array", "items": map[string]any{
+						"type": "object", "required": []string{"id", "request", "response"}, "additionalProperties": false,
+						"properties": map[string]any{
+							"id": stringValue("Stable unique expectation id."),
+							"request": map[string]any{"type": "object", "required": []string{"method", "path"}, "additionalProperties": false, "properties": map[string]any{
+								"method": map[string]any{"type": "string", "enum": []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}},
+								"path":   map[string]any{"type": "string", "pattern": "^/"}, "headers": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}, "body": map[string]any{"type": "string"},
+							}},
+							"response": map[string]any{"type": "object", "required": []string{"statusCode"}, "additionalProperties": false, "properties": map[string]any{
+								"statusCode": map[string]any{"type": "integer", "minimum": 100, "maximum": 599}, "headers": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}, "body": map[string]any{"type": "string"},
+							}},
+						},
+					},
+				}},
+			},
 		},
 	}
 	configs := workflowTestConfigSchemas()

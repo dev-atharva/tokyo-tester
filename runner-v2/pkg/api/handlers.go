@@ -151,6 +151,8 @@ func NewHandler(database db.Database, appCfg config.AppConfig) *Handler {
 	providers.Register("kafka", &predefined.KafkaProvider{})
 	providers.Register("rabbitmq", &predefined.RabbitMQProvider{})
 	providers.Register("mongodb", &predefined.MongoDBProvider{})
+	providers.Register("nginx", &predefined.NginxProvider{})
+	providers.Register("mockserver", &predefined.MockServerProvider{})
 
 	return &Handler{
 		sessionManager:           session.NewManager(),

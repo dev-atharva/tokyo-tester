@@ -119,4 +119,33 @@ describe("readiness translation", () => {
       "db",
     ]);
   });
+
+  test("validates and translates service-owned MockServer expectations", () => {
+    const mock = node("mock-api", "mockserver");
+    mock.data.service.mockServer = {
+      expectations: [
+        {
+          id: "health",
+          request: { method: "GET", path: "/health" },
+          response: { statusCode: 200, body: "ready" },
+        },
+      ],
+    };
+    expect(validateWorkflowGraph([mock], []).valid).toBe(true);
+    expect(
+      translateWorkflowGraphToServiceGraph([mock], []).services[0]
+        ?.mockserver_expectations,
+    ).toEqual([
+      {
+        id: "health",
+        request: { method: "GET", path: "/health" },
+        response: { status_code: 200, body: "ready" },
+      },
+    ]);
+
+    const expectation = mock.data.service.mockServer.expectations[0];
+    if (!expectation) throw new Error("MockServer expectation is missing");
+    expectation.request.path = "health";
+    expect(validateWorkflowGraph([mock], []).valid).toBe(false);
+  });
 });

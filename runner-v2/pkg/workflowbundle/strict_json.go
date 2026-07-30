@@ -24,7 +24,7 @@ func rejectUnknownBundleFields(raw []byte) error {
 			service, _ := data["service"].(map[string]any)
 			if service != nil {
 				path := fmt.Sprintf("/workflow/nodes/%d/data/service", index)
-				if err := rejectUnknown(service, path, "type", "image", "command", "ports", "env", "waitStratergy", "initScripts", "registry"); err != nil {
+				if err := rejectUnknown(service, path, "type", "image", "command", "ports", "env", "waitStratergy", "initScripts", "mockServer", "registry"); err != nil {
 					return err
 				}
 				for portIndex, value := range asJSONArray(service["ports"]) {
@@ -48,6 +48,26 @@ func rejectUnknownBundleFields(raw []byte) error {
 					script, _ := value.(map[string]any)
 					if err := rejectUnknown(script, fmt.Sprintf("%s/initScripts/%d", path, scriptIndex), "id", "order", "script", "description"); err != nil {
 						return err
+					}
+				}
+				if mockServer, _ := service["mockServer"].(map[string]any); mockServer != nil {
+					if err := rejectUnknown(mockServer, path+"/mockServer", "expectations"); err != nil {
+						return err
+					}
+					for expectationIndex, value := range asJSONArray(mockServer["expectations"]) {
+						expectation, _ := value.(map[string]any)
+						expectationPath := fmt.Sprintf("%s/mockServer/expectations/%d", path, expectationIndex)
+						if err := rejectUnknown(expectation, expectationPath, "id", "request", "response"); err != nil {
+							return err
+						}
+						request, _ := expectation["request"].(map[string]any)
+						if err := rejectUnknown(request, expectationPath+"/request", "method", "path", "headers", "body"); err != nil {
+							return err
+						}
+						response, _ := expectation["response"].(map[string]any)
+						if err := rejectUnknown(response, expectationPath+"/response", "statusCode", "headers", "body"); err != nil {
+							return err
+						}
 					}
 				}
 			}

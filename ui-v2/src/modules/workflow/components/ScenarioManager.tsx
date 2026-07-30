@@ -51,6 +51,7 @@ import type {
   FlowNode,
   ScenarioTestDefinition,
 } from "../types/react-flow-cots";
+import { ContextHelp } from "./BuilderHelp";
 import { TestConfigForm } from "./TestConfigForm";
 
 interface ScenarioManagerProps {
@@ -448,6 +449,11 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
                   <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-foreground/70">
                     <IconSparkles className="size-3.5" />
                     Start with a recipe
+                    <ContextHelp label="scenario recipes">
+                      Recipes insert a sensible ordered set of test steps for
+                      the services already in this workflow. Every generated
+                      step remains editable.
+                    </ContextHelp>
                   </h4>
                   <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                     {SCENARIO_RECIPES.map((recipe) => {
@@ -489,11 +495,16 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
                 {/* Tests section */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
-                      Tests
+                    <h4 className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-foreground/70">
+                      Test steps
                       <span className="ml-2 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
                         {activeScenario.tests.length}
                       </span>
+                      <ContextHelp label="ordered test steps">
+                        Steps run in the displayed order unless an explicit test
+                        dependency requires another step first. Drag a step to
+                        change its order.
+                      </ContextHelp>
                     </h4>
                     <Button
                       size="sm"

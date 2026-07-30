@@ -44,13 +44,14 @@
       "type": "object",
       "required": ["type"],
       "properties": {
-        "type": { "enum": ["generic", "postgres", "mysql", "mariadb", "redis", "memcached", "mongodb", "rabbitmq", "kafka"] },
+        "type": { "enum": ["generic", "postgres", "mysql", "mariadb", "redis", "memcached", "mongodb", "rabbitmq", "kafka", "nginx", "mockserver"] },
         "image": { "type": "string" },
         "command": { "type": "array", "items": { "type": "string" } },
         "ports": { "type": "array", "items": { "$ref": "#/$defs/port" } },
         "env": { "type": "array", "items": { "$ref": "#/$defs/env" } },
         "waitStratergy": { "$ref": "#/$defs/waitStrategy" },
-        "initScripts": { "type": "array", "items": { "$ref": "#/$defs/initScript" } }
+        "initScripts": { "type": "array", "items": { "$ref": "#/$defs/initScript" } },
+        "mockServer": { "$ref": "#/$defs/mockServer" }
       },
       "additionalProperties": false
     },
@@ -86,6 +87,43 @@
       "required": ["order", "script"],
       "properties": {
         "id": { "type": "string" }, "order": { "type": "integer" }, "script": { "type": "string" }, "description": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "mockServer": {
+      "type": "object",
+      "required": ["expectations"],
+      "properties": {
+        "expectations": { "type": "array", "items": { "$ref": "#/$defs/mockServerExpectation" } }
+      },
+      "additionalProperties": false
+    },
+    "mockServerExpectation": {
+      "type": "object",
+      "required": ["id", "request", "response"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "request": {
+          "type": "object",
+          "required": ["method", "path"],
+          "properties": {
+            "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] },
+            "path": { "type": "string", "pattern": "^/" },
+            "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+            "body": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "response": {
+          "type": "object",
+          "required": ["statusCode"],
+          "properties": {
+            "statusCode": { "type": "integer", "minimum": 100, "maximum": 599 },
+            "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+            "body": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },
