@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { WorkflowRunInput } from "../types/react-flow-cots";
 import {
   cancelWorkflowRun,
+  fetchWorkflowRunEventsSince,
   fetchWorkflowRunLogs,
   fetchWorkflowRunSnapshot,
   submitWorkflowRun,
@@ -65,6 +66,12 @@ describe("runner client", () => {
     ).rejects.toThrow("workflow must be synchronized");
   });
 
+  test("does not treat an unexpected successful status as accepted", async () => {
+    expect(
+      submitWorkflowRun(input, async () => Response.json({}, { status: 200 })),
+    ).rejects.toThrow("was not accepted");
+  });
+
   test("fetches a workflow run snapshot through the same-origin runner proxy", async () => {
     let url = "";
     await fetchWorkflowRunSnapshot("run/1", "project 1", async (request) => {
@@ -121,5 +128,65 @@ describe("runner client", () => {
       "/api/v1/workflow-runs/run-1/logs?projectId=project-1&limit=25&before=42",
     );
     expect(page.nextBefore).toBe(17);
+  });
+
+  test("replays every durable workflow event after a cursor across pages", async () => {
+    const requested: string[] = [];
+    const storedEvent = (id: number) => ({
+      id,
+      workflow_run_id: "run-1",
+      event_type: "workflowlog" as const,
+      payload: JSON.stringify({
+        workflowRunId: "run-1",
+        projectId: "project-1",
+        workflowId: "workflow-1",
+        message: `event-${id}`,
+        timestamp: id,
+        sequence: id,
+      }),
+      created_at: new Date(id).toISOString(),
+    });
+
+    const replay = await fetchWorkflowRunEventsSince(
+      "run-1",
+      "project-1",
+      40,
+      2,
+      async (input) => {
+        requested.push(String(input));
+        if (requested.length === 1) {
+          return Response.json({
+            events: [storedEvent(44), storedEvent(43)],
+            hasMore: true,
+            nextBefore: 43,
+          });
+        }
+        return Response.json({
+          events: [storedEvent(42), storedEvent(40)],
+          hasMore: true,
+          nextBefore: 40,
+        });
+      },
+    );
+
+    expect(requested).toHaveLength(2);
+    expect(requested[1]).toContain("before=43");
+    expect(replay.events.map((item) => item.id)).toEqual([42, 43, 44]);
+    expect(replay.newestEventId).toBe(44);
+  });
+
+  test("stops durable replay if the runner repeats a pagination cursor", async () => {
+    let requests = 0;
+    await expect(
+      fetchWorkflowRunEventsSince("run-1", "project-1", 0, 2, async () => {
+        requests += 1;
+        return Response.json({
+          events: [],
+          hasMore: true,
+          nextBefore: 9,
+        });
+      }),
+    ).rejects.toThrow("repeated pagination cursor");
+    expect(requests).toBe(2);
   });
 });

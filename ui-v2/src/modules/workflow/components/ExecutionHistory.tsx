@@ -5,10 +5,12 @@ import {
   IconCircleCheck,
   IconCircleX,
   IconClock,
+  IconExternalLink,
   IconHistory,
   IconLoader,
   IconTrash,
 } from "@tabler/icons-react";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -132,6 +134,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   onOpenChange,
   canEdit,
 }) => {
+  const router = useRouter();
   const [selectedExecution, setSelectedExecution] =
     useState<WorkflowExecution | null>(null);
 
@@ -241,6 +244,8 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                       <button
                         type="button"
                         key={execution.workflowRunId}
+                        data-testid="execution-history-run"
+                        data-workflow-run-id={execution.workflowRunId}
                         onClick={() => setSelectedExecution(execution)}
                         className={cn(
                           "w-full rounded-lg border p-4 text-left transition-all duration-200",
@@ -312,20 +317,34 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                           {selectedExecution.workflowRunId}
                         </code>
                       </div>
-                      {canEdit ? (
+                      <div className="flex shrink-0 gap-2">
                         <Button
-                          variant="destructive"
                           size="sm"
                           onClick={() => {
-                            clearExecution(selectedExecution.workflowRunId);
-                            setSelectedExecution(null);
+                            onOpenChange(false);
+                            router.push(
+                              `/workflow/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(selectedExecution.workflowRunId)}?projectId=${encodeURIComponent(selectedExecution.projectId)}`,
+                            );
                           }}
-                          className="shadow-sm"
                         >
-                          <IconTrash className=" mr-2 size-4" />
-                          Delete
+                          <IconExternalLink data-icon="inline-start" />
+                          Open run
                         </Button>
-                      ) : null}
+                        {canEdit ? (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => {
+                              clearExecution(selectedExecution.workflowRunId);
+                              setSelectedExecution(null);
+                            }}
+                            className="shadow-sm"
+                          >
+                            <IconTrash data-icon="inline-start" />
+                            Delete
+                          </Button>
+                        ) : null}
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-3 text-sm">

@@ -6,6 +6,7 @@ type Config struct {
 }
 
 type ServiceConfig struct {
+	ID                     string                  `yaml:"id,omitempty" json:"id,omitempty"`
 	Name                   string                  `yaml:"name" json:"name"`
 	Type                   string                  `yaml:"type" json:"type"`
 	Image                  string                  `yaml:"image" json:"image"`
@@ -48,10 +49,12 @@ type ContainerResourceLimits struct {
 }
 
 type TestConfig struct {
-	Name      string         `yaml:"name" json:"name"`
-	Type      string         `yaml:"type" json:"type"`
-	DependsOn []string       `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
-	Config    map[string]any `yaml:"config" json:"config"`
+	ID             string         `yaml:"id,omitempty" json:"id,omitempty"`
+	Name           string         `yaml:"name" json:"name"`
+	Type           string         `yaml:"type" json:"type"`
+	TargetServices []string       `yaml:"target_services,omitempty" json:"target_services,omitempty"`
+	DependsOn      []string       `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
+	Config         map[string]any `yaml:"config" json:"config"`
 }
 
 type WaitStratergyConfig struct {

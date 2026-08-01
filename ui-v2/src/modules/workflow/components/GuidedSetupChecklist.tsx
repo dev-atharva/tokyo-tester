@@ -51,7 +51,7 @@ export function GuidedSetupChecklist({
   onDismiss: () => void;
 }) {
   return (
-    <Card data-testid="guided-checklist" size="sm" className="shadow-sm">
+    <Card data-testid="guided-checklist" size="sm">
       <CardHeader>
         <CardTitle>First workflow checklist</CardTitle>
         <CardDescription>
@@ -70,7 +70,7 @@ export function GuidedSetupChecklist({
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+      <CardContent className="grid gap-2 md:grid-cols-2 2xl:grid-cols-4">
         {items.map((item, index) => {
           const presentation = statusPresentation[item.status];
           const StatusIcon = presentation.icon;
@@ -104,7 +104,7 @@ export function GuidedSetupChecklist({
             </Button>
           );
         })}
-        <div className="md:col-span-2 xl:col-span-4">
+        <div className="md:col-span-2 2xl:col-span-4">
           <DocumentationLink href={GUIDED_DOCUMENTATION.gettingStarted.href}>
             Follow the first-workflow tutorial
           </DocumentationLink>

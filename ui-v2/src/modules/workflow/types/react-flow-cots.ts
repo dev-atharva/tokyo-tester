@@ -44,6 +44,7 @@ export interface MockServerExpectation {
 }
 
 export interface ServiceConfig {
+  id?: string;
   name: string;
   type: ServiceType;
   image?: string;
@@ -136,6 +137,7 @@ export interface TestResult {
   duration?: number;
   output?: JsonValue;
   container_logs?: Record<string, string>;
+  diagnostic?: ExecutionDiagnostic;
 }
 
 export interface ServiceNodeData {
@@ -471,6 +473,7 @@ export interface WorkflowResult {
     failedTests: number;
   };
   errors?: string[];
+  diagnostics?: ExecutionDiagnostic[];
   duration?: number;
 }
 
@@ -482,6 +485,7 @@ export interface ScenarioExecutionResult {
   status: ScenarioRunStatus;
   testResults?: RunTestsResponse;
   error?: string;
+  diagnostics?: ExecutionDiagnostic[];
 }
 
 export type NodeMap = Map<string, FlowNode>;
@@ -501,7 +505,13 @@ export interface WorkflowLogEvent {
   scenarioName?: string;
   backendSessionId?: string;
   message: string;
-  status?: "running" | "completed" | "failed" | "cleanup_failed";
+  status?:
+    | "running"
+    | "cancelling"
+    | "cancelled"
+    | "completed"
+    | "failed"
+    | "cleanup_failed";
   stage?:
     | "validation"
     | "translation"
@@ -509,10 +519,54 @@ export interface WorkflowLogEvent {
     | "execution"
     | "cleanup"
     | "aggregation";
+  kind?: "lifecycle" | "network" | "service" | "test" | "diagnostic";
+  activityStatus?:
+    | "started"
+    | "ready"
+    | "running"
+    | "passed"
+    | "failed"
+    | "completed";
+  serviceId?: string;
+  serviceName?: string;
+  serviceNames?: string[];
+  testId?: string;
+  testName?: string;
+  diagnostic?: ExecutionDiagnostic;
   timestamp: number;
   sequence: number;
   result?: JsonValue;
   error?: string;
+}
+
+export type ExecutionDiagnosticSource =
+  | "tokyo_tester"
+  | "workflow_configuration"
+  | "service_environment"
+  | "host_infrastructure"
+  | "undetermined";
+
+export interface ExecutionDiagnostic {
+  code: string;
+  source: ExecutionDiagnosticSource;
+  confidence: "certain" | "likely" | "unknown";
+  stage:
+    | "validation"
+    | "translation"
+    | "provision"
+    | "execution"
+    | "cleanup"
+    | "aggregation";
+  summary: string;
+  scenarioId?: string;
+  testId?: string;
+  testName?: string;
+  serviceNames?: string[];
+  evidence?: Array<{
+    kind: "runner_error" | "container_log" | "test_result" | "lifecycle_event";
+    serviceName?: string;
+    message: string;
+  }>;
 }
 
 export type ScenarioTestResultStatus =
@@ -540,6 +594,7 @@ export interface ScenarioTestResultEvent {
     executedAt?: string;
     action: "create" | "update";
     containerLogs?: Record<string, string>;
+    diagnostic?: ExecutionDiagnostic;
     sequence: number;
   }>;
 }

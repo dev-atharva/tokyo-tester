@@ -30,6 +30,7 @@ const (
 	ErrContainerStart ErrorCode = "CONTAINER_START_ERROR"
 	ErrContainerStop  ErrorCode = "CONTAINER_STOP_ERROR"
 	ErrNetworkCreate  ErrorCode = "NETWORK_CREATE_ERROR"
+	ErrNetworkCleanup ErrorCode = "NETWORK_CLEANUP_ERROR"
 	ErrRegistryAuth   ErrorCode = "REGISTRY_AUTH_ERROR"
 	ErrImagePull      ErrorCode = "IMAGE_PULL_ERROR"
 
@@ -55,7 +56,7 @@ func (e ErrorCode) HTTPStatusCode() int {
 		return http.StatusRequestTimeout
 	case ErrDependencyCycle, ErrDepenedncyMissing:
 		return http.StatusBadRequest
-	case ErrServiceProvision, ErrContainerStart, ErrImagePull:
+	case ErrServiceProvision, ErrContainerStart, ErrImagePull, ErrNetworkCleanup:
 		return http.StatusInternalServerError
 	case ErrDatabaseConnection, ErrDatabaseQuery:
 		return http.StatusServiceUnavailable

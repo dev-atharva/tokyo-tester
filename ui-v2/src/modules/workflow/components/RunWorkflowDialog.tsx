@@ -41,7 +41,7 @@ interface RunWorkflowDialogProps {
   scenarios: Scenario[];
   validationErrors?: TranslationError[];
   isExecuting: boolean;
-  onRun: (scenarioIds: string[]) => Promise<void>;
+  onRun: (scenarioIds: string[]) => Promise<boolean>;
 }
 
 export function RunWorkflowDialog({
@@ -61,7 +61,12 @@ export function RunWorkflowDialog({
 
   const selectedCount = selectedIds.size;
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!isExecuting) onOpenChange(nextOpen);
+      }}
+    >
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Review and run in Docker</DialogTitle>
@@ -152,7 +157,11 @@ export function RunWorkflowDialog({
           </FieldGroup>
         </FieldSet>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            disabled={isExecuting}
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
           <Button
@@ -161,8 +170,8 @@ export function RunWorkflowDialog({
               selectedCount === 0 || isExecuting || validationErrors.length > 0
             }
             onClick={async () => {
-              await onRun([...selectedIds]);
-              onOpenChange(false);
+              const accepted = await onRun([...selectedIds]);
+              if (accepted) onOpenChange(false);
             }}
           >
             {isExecuting

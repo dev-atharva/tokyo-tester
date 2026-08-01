@@ -830,6 +830,7 @@ func translateServices(nodes []FlowNode, serviceDeps map[string][]string) ([]con
 	for _, node := range nodes {
 		serviceName := SanitizeName(node.Data.Label)
 		cfg := config.ServiceConfig{
+			ID:       node.ID,
 			Name:     serviceName,
 			Type:     node.Data.Service.Type,
 			Image:    node.Data.Service.Image,
@@ -1011,10 +1012,12 @@ func translateScenarioTests(
 		}
 
 		result = append(result, config.TestConfig{
-			Name:      testDef.Name,
-			Type:      testDef.Type,
-			DependsOn: dependsOn,
-			Config:    buildTestConfig(testDef, defaultService, requiredServices),
+			ID:             testDef.ID,
+			Name:           testDef.Name,
+			Type:           testDef.Type,
+			TargetServices: slices.Clone(testDef.TargetServices),
+			DependsOn:      dependsOn,
+			Config:         buildTestConfig(testDef, defaultService, requiredServices),
 		})
 	}
 

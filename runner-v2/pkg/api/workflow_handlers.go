@@ -15,6 +15,7 @@ import (
 	"github.com/dev-atharva/cots/pkg/db"
 	apperrors "github.com/dev-atharva/cots/pkg/errors"
 	"github.com/dev-atharva/cots/pkg/logger"
+	"github.com/dev-atharva/cots/pkg/workflowbundle"
 	"github.com/dev-atharva/cots/pkg/workflowrun"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -278,11 +279,65 @@ func (h *Handler) GetWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	respondJson(w, http.StatusOK, map[string]any{
-		"workflowRun":  run,
-		"scenarioRuns": filtered,
-		"testResults":  testResults,
-		"queue":        queueInfo(h.workflowService, r.Context(), runID),
+		"workflowRun":         run,
+		"scenarioRuns":        filtered,
+		"testResults":         testResults,
+		"queue":               queueInfo(h.workflowService, r.Context(), runID),
+		"executionDefinition": h.executionDefinitionForRun(r.Context(), run),
 	})
+}
+
+func (h *Handler) executionDefinitionForRun(ctx context.Context, run *db.WorkflowRun) any {
+	store, ok := h.db.(db.WorkflowRevisionStore)
+	if !ok || run == nil || run.Metadata == "" {
+		return nil
+	}
+	var metadata struct {
+		WorkflowRevisionID string `json:"workflow_revision_id"`
+	}
+	if json.Unmarshal([]byte(run.Metadata), &metadata) != nil || metadata.WorkflowRevisionID == "" {
+		return nil
+	}
+	revision, err := store.GetWorkflowRevision(ctx, run.ProjectID, run.WorkflowID, metadata.WorkflowRevisionID)
+	if err != nil {
+		return nil
+	}
+	var snapshot db.WorkflowSnapshot
+	if json.Unmarshal([]byte(revision.Snapshot), &snapshot) != nil || snapshot.Workflow == nil {
+		return nil
+	}
+	var nodes []workflowbundle.FlowNode
+	var edges []workflowbundle.FlowEdge
+	_ = json.Unmarshal([]byte(snapshot.Workflow.NodesConfig), &nodes)
+	_ = json.Unmarshal([]byte(snapshot.Workflow.EdgesConfig), &edges)
+	for index := range nodes {
+		if registry := nodes[index].Data.Service.Registry; registry != nil {
+			registry.Username, registry.Password, registry.Token = "", "", ""
+		}
+	}
+	scenarios := make([]map[string]any, 0, len(snapshot.Scenarios))
+	for _, scenario := range snapshot.Scenarios {
+		if scenario == nil || scenario.IsDeleted {
+			continue
+		}
+		var tests []workflowbundle.ScenarioTestDefinition
+		var testOrder []string
+		_ = json.Unmarshal([]byte(scenario.TestsConfig), &tests)
+		_ = json.Unmarshal([]byte(scenario.TestOrder), &testOrder)
+		scenarios = append(scenarios, map[string]any{
+			"id": scenario.ID, "name": scenario.Name, "description": scenario.Description,
+			"tests": tests, "testOrder": testOrder,
+		})
+	}
+	return map[string]any{
+		"workflowRevisionId": revision.ID, "revisionNumber": revision.RevisionNumber,
+		"workflowVersion": revision.WorkflowVersion,
+		"workflow": map[string]any{
+			"id": snapshot.Workflow.ID, "name": snapshot.Workflow.Name,
+			"description": snapshot.Workflow.Description, "nodes": nodes, "edges": edges,
+		},
+		"scenarios": scenarios,
+	}
 }
 
 func (h *Handler) CancelWorkflowRun(w http.ResponseWriter, r *http.Request) {

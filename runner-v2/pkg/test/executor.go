@@ -64,6 +64,10 @@ func (e *TestError) Error() string {
 	return b.String()
 }
 
+func (e *TestError) Unwrap() error {
+	return e.BaseError
+}
+
 // Manage test execution with dependency handling
 type Runner struct {
 	registry     *Registry

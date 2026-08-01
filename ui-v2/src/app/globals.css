@@ -48,6 +48,75 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+@keyframes run-status-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 28%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+@keyframes run-activity-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.run-system-surface {
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in oklab, var(--border) 28%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--border) 28%, transparent) 1px,
+      transparent 1px
+    ),
+    radial-gradient(
+      circle at 50% 0%,
+      color-mix(in oklab, var(--primary) 7%, transparent),
+      transparent 38rem
+    );
+  background-size:
+    32px 32px,
+    32px 32px,
+    100% 100%;
+}
+
+.run-motion-enabled .run-active-stage,
+.run-motion-enabled .run-active-node {
+  animation: run-status-pulse 1.8s ease-in-out infinite;
+}
+
+.run-motion-enabled .run-activity-dot {
+  animation: run-activity-pulse 1.4s ease-in-out infinite;
+}
+
+.run-motion-enabled .run-spin {
+  animation: spin 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-motion-enabled .run-active-stage,
+  .run-motion-enabled .run-active-node,
+  .run-motion-enabled .run-activity-dot,
+  .run-motion-enabled .run-spin,
+  .run-motion-enabled .react-flow__edge-path {
+    animation: none;
+    transition: none;
+  }
+}
+
 :root {
   --background: oklch(0.9821 0 0);
   --foreground: oklch(0.2435 0 0);

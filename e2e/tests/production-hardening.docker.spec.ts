@@ -298,12 +298,14 @@ test.describe.serial("production hardening", () => {
     });
 
     const payload = await captureWorkflowRun(page, () => workflow.submitRun());
-    await expect(page.getByText("Live", { exact: true })).toBeVisible({
+    await expect(page.getByTestId("workflow-run-cockpit")).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByText(/Starting workflow run|Provisioning/).first()).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(page.getByTestId("scenario-run-lane").first()).toHaveAttribute(
+      "data-status",
+      /pending|running/,
+      { timeout: 30_000 },
+    );
 
     const limits = await inspectWorkflowContainerLimits(payload.workflowRunId);
     expect(limits).toEqual({

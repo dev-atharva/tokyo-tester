@@ -148,7 +148,7 @@ export function GuidedConnections({
   };
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-5">
+    <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b pb-4">
         <div>
           <p className="mb-1 text-[0.66rem] font-semibold tracking-[0.14em] text-primary uppercase">

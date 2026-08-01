@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactFlowProvider } from "@xyflow/react";
+import { useRouter } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "@xyflow/react/dist/style.css";
@@ -32,7 +33,10 @@ import { useRealtimeLogs } from "../../hooks/useRealtimeLogs";
 import { useWorkflowExecution } from "../../hooks/useWorkflowExecution";
 import { useWorkflowGraph } from "../../hooks/useWorkflowGraph";
 import { deriveGuidedChecklist } from "../../lib/builder-experience";
-import { shouldPollExecutionFallback } from "../../lib/realtime-events";
+import {
+  isWorkflowRunActive,
+  shouldPollExecutionFallback,
+} from "../../lib/realtime-events";
 import { cancelWorkflowRun } from "../../lib/runner-client";
 import { createDefaultServiceNode } from "../../lib/workflow-defaults";
 import { getServiceRemovalImpact } from "../../lib/workflow-presentation";
@@ -72,6 +76,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   onWorkComplete,
   onError,
 }) => {
+  const router = useRouter();
   const nodeTypes = useMemo(() => ({ serviceNode: ServiceNode }), []);
 
   // Stores
@@ -88,6 +93,15 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
       activeWorkflowRunId ? (executions[activeWorkflowRunId] ?? null) : null,
     [activeWorkflowRunId, executions],
   );
+  const liveExecution = isWorkflowRunActive(activeExecution?.status)
+    ? activeExecution
+    : null;
+  const openActiveRun = useCallback(() => {
+    if (!liveExecution) return;
+    router.push(
+      `/workflow/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(liveExecution.workflowRunId)}?projectId=${encodeURIComponent(liveExecution.projectId)}`,
+    );
+  }, [liveExecution, router, workflowId]);
   const cancelActiveExecution = useCallback(async () => {
     if (!activeExecution) return;
     try {
@@ -121,7 +135,6 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
     closeNodeConfig,
     openScenarios,
     closeScenarios,
-    openLogs,
     closeLogs,
     openShortcuts,
     closeShortcuts,
@@ -479,8 +492,8 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
       openLogs: {
         shortcut: { key: "l", ctrl: true },
         handler: () => {
-          if (activeExecution) {
-            openLogs();
+          if (liveExecution) {
+            openActiveRun();
           }
         },
       },
@@ -582,6 +595,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
             onRemoveService={setServicePendingRemoval}
             scenarios={runnableScenarios}
             onRun={() => setIsRunDialogOpen(true)}
+            onViewActiveRun={liveExecution ? openActiveRun : undefined}
             authoringMode={authoringMode}
             onAuthoringModeChange={setAuthoringMode}
             checklist={guidedChecklist}
@@ -608,7 +622,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
             onExecute={() => setIsRunDialogOpen(true)}
             onOpenDrawer={openDrawer}
             onOpenScenarios={openScenarios}
-            onOpenLogs={openLogs}
+            onOpenLogs={openActiveRun}
             onOpenShortcuts={openShortcuts}
             onOpenHistory={() => setIsHistoryOpen(true)}
             onOpenVersions={() => setIsVersionsOpen(true)}
@@ -619,7 +633,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
             canExecute={canLaunchWorkflow}
             runDisabledReason={runDisabledReason}
             canEdit={canEdit}
-            hasActiveExecution={!!activeExecution}
+            hasActiveExecution={!!liveExecution}
             reviewEdgeCount={reviewEdgeCount}
             viewMode={viewMode}
             onViewModeChange={setViewMode}

@@ -1,3 +1,4 @@
+import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { generateId } from "@/lib/generate-id";
@@ -13,7 +14,6 @@ import { useExecutionStore } from "../stores/execution.store.sync";
 import { useRegistrySecretStore } from "../stores/registry-secret-store";
 import { useScenarioStore } from "../stores/scenario.store.sync";
 import { useScenarioRunStore } from "../stores/scenario-run.store.sync";
-import { useUIStore } from "../stores/ui.store";
 import type {
   FlowEdge,
   FlowNode,
@@ -69,6 +69,7 @@ export function useWorkflowExecution({
   onComplete: _onComplete,
   onError,
 }: UseWorkflowExecutionProps) {
+  const router = useRouter();
   const [isExecuting, setIsExecuting] = useState(false);
   const [validationResult, setValidationResult] =
     useState<ValidationResult | null>(null);
@@ -128,8 +129,6 @@ export function useWorkflowExecution({
       ),
     [nodes, registrySecrets],
   );
-  const openLogsDrawer = useUIStore((state) => state.openLogs);
-
   const validateSelection = useCallback(
     (selectedScenarios: Scenario[]) => {
       const workflowValidation = validateWorkflowGraph(nodes, edges);
@@ -205,7 +204,7 @@ export function useWorkflowExecution({
             : "Invalid scenario selection.";
         onError?.(message);
         toast.error("Cannot start workflow", { description: message });
-        return;
+        return false;
       }
       const scenarioValidation = validateSelection(selectedScenarios);
       setValidationResult(scenarioValidation);
@@ -219,7 +218,7 @@ export function useWorkflowExecution({
           duration: 7000,
         });
         console.error("[Workflow validation]", scenarioValidation.errors);
-        return;
+        return false;
       }
 
       if (
@@ -293,14 +292,18 @@ export function useWorkflowExecution({
 
         const submission = await submitWorkflowRun(data);
         updateQueueInfo(workflowRunId, submission.queue);
-
-        openLogsDrawer();
+        const projectId = selectedScenarios[0]?.projectId ?? "";
+        router.push(
+          `/workflow/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(workflowRunId)}?projectId=${encodeURIComponent(projectId)}`,
+        );
+        return true;
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unknown error";
         failExecution(workflowRunId, message);
         onError?.(message);
         toast.error(`Failed to start workflow: ${message}`);
+        return false;
       } finally {
         setIsExecuting(false);
       }
@@ -317,7 +320,7 @@ export function useWorkflowExecution({
       edges,
       onStart,
       normalizedSecrets,
-      openLogsDrawer,
+      router,
       failExecution,
       updateQueueInfo,
     ],

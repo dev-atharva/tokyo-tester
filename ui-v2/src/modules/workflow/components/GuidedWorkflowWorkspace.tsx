@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  IconActivity,
   IconApi,
   IconArrowLeft,
   IconArrowRight,
@@ -90,6 +91,7 @@ interface GuidedWorkflowWorkspaceProps {
   onRemoveService: (node: FlowNode) => void;
   scenarios: Scenario[];
   onRun: () => void;
+  onViewActiveRun?: () => void;
   authoringMode: AuthoringMode;
   onAuthoringModeChange: (mode: AuthoringMode) => void;
   checklist: GuidedChecklistItem[];
@@ -156,6 +158,7 @@ export function GuidedWorkflowWorkspace({
   onRemoveService,
   scenarios,
   onRun,
+  onViewActiveRun,
   authoringMode,
   onAuthoringModeChange,
   checklist,
@@ -210,142 +213,173 @@ export function GuidedWorkflowWorkspace({
       data-testid="guided-workspace"
       className="workflow-shell-enter flex size-full min-h-0 flex-col bg-background"
     >
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-card/80 px-3 py-3 shadow-xs sm:px-6">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="hidden size-9 shrink-0 items-center justify-center border bg-primary/8 text-primary sm:flex">
-            <IconRoute className="size-4" />
-          </div>
-          <div className="min-w-0">
-            <div className="mb-0.5 flex items-center gap-2">
-              <h1 className="truncate text-base font-semibold tracking-tight">
-                {workflowName}
-              </h1>
-              {provenance === "mcp" ? (
-                <Badge variant="outline">Created through MCP</Badge>
-              ) : null}
+      <header data-testid="guided-header" className="border-b bg-card/80">
+        <div
+          data-testid="guided-layout-rail"
+          className="mx-auto flex w-full max-w-[1440px] flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6"
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="hidden size-9 shrink-0 items-center justify-center border bg-primary/8 text-primary sm:flex">
+              <IconRoute className="size-4" />
             </div>
-            <div className="flex items-center gap-2 text-[0.68rem] text-muted-foreground">
-              <span className="font-medium tracking-wide uppercase">
-                Workflow authoring
-              </span>
-              <span aria-hidden="true">·</span>
-              <SyncStatusIndicator />
+            <div className="min-w-0">
+              <div className="mb-0.5 flex items-center gap-2">
+                <h1 className="truncate text-base font-semibold tracking-tight">
+                  {workflowName}
+                </h1>
+                {provenance === "mcp" ? (
+                  <Badge variant="outline">Created through MCP</Badge>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2 text-[0.68rem] text-muted-foreground">
+                <span className="font-medium tracking-wide uppercase">
+                  Workflow authoring
+                </span>
+                <span aria-hidden="true">·</span>
+                <SyncStatusIndicator compact />
+              </div>
             </div>
           </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <AuthoringModeControl
-            value={authoringMode}
-            onValueChange={onAuthoringModeChange}
-          />
-          <BuilderHelpMenu onShowChecklist={onShowChecklist} />
-          <DisabledActionHelp
-            reason={!canRun || isExecuting ? runDisabledReason : undefined}
-          >
-            <Button
-              data-testid="guided-run-workflow"
-              disabled={!canRun || isExecuting}
-              onClick={onRun}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <AuthoringModeControl
+              value={authoringMode}
+              onValueChange={onAuthoringModeChange}
+            />
+            <BuilderHelpMenu onShowChecklist={onShowChecklist} />
+            {onViewActiveRun ? (
+              <Button variant="outline" onClick={onViewActiveRun}>
+                <IconActivity data-icon="inline-start" />
+                View live run
+              </Button>
+            ) : null}
+            <DisabledActionHelp
+              reason={!canRun || isExecuting ? runDisabledReason : undefined}
             >
-              <IconPlayerPlay data-icon="inline-start" />
-              {isExecuting ? "Starting…" : "Run workflow"}
-            </Button>
-          </DisabledActionHelp>
+              <Button
+                data-testid="guided-run-workflow"
+                disabled={!canRun || isExecuting}
+                onClick={onRun}
+              >
+                <IconPlayerPlay data-icon="inline-start" />
+                {isExecuting ? "Starting…" : "Run workflow"}
+              </Button>
+            </DisabledActionHelp>
+          </div>
         </div>
       </header>
 
       {validationErrors.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-2 border-b bg-destructive/5 px-6 py-2">
-          {validationErrors.map((error, index) => {
-            const stage: GuidedStage = error.edgeId
-              ? "connections"
-              : error.field?.startsWith("tests.")
-                ? "scenarios"
-                : "services";
-            return (
-              <Button
-                key={`${error.field}-${index}`}
-                size="sm"
-                variant="ghost"
-                className="h-auto whitespace-normal text-left text-destructive"
-                onClick={() => onStageChange(stage)}
-              >
-                {error.message}
-              </Button>
-            );
-          })}
+        <div className="border-b bg-destructive/5">
+          <div
+            data-testid="guided-layout-rail"
+            className="mx-auto flex w-full max-w-[1440px] flex-wrap items-center gap-2 px-4 py-2 sm:px-6"
+          >
+            {validationErrors.map((error, index) => {
+              const stage: GuidedStage = error.edgeId
+                ? "connections"
+                : error.field?.startsWith("tests.")
+                  ? "scenarios"
+                  : "services";
+              return (
+                <Button
+                  key={`${error.field}-${index}`}
+                  size="sm"
+                  variant="ghost"
+                  className="h-auto whitespace-normal text-left text-destructive"
+                  onClick={() => onStageChange(stage)}
+                >
+                  {error.message}
+                </Button>
+              );
+            })}
+          </div>
         </div>
       ) : null}
 
       <Tabs
         value={activeStage}
         onValueChange={(value) => onStageChange(value as GuidedStage)}
-        className="flex min-h-0 min-w-0 flex-1 flex-col"
+        className="flex min-h-0 min-w-0 flex-1 flex-col gap-0"
       >
-        <div className="border-b bg-muted/10 px-3 py-3 sm:px-6">
-          <Progress
-            value={stageProgress}
-            aria-label={`Guided workflow progress: step ${activeStageIndex + 1} of ${stages.length}`}
-            className="mb-3 gap-0"
-          />
-          <TabsList
-            activateOnFocus
-            className="grid h-auto w-full grid-cols-4 gap-px bg-border p-px"
+        <div className="border-b bg-muted/10">
+          <div
+            data-testid="guided-layout-rail"
+            className="mx-auto w-full max-w-[1440px] px-4 py-4 sm:px-6"
           >
-            {stages.map((stage, index) => {
-              const detail = stageDetails[stage];
-              const StageIcon = detail.icon;
-              const complete =
-                index < activeStageIndex ||
-                (stage === "services" && nodes.length > 0) ||
-                (stage === "connections" &&
-                  edges.length > 0 &&
-                  !edges.some((edge) => edge.data?.needsReview));
-              return (
-                <TabsTrigger
-                  key={stage}
-                  value={stage}
-                  aria-label={detail.label}
-                  className="h-auto min-w-0 justify-start bg-background px-2 py-2 data-active:bg-primary/8 sm:px-3"
-                >
-                  <span
-                    className="flex size-7 shrink-0 items-center justify-center border bg-muted/30 data-[complete=true]:border-primary/40 data-[complete=true]:text-primary"
-                    data-complete={complete}
+            <Progress
+              value={stageProgress}
+              aria-label={`Guided workflow progress: step ${activeStageIndex + 1} of ${stages.length}`}
+              className="sr-only"
+            />
+            <TabsList
+              data-testid="guided-stage-tabs"
+              activateOnFocus
+              variant="line"
+              className="grid h-12 w-full grid-cols-4 items-stretch gap-0 overflow-hidden border bg-transparent p-0 group-data-horizontal/tabs:h-12"
+            >
+              {stages.map((stage, index) => {
+                const detail = stageDetails[stage];
+                const StageIcon = detail.icon;
+                const complete =
+                  index < activeStageIndex ||
+                  (stage === "services" && nodes.length > 0) ||
+                  (stage === "connections" &&
+                    edges.length > 0 &&
+                    !edges.some((edge) => edge.data?.needsReview));
+                return (
+                  <TabsTrigger
+                    key={stage}
+                    value={stage}
+                    aria-label={detail.label}
+                    className="h-full min-w-0 justify-start border-0 border-r border-border bg-transparent px-2 py-0 after:hidden last:border-r-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:[&_.stage-indicator]:opacity-100 data-active:bg-transparent data-active:shadow-none [&[data-active]_.stage-indicator]:opacity-100 sm:px-3"
                   >
-                    {complete ? (
-                      <IconCheck className="size-3.5" />
-                    ) : (
-                      <StageIcon className="size-3.5" />
-                    )}
-                  </span>
-                  <span className="min-w-0 text-left">
-                    <span className="block truncate font-medium text-foreground">
-                      {detail.label}
+                    <span
+                      className="flex size-7 shrink-0 items-center justify-center border bg-muted/30 data-[complete=true]:border-primary/40 data-[complete=true]:text-primary"
+                      data-complete={complete}
+                    >
+                      {complete ? (
+                        <IconCheck className="size-3.5" />
+                      ) : (
+                        <StageIcon className="size-3.5" />
+                      )}
                     </span>
-                    <span className="hidden truncate text-[0.63rem] font-normal text-muted-foreground lg:block">
-                      {detail.description}
+                    <span className="min-w-0 text-left">
+                      <span className="stage-label block truncate font-medium text-foreground">
+                        {detail.label}
+                      </span>
+                      <span className="hidden truncate text-[0.63rem] font-normal text-muted-foreground lg:block">
+                        {detail.description}
+                      </span>
                     </span>
-                  </span>
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-          {showChecklist ? (
-            <div className="mt-3">
-              <GuidedSetupChecklist
-                items={checklist}
-                onStageChange={onStageChange}
-                onDismiss={onDismissChecklist}
-              />
-            </div>
-          ) : null}
+                    <span
+                      data-testid="guided-stage-indicator"
+                      aria-hidden="true"
+                      className="stage-indicator pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-primary opacity-0 transition-opacity"
+                    />
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
+            {showChecklist ? (
+              <div className="mt-4">
+                <GuidedSetupChecklist
+                  items={checklist}
+                  onStageChange={onStageChange}
+                  onDismiss={onDismissChecklist}
+                />
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <TabsContent
           value="services"
-          className="workflow-stage-enter min-h-0 flex-1 overflow-auto p-3 sm:p-6"
+          className="workflow-stage-enter min-h-0 flex-1 overflow-auto"
         >
-          <div className="mx-auto flex max-w-6xl flex-col gap-5">
+          <div
+            data-testid="guided-layout-rail"
+            className="mx-auto flex w-full max-w-[1440px] flex-col gap-6 px-4 py-5 sm:px-6 sm:py-6"
+          >
             <div className="flex flex-wrap items-end justify-between gap-3 border-b pb-4">
               <div>
                 <p className="mb-1 text-[0.66rem] font-semibold tracking-[0.14em] text-primary uppercase">
@@ -415,7 +449,7 @@ export function GuidedWorkflowWorkspace({
                       key={node.id}
                       data-testid="guided-service-card"
                       data-service-name={node.data.label}
-                      className="workflow-card-enter transition-[box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:shadow-md"
+                      className="workflow-card-enter transition-colors duration-150 hover:border-primary/35 hover:bg-muted/10"
                       style={{ animationDelay: `${Math.min(index, 6) * 45}ms` }}
                     >
                       <CardHeader>
@@ -517,23 +551,31 @@ export function GuidedWorkflowWorkspace({
 
         <TabsContent
           value="connections"
-          className="workflow-stage-enter min-h-0 flex-1 overflow-auto p-3 sm:p-6"
+          className="workflow-stage-enter min-h-0 flex-1 overflow-auto"
         >
-          <GuidedConnections
-            nodes={nodes}
-            edges={edges}
-            canEdit={canEdit}
-            onSave={onSaveConnection}
-            onConfirm={onConfirmConnection}
-            onDelete={onDeleteConnection}
-          />
+          <div
+            data-testid="guided-layout-rail"
+            className="mx-auto w-full max-w-[1440px] px-4 py-5 sm:px-6 sm:py-6"
+          >
+            <GuidedConnections
+              nodes={nodes}
+              edges={edges}
+              canEdit={canEdit}
+              onSave={onSaveConnection}
+              onConfirm={onConfirmConnection}
+              onDelete={onDeleteConnection}
+            />
+          </div>
         </TabsContent>
 
         <TabsContent
           value="scenarios"
-          className="workflow-stage-enter min-h-0 flex-1 overflow-auto p-3 sm:p-6"
+          className="workflow-stage-enter min-h-0 flex-1 overflow-auto"
         >
-          <div className="mx-auto flex min-h-[36rem] max-w-7xl flex-col gap-4">
+          <div
+            data-testid="guided-layout-rail"
+            className="mx-auto flex min-h-[36rem] w-full max-w-[1440px] flex-col gap-6 px-4 py-5 sm:px-6 sm:py-6"
+          >
             <div className="shrink-0 border-b pb-4">
               <p className="mb-1 text-[0.66rem] font-semibold tracking-[0.14em] text-primary uppercase">
                 Stage 3 · Verification
@@ -555,7 +597,7 @@ export function GuidedWorkflowWorkspace({
                 Write effective scenarios
               </DocumentationLink>
             </div>
-            <div className="min-h-0 flex-1 border bg-card shadow-xs">
+            <div className="min-h-0 flex-1">
               <ScenarioManager workflowId={workflowId} nodes={nodes} />
             </div>
           </div>
@@ -563,132 +605,155 @@ export function GuidedWorkflowWorkspace({
 
         <TabsContent
           value="review"
-          className="workflow-stage-enter min-h-0 flex-1 overflow-auto p-3 sm:p-6"
+          className="workflow-stage-enter min-h-0 flex-1 overflow-auto"
         >
-          <div className="mx-auto flex max-w-3xl flex-col gap-4">
-            <div className="border-b pb-4">
-              <p className="mb-1 text-[0.66rem] font-semibold tracking-[0.14em] text-primary uppercase">
-                Stage 4 · Readiness
-              </p>
-              <div className="flex items-center gap-1">
-                <h2 className="text-lg font-semibold tracking-tight">
-                  Review Docker workflow
-                </h2>
-                <ContextHelp label="workflow execution">
-                  A run creates an isolated network, provisions the selected
-                  containers, executes scenario steps in order, persists the
-                  results, and cleans up managed resources.
-                </ContextHelp>
+          <div
+            data-testid="guided-layout-rail"
+            className="mx-auto w-full max-w-[1440px] px-4 py-5 sm:px-6 sm:py-6"
+          >
+            <div
+              data-testid="guided-review-panel"
+              className="mx-auto flex w-full max-w-4xl flex-col gap-5"
+            >
+              <div className="border-b pb-4">
+                <p className="mb-1 text-[0.66rem] font-semibold tracking-[0.14em] text-primary uppercase">
+                  Stage 4 · Readiness
+                </p>
+                <div className="flex items-center gap-1">
+                  <h2 className="text-lg font-semibold tracking-tight">
+                    Review Docker workflow
+                  </h2>
+                  <ContextHelp label="workflow execution">
+                    A run creates an isolated network, provisions the selected
+                    containers, executes scenario steps in order, persists the
+                    results, and cleans up managed resources.
+                  </ContextHelp>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Confirm the managed resources before selecting scenarios to
+                  run.
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  <DocumentationLink href={GUIDED_DOCUMENTATION.review.href}>
+                    Run and debug
+                  </DocumentationLink>
+                  <DocumentationLink href={GUIDED_DOCUMENTATION.lifecycle.href}>
+                    Execution lifecycle
+                  </DocumentationLink>
+                </div>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Confirm the managed resources before selecting scenarios to run.
-              </p>
-              <div className="flex flex-wrap gap-1">
-                <DocumentationLink href={GUIDED_DOCUMENTATION.review.href}>
-                  Run and debug
-                </DocumentationLink>
-                <DocumentationLink href={GUIDED_DOCUMENTATION.lifecycle.href}>
-                  Execution lifecycle
-                </DocumentationLink>
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Card className="border-l-2 border-l-primary/50">
-                <CardHeader>
-                  <CardDescription>Managed services</CardDescription>
-                  <CardTitle>{nodes.length}</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card className="border-l-2 border-l-primary/50">
-                <CardHeader>
-                  <CardDescription>Connections</CardDescription>
-                  <CardTitle>{edges.length}</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card
-                className={cn(
-                  "border-l-2",
-                  validationErrors.length > 0
-                    ? "border-l-destructive"
-                    : "border-l-primary/50",
-                )}
+              <div
+                data-testid="guided-review-summary"
+                className="grid border sm:grid-cols-3 sm:divide-x"
               >
+                <div className="border-b p-4 sm:border-b-0">
+                  <p className="text-xs text-muted-foreground">
+                    Managed services
+                  </p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums">
+                    {nodes.length}
+                  </p>
+                </div>
+                <div className="border-b p-4 sm:border-b-0">
+                  <p className="text-xs text-muted-foreground">Connections</p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums">
+                    {edges.length}
+                  </p>
+                </div>
+                <div className="p-4">
+                  <p className="text-xs text-muted-foreground">
+                    Validation errors
+                  </p>
+                  <p
+                    className={cn(
+                      "mt-1 text-lg font-semibold tabular-nums",
+                      validationErrors.length > 0 && "text-destructive",
+                    )}
+                  >
+                    {validationErrors.length}
+                  </p>
+                </div>
+              </div>
+              <Card>
                 <CardHeader>
-                  <CardDescription>Validation errors</CardDescription>
-                  <CardTitle>{validationErrors.length}</CardTitle>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <IconShieldCheck /> Isolated Docker execution
+                  </CardTitle>
+                  <CardDescription>
+                    Tokyo Tester creates a dedicated Docker network, starts the
+                    services above, runs the selected scenarios, and
+                    automatically removes managed containers and networks when
+                    the run finishes.
+                  </CardDescription>
                 </CardHeader>
+                <CardContent>
+                  <DisabledActionHelp
+                    reason={
+                      validationErrors.length > 0
+                        ? `Resolve ${validationErrors.length} validation issue${validationErrors.length === 1 ? "" : "s"} before running.`
+                        : !canRun || isExecuting
+                          ? runDisabledReason
+                          : undefined
+                    }
+                  >
+                    <Button
+                      data-testid="guided-review-run-workflow"
+                      disabled={
+                        !canRun || isExecuting || validationErrors.length > 0
+                      }
+                      onClick={onRun}
+                    >
+                      <IconPlayerPlay data-icon="inline-start" />
+                      {isExecuting ? "Starting…" : "Choose scenarios and run"}
+                    </Button>
+                  </DisabledActionHelp>
+                </CardContent>
               </Card>
             </div>
-            <Card className="shadow-sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <IconShieldCheck /> Isolated Docker execution
-                </CardTitle>
-                <CardDescription>
-                  Tokyo Tester creates a dedicated Docker network, starts the
-                  services above, runs the selected scenarios, and automatically
-                  removes managed containers and networks when the run finishes.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <DisabledActionHelp
-                  reason={
-                    validationErrors.length > 0
-                      ? `Resolve ${validationErrors.length} validation issue${validationErrors.length === 1 ? "" : "s"} before running.`
-                      : !canRun || isExecuting
-                        ? runDisabledReason
-                        : undefined
-                  }
-                >
-                  <Button
-                    data-testid="guided-review-run-workflow"
-                    disabled={
-                      !canRun || isExecuting || validationErrors.length > 0
-                    }
-                    onClick={onRun}
-                  >
-                    <IconPlayerPlay data-icon="inline-start" />
-                    {isExecuting ? "Starting…" : "Choose scenarios and run"}
-                  </Button>
-                </DisabledActionHelp>
-              </CardContent>
-            </Card>
           </div>
         </TabsContent>
       </Tabs>
 
-      <footer className="sticky bottom-0 z-10 flex items-center justify-between gap-3 border-t bg-background/95 px-3 py-3 shadow-[0_-4px_16px_-12px_color-mix(in_oklab,var(--foreground)_30%,transparent)] backdrop-blur sm:px-6">
-        <Button
-          variant="outline"
-          disabled={!previousStage}
-          onClick={() => previousStage && onStageChange(previousStage)}
+      <footer
+        data-testid="guided-footer"
+        className="sticky bottom-0 z-10 border-t bg-background/95 backdrop-blur"
+      >
+        <div
+          data-testid="guided-layout-rail"
+          className="mx-auto flex w-full max-w-[1440px] items-center justify-between gap-3 px-4 py-3 sm:px-6"
         >
-          <IconArrowLeft data-icon="inline-start" />
-          Back
-        </Button>
-        <p className="hidden text-xs text-muted-foreground sm:block">
-          Step {activeStageIndex + 1} of {stages.length} ·{" "}
-          {stageDetails[activeStage].description}
-        </p>
-        {nextStage ? (
-          <Button onClick={() => onStageChange(nextStage)}>
-            Continue
-            <IconArrowRight data-icon="inline-end" />
-          </Button>
-        ) : (
-          <DisabledActionHelp
-            reason={!canRun || isExecuting ? runDisabledReason : undefined}
+          <Button
+            variant="outline"
+            disabled={!previousStage}
+            onClick={() => previousStage && onStageChange(previousStage)}
           >
-            <Button
-              data-testid="guided-run-workflow-footer"
-              disabled={!canRun || isExecuting}
-              onClick={onRun}
-            >
-              <IconPlayerPlay data-icon="inline-start" />
-              {isExecuting ? "Starting…" : "Run workflow"}
+            <IconArrowLeft data-icon="inline-start" />
+            Back
+          </Button>
+          <p className="hidden text-xs text-muted-foreground sm:block">
+            Step {activeStageIndex + 1} of {stages.length} ·{" "}
+            {stageDetails[activeStage].description}
+          </p>
+          {nextStage ? (
+            <Button onClick={() => onStageChange(nextStage)}>
+              Continue
+              <IconArrowRight data-icon="inline-end" />
             </Button>
-          </DisabledActionHelp>
-        )}
+          ) : (
+            <DisabledActionHelp
+              reason={!canRun || isExecuting ? runDisabledReason : undefined}
+            >
+              <Button
+                data-testid="guided-run-workflow-footer"
+                disabled={!canRun || isExecuting}
+                onClick={onRun}
+              >
+                <IconPlayerPlay data-icon="inline-start" />
+                {isExecuting ? "Starting…" : "Run workflow"}
+              </Button>
+            </DisabledActionHelp>
+          )}
+        </div>
       </footer>
     </div>
   );

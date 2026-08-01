@@ -34,6 +34,8 @@ export interface ScenarioRun {
   status: ScenarioRunStatus;
   result?: unknown;
   error?: string;
+  phase?: string;
+  checkpointIndex?: number;
   logs: string[];
   startedAt: number;
   finishedAt?: number;
@@ -61,7 +63,13 @@ interface ScenarioRunStore {
     updates: Partial<
       Pick<
         ScenarioRun,
-        "backendSessionId" | "status" | "result" | "error" | "finishedAt"
+        | "backendSessionId"
+        | "status"
+        | "result"
+        | "error"
+        | "finishedAt"
+        | "phase"
+        | "checkpointIndex"
       >
     >,
   ) => void;

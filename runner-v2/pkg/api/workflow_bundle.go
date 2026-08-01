@@ -10,6 +10,7 @@ import (
 	"github.com/dev-atharva/cots/pkg/db"
 	"github.com/dev-atharva/cots/pkg/dto"
 	"github.com/dev-atharva/cots/pkg/errors"
+	"github.com/dev-atharva/cots/pkg/executionevent"
 	"github.com/dev-atharva/cots/pkg/logger"
 	"github.com/dev-atharva/cots/pkg/middleware"
 	"github.com/dev-atharva/cots/pkg/orchestrator"
@@ -81,6 +82,9 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 	translated, err := bundle.TranslateScenario(scenario)
 	if err != nil {
 		response.Error = err.Error()
+		diagnostic := buildExecutionDiagnostic(executionevent.StageTranslation, err, "The scenario could not be translated into an executable plan.", executionScenarioID(execution), "", "", nil)
+		diagnostic.Source, diagnostic.Confidence, diagnostic.Code = executionevent.SourceWorkflowConfig, executionevent.ConfidenceCertain, errors.ErrValidation.String()
+		response.Diagnostics = append(response.Diagnostics, diagnostic)
 		return response
 	}
 	translated.Services = h.withContainerResources(translated.Services)
@@ -149,6 +153,8 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 				response.Error = fmt.Sprintf("%s; cleanup failed: %s", response.Error, cleanupErr.Error())
 			}
 			response.Success = false
+			diagnostic := buildExecutionDiagnostic(executionevent.StageCleanup, cleanupErr, "Tokyo Tester could not completely remove the scenario environment.", executionScenarioID(execution), "", "", nil)
+			response.Diagnostics = append(response.Diagnostics, diagnostic)
 			if persisted != nil {
 				_ = h.persistCheckpoint(persistCtx, persisted.ID, persisted.CheckpointIndex, sessionPhaseCleanupFailed, "cleanup_failed", summarizeResults(response.Results))
 			}
@@ -194,6 +200,9 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 	releaseProvision()
 	if err != nil {
 		response.Error = fmt.Sprintf("service provisioning failed: %s", extractBaseError(err))
+		diagnostic := buildExecutionDiagnostic(executionevent.StageProvision, err, "A service did not become ready during environment provisioning.", executionScenarioID(execution), "", "", nil)
+		response.Diagnostics = append(response.Diagnostics, diagnostic)
+		executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageProvision, Kind: "diagnostic", Status: "failed", Message: diagnostic.Summary, ServiceNames: diagnostic.ServiceNames, Diagnostic: &diagnostic})
 		if persisted != nil && ctx.Err() == nil {
 			h.persistSessionFailure(ctx, persisted.ID, err, sessionPhaseFailed)
 		}
@@ -274,6 +283,9 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 			response.Error = fmt.Sprintf("%s; cleanup failed: %s", response.Error, cleanupErr.Error())
 		}
 		response.Success = false
+		diagnostic := buildExecutionDiagnostic(executionevent.StageCleanup, cleanupErr, "Tokyo Tester could not completely remove the scenario environment.", executionScenarioID(execution), "", "", nil)
+		response.Diagnostics = append(response.Diagnostics, diagnostic)
+		executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageCleanup, Kind: "diagnostic", Status: "failed", Message: diagnostic.Summary, ServiceNames: diagnostic.ServiceNames, Diagnostic: &diagnostic})
 	}
 	if persisted != nil {
 		phase := sessionPhaseCompleted
@@ -358,60 +370,69 @@ func (h *Handler) executeWorkflowBundleTestsWithCallback(
 	summary := dto.TestSummary{Total: len(testsToRun)}
 
 	for _, testCfg := range testsToRun {
-		reportWorkflowProgress(ctx, "execution", fmt.Sprintf("Running test %q", testCfg.Name))
+		executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageExecution, Kind: "test", Status: "started", Message: fmt.Sprintf("Running test %q", testCfg.Name), TestID: testCfg.ID, TestName: testCfg.Name, ServiceNames: testCfg.TargetServices})
 		interpolated, err := test.InterpolateTestConfig(testCfg.Config, sess)
 		if err != nil {
+			wrapped := errors.Wrap(err, errors.ErrConfiguration, "test configuration interpolation failed").WithDetail("test", testCfg.Name)
+			diagnostic := buildExecutionDiagnostic(executionevent.StageExecution, wrapped, "The test configuration could not be resolved for this environment.", "", testCfg.ID, testCfg.Name, testCfg.TargetServices)
 			result := dto.TestResult{
-				Name:   testCfg.Name,
-				Type:   testCfg.Type,
-				Passed: false,
-				Error:  fmt.Sprintf("config interpolation failed: %v", err),
+				Name:       testCfg.Name,
+				Type:       testCfg.Type,
+				Passed:     false,
+				Error:      fmt.Sprintf("config interpolation failed: %v", err),
+				Diagnostic: &diagnostic,
 			}
 			results = append(results, result)
 			summary.Failed++
 			if onResult != nil {
 				onResult(testCfg, result, asPersistedInterpolationData(result))
 			}
-			reportWorkflowProgress(ctx, "execution", fmt.Sprintf("Test %q failed during configuration", testCfg.Name))
+			executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageExecution, Kind: "test", Status: "failed", Message: fmt.Sprintf("Test %q failed during configuration", testCfg.Name), TestID: testCfg.ID, TestName: testCfg.Name, ServiceNames: testCfg.TargetServices, Diagnostic: &diagnostic})
 			continue
 		}
 		testCfg.Config = interpolated
 
 		executor, ok := registry.Get(testCfg.Type)
 		if !ok {
+			wrapped := errors.New(errors.ErrConfiguration, "test executor is not available").WithDetail("test", testCfg.Name)
+			diagnostic := buildExecutionDiagnostic(executionevent.StageExecution, wrapped, "Tokyo Tester does not support the configured test type.", "", testCfg.ID, testCfg.Name, testCfg.TargetServices)
 			result := dto.TestResult{
-				Name:   testCfg.Name,
-				Type:   testCfg.Type,
-				Passed: false,
-				Error:  fmt.Sprintf("executor not found for type %s", testCfg.Type),
+				Name:       testCfg.Name,
+				Type:       testCfg.Type,
+				Passed:     false,
+				Error:      fmt.Sprintf("executor not found for type %s", testCfg.Type),
+				Diagnostic: &diagnostic,
 			}
 			results = append(results, result)
 			summary.Failed++
 			if onResult != nil {
 				onResult(testCfg, result, asPersistedInterpolationData(result))
 			}
-			reportWorkflowProgress(ctx, "execution", fmt.Sprintf("Test %q could not start", testCfg.Name))
+			executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageExecution, Kind: "test", Status: "failed", Message: fmt.Sprintf("Test %q could not start", testCfg.Name), TestID: testCfg.ID, TestName: testCfg.Name, ServiceNames: testCfg.TargetServices, Diagnostic: &diagnostic})
 			continue
 		}
 
 		if err := executor.Execute(testCtxRoot, testCfg, sess.Orchestrator.GetRegistry()); err != nil {
 			containerLogs := sess.Orchestrator.GetAllServiceLogs(sess.Context)
-			if testErr, ok := err.(*test.TestError); ok && len(testErr.ContainerLogs) > 0 {
+			testErr := typedTestExecutionError(err, testCfg.Name, testCfg.Type, containerLogs)
+			if len(testErr.ContainerLogs) > 0 {
 				containerLogs = testErr.ContainerLogs
 			}
+			diagnostic := buildExecutionDiagnostic(executionevent.StageExecution, testErr, "The test observed behavior that did not match its expectation.", "", testCfg.ID, testCfg.Name, testCfg.TargetServices)
 			result := dto.TestResult{
 				Name:          testCfg.Name,
 				Type:          testCfg.Type,
 				Passed:        false,
 				Error:         extractBaseError(err),
 				ContainerLogs: containerLogs,
+				Diagnostic:    &diagnostic,
 			}
 			results = append(results, result)
 			summary.Failed++
 			if onResult != nil {
 				onResult(testCfg, result, asPersistedInterpolationData(result))
 			}
-			reportWorkflowProgress(ctx, "execution", fmt.Sprintf("Test %q failed", testCfg.Name))
+			executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageExecution, Kind: "test", Status: "failed", Message: fmt.Sprintf("Test %q failed", testCfg.Name), TestID: testCfg.ID, TestName: testCfg.Name, ServiceNames: testCfg.TargetServices, Diagnostic: &diagnostic})
 			continue
 		}
 
@@ -430,10 +451,17 @@ func (h *Handler) executeWorkflowBundleTestsWithCallback(
 		if onResult != nil {
 			onResult(testCfg, result, map[string]any{"status": "passed", "name": testCfg.Name, "type": testCfg.Type})
 		}
-		reportWorkflowProgress(ctx, "execution", fmt.Sprintf("Test %q passed", testCfg.Name))
+		executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageExecution, Kind: "test", Status: "passed", Message: fmt.Sprintf("Test %q passed", testCfg.Name), TestID: testCfg.ID, TestName: testCfg.Name, ServiceNames: testCfg.TargetServices})
 	}
 
 	return results, summary
+}
+
+func executionScenarioID(execution *dto.ExecutionContextDTO) string {
+	if execution == nil {
+		return ""
+	}
+	return execution.ScenarioID
 }
 
 func (h *Handler) cleanupWorkflowBundleSession(ctx context.Context, sessionID string) error {

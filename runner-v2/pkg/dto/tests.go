@@ -1,6 +1,9 @@
 package dto
 
-import "github.com/dev-atharva/cots/pkg/config"
+import (
+	"github.com/dev-atharva/cots/pkg/config"
+	"github.com/dev-atharva/cots/pkg/executionevent"
+)
 
 type RunTestRequest struct {
 	Tests            []TestDTO            `json:"tests" validate:"required,min=1,dive"`
@@ -21,11 +24,12 @@ type RunTestReponse struct {
 }
 
 type TestResult struct {
-	Name          string            `json:"name"`
-	Type          string            `json:"type"`
-	Passed        bool              `json:"passed"`
-	Error         string            `json:"error,omitempty"`
-	ContainerLogs map[string]string `json:"container_logs,omitempty"`
+	Name          string                     `json:"name"`
+	Type          string                     `json:"type"`
+	Passed        bool                       `json:"passed"`
+	Error         string                     `json:"error,omitempty"`
+	ContainerLogs map[string]string          `json:"container_logs,omitempty"`
+	Diagnostic    *executionevent.Diagnostic `json:"diagnostic,omitempty"`
 }
 
 type TestSummary struct {

@@ -362,10 +362,10 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
           variant="secondary"
           onClick={onOpenLogs}
           disabled={!hasActiveExecution}
-          title="View execution logs (Ctrl+L)"
+          title="View workflow run (Ctrl+L)"
         >
           <IconTerminal2 className="mr-2 size-4" />
-          Logs
+          View run
         </Button>
 
         {canEdit ? (
