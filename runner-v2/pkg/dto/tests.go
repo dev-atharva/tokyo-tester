@@ -1,6 +1,8 @@
 package dto
 
 import (
+	"fmt"
+
 	"github.com/dev-atharva/cots/pkg/config"
 	"github.com/dev-atharva/cots/pkg/executionevent"
 )
@@ -11,10 +13,16 @@ type RunTestRequest struct {
 }
 
 type TestDTO struct {
-	Name      string         `json:"name" validate:"required,min=1,max=100"`
-	Type      string         `json:"type" validate:"required,oneof=database document http shell cache queue delay"`
-	DependsOn []string       `json:"depends_on,omitempty"`
-	Config    map[string]any `json:"config" validate:"required"`
+	Name        string          `json:"name" validate:"required,min=1,max=100"`
+	Type        string          `json:"type" validate:"required,oneof=database document http shell cache queue delay"`
+	DependsOn   []string        `json:"depends_on,omitempty"`
+	RetryPolicy *RetryPolicyDTO `json:"retry_policy,omitempty" validate:"omitempty"`
+	Config      map[string]any  `json:"config" validate:"required"`
+}
+
+type RetryPolicyDTO struct {
+	Mode                 string `json:"mode" validate:"required,oneof=transient never"`
+	IdempotencyConfirmed bool   `json:"idempotency_confirmed,omitempty"`
 }
 
 type RunTestReponse struct {
@@ -28,14 +36,28 @@ type TestResult struct {
 	Type          string                     `json:"type"`
 	Passed        bool                       `json:"passed"`
 	Error         string                     `json:"error,omitempty"`
+	DurationMs    int64                      `json:"duration_ms,omitempty"`
+	Attempts      []TestAttempt              `json:"attempts,omitempty"`
+	Recovered     bool                       `json:"recovered_after_retry,omitempty"`
 	ContainerLogs map[string]string          `json:"container_logs,omitempty"`
 	Diagnostic    *executionevent.Diagnostic `json:"diagnostic,omitempty"`
 }
 
+type TestAttempt struct {
+	Attempt        int    `json:"attempt"`
+	Outcome        string `json:"outcome"`
+	DurationMs     int64  `json:"duration_ms"`
+	FailureClass   string `json:"failure_class,omitempty"`
+	FailureCode    string `json:"failure_code,omitempty"`
+	Message        string `json:"message,omitempty"`
+	RetryScheduled bool   `json:"retry_scheduled,omitempty"`
+}
+
 type TestSummary struct {
-	Total  int `json:"total"`
-	Passed int `json:"passed"`
-	Failed int `json:"failed"`
+	Total   int `json:"total"`
+	Passed  int `json:"passed"`
+	Failed  int `json:"failed"`
+	Retried int `json:"retried,omitempty"`
 }
 
 type CleanUpReponse struct {
@@ -44,12 +66,34 @@ type CleanUpReponse struct {
 }
 
 func (t *TestDTO) ToConfig() config.TestConfig {
-	return config.TestConfig{
-		Name:      t.Name,
-		Type:      t.Type,
-		DependsOn: t.DependsOn,
-		Config:    t.Config,
+	retryPolicy := config.TestRetryPolicy{}
+	if t.RetryPolicy != nil {
+		retryPolicy.Mode = t.RetryPolicy.Mode
+		retryPolicy.IdempotencyConfirmed = t.RetryPolicy.IdempotencyConfirmed
 	}
+	return config.TestConfig{
+		Name:        t.Name,
+		Type:        t.Type,
+		DependsOn:   t.DependsOn,
+		RetryPolicy: retryPolicy,
+		Config:      t.Config,
+	}
+}
+
+func (t *TestDTO) ValidateRetryPolicy() error {
+	if t.RetryPolicy == nil {
+		return nil
+	}
+	if t.RetryPolicy.Mode != "transient" && t.RetryPolicy.Mode != "never" {
+		return fmt.Errorf("test %q has invalid retry mode %q", t.Name, t.RetryPolicy.Mode)
+	}
+	if t.RetryPolicy.Mode == "never" && t.RetryPolicy.IdempotencyConfirmed {
+		return fmt.Errorf("test %q cannot confirm idempotency when retries are disabled", t.Name)
+	}
+	if t.Type == "delay" && t.RetryPolicy.IdempotencyConfirmed {
+		return fmt.Errorf("delay test %q cannot enable idempotent retries", t.Name)
+	}
+	return nil
 }
 
 func (req *RunTestRequest) ToConfigList() []config.TestConfig {
@@ -61,16 +105,22 @@ func (req *RunTestRequest) ToConfigList() []config.TestConfig {
 }
 
 func FromTestConfig(cfg config.TestConfig) TestDTO {
-	return TestDTO{
+	dto := TestDTO{
 		Name:      cfg.Name,
 		Type:      cfg.Type,
 		DependsOn: cfg.DependsOn,
 		Config:    cfg.Config,
 	}
+	if cfg.RetryPolicy.Mode != "" || cfg.RetryPolicy.IdempotencyConfirmed {
+		dto.RetryPolicy = &RetryPolicyDTO{
+			Mode: cfg.RetryPolicy.EffectiveMode(), IdempotencyConfirmed: cfg.RetryPolicy.IdempotencyConfirmed,
+		}
+	}
+	return dto
 }
 
 type HTTPTestConfig struct {
-	Method         string            `json:"method" validate:"required,oneof=GET POST PUT DELETE PATCH"`
+	Method         string            `json:"method" validate:"required,oneof=GET HEAD OPTIONS POST PUT DELETE PATCH"`
 	Path           string            `json:"path" validate:"required"`
 	Service        string            `json:"service" validate:"required"`
 	Port           int               `json:"port" validate:"required,min=1,max=65535"`

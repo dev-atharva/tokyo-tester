@@ -12,6 +12,7 @@ import {
   IconPackage,
   IconPlayerPlay,
   IconPlus,
+  IconRefresh,
   IconRoute,
   IconServer,
   IconShieldCheck,
@@ -47,6 +48,7 @@ import {
   type GuidedChecklistItem,
   type GuidedStage,
 } from "../lib/builder-experience";
+import { hasExplicitIdempotencyRetry } from "../lib/test-retry-policy";
 import { getServiceRemovalImpact } from "../lib/workflow-presentation";
 import type {
   EdgeData,
@@ -182,6 +184,12 @@ export function GuidedWorkflowWorkspace({
   const previousStage = stages[activeStageIndex - 1];
   const nextStage = stages[activeStageIndex + 1];
   const stageProgress = ((activeStageIndex + 1) / stages.length) * 100;
+  const explicitRetryCount = scenarios.reduce(
+    (count, scenario) =>
+      count +
+      scenario.tests.filter((test) => hasExplicitIdempotencyRetry(test)).length,
+    0,
+  );
   const stageDetails: Record<
     GuidedStage,
     { label: string; description: string; icon: typeof IconServer }
@@ -598,7 +606,11 @@ export function GuidedWorkflowWorkspace({
               </DocumentationLink>
             </div>
             <div className="min-h-0 flex-1">
-              <ScenarioManager workflowId={workflowId} nodes={nodes} />
+              <ScenarioManager
+                workflowId={workflowId}
+                nodes={nodes}
+                authoringMode={authoringMode}
+              />
             </div>
           </div>
         </TabsContent>
@@ -674,6 +686,20 @@ export function GuidedWorkflowWorkspace({
                   </p>
                 </div>
               </div>
+              {explicitRetryCount > 0 ? (
+                <div className="flex items-start gap-2 border border-amber-500/40 bg-amber-500/5 px-3 py-2.5 text-xs">
+                  <IconRefresh
+                    className="mt-0.5 size-3.5 shrink-0 text-amber-700 dark:text-amber-400"
+                    aria-hidden="true"
+                  />
+                  <p>
+                    {explicitRetryCount} state-changing test
+                    {explicitRetryCount === 1 ? " has" : "s have"} an Expert
+                    idempotency confirmation and may run twice after a transient
+                    transport failure.
+                  </p>
+                </div>
+              ) : null}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">

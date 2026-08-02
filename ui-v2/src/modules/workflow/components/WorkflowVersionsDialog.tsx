@@ -133,7 +133,10 @@ export function WorkflowVersionsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent
+        data-testid="workflow-versions-dialog"
+        className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-xl"
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <IconGitBranch className="size-4 text-amber-500" />
@@ -144,7 +147,7 @@ export function WorkflowVersionsDialog({
             Restoring creates a new version.
           </DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[420px] pr-3">
+        <ScrollArea className="min-h-0 flex-1 pr-3">
           <div className="space-y-2">
             {loading ? (
               <p className="py-8 text-center text-sm text-muted-foreground">

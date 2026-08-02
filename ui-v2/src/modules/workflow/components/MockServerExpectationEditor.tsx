@@ -388,7 +388,10 @@ function HeaderFields({
       ) : (
         <div className="flex flex-col gap-2">
           {entries.map(([name, value], index) => (
-            <div key={name} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+            <div
+              key={name}
+              className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2"
+            >
               <Input
                 value={name}
                 aria-label={`${label} ${index + 1} name`}

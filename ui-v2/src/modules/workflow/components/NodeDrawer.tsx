@@ -140,7 +140,10 @@ export const NodeDrawer: React.FC<NodeDrawerProps> = ({
 
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
-      <SheetContent className="w-100 sm:w-135 overflow-y-auto p-0">
+      <SheetContent
+        data-testid="workflow-node-drawer"
+        className="overflow-y-auto p-0 motion-reduce:animate-none motion-reduce:transition-none data-[side=right]:w-full data-[side=right]:max-w-[33.75rem] data-[side=right]:sm:w-[33.75rem] data-[side=right]:sm:max-w-[33.75rem]"
+      >
         <SheetHeader className="border-b bg-muted/30 px-6 py-4">
           <div className="flex items-center gap-2.5">
             <div className="p-1.5 rounded-lg bg-primary/10 text-primary">

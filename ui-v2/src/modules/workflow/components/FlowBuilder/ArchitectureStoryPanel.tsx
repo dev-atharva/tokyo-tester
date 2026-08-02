@@ -38,7 +38,7 @@ export function ArchitectureStoryPanel({
       : inferredProtocol(node.data.service.type);
 
   return (
-    <aside className="w-80 overflow-hidden rounded-xl border bg-card/97 shadow-xl backdrop-blur-md">
+    <aside className="w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-xl border bg-card/97 shadow-xl backdrop-blur-md">
       <header className="border-b bg-muted/25 p-4">
         <div className="flex items-start justify-between gap-3">
           <div>

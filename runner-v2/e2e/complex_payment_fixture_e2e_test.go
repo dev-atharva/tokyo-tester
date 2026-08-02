@@ -51,6 +51,20 @@ func TestComplexPaymentFixturesE2E(t *testing.T) {
 		if len(response.Scenarios[1].Results) != 2 || response.Scenarios[1].Results[0].Passed || !response.Scenarios[1].Results[1].Passed {
 			t.Fatalf("tests did not continue after the intentional failure: %+v", response.Scenarios[1].Results)
 		}
+		if response.Summary.RetriedTests != 1 {
+			t.Fatalf("expected exactly one retried test, got summary %+v", response.Summary)
+		}
+		recovered := response.Scenarios[0].Results[2]
+		if !recovered.Passed || !recovered.Recovered || len(recovered.Attempts) != 2 || recovered.Attempts[0].Outcome != "failed" || !recovered.Attempts[0].RetryScheduled || recovered.Attempts[1].Outcome != "passed" {
+			t.Fatalf("transient GET did not preserve its recovered attempt history: %+v", recovered)
+		}
+		for _, scenario := range response.Scenarios {
+			for _, result := range scenario.Results {
+				if len(result.Attempts) > 2 {
+					t.Fatalf("test %q exceeded the two-attempt contract: %+v", result.Name, result.Attempts)
+				}
+			}
+		}
 		assertBundleResourcesRemoved(t, response)
 	})
 }

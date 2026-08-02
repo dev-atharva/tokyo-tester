@@ -8,6 +8,7 @@ import {
   reconcileServiceExecutionState,
   reconcileTestExecutionStatus,
   resolveScenarioPresentationStatus,
+  testRetryResult,
 } from "./workflow-run-events";
 
 function event(sequence: number): WorkflowLogEvent {
@@ -70,6 +71,48 @@ describe("workflow run event presentation", () => {
         workflowStatus: "completed",
       }),
     ).toBe("passed");
+  });
+
+  test("presents a structured retry event as active execution", () => {
+    expect(
+      reconcileTestExecutionStatus({
+        eventStatus: "retrying",
+        scenarioStatus: "running",
+        workflowStatus: "running",
+      }),
+    ).toBe("running");
+  });
+
+  test("restores recovered attempt history from a durable result", () => {
+    expect(
+      testRetryResult({
+        recovered_after_retry: true,
+        attempts: [
+          {
+            attempt: 1,
+            outcome: "failed",
+            duration_ms: 7,
+            failure_class: "transient_transport",
+            failure_code: "TEST_TRANSPORT_CONNECTION_RESET",
+            retry_scheduled: true,
+          },
+          { attempt: 2, outcome: "passed", duration_ms: 11 },
+        ],
+      }),
+    ).toEqual({
+      recovered: true,
+      attempts: [
+        {
+          attempt: 1,
+          outcome: "failed",
+          duration_ms: 7,
+          failure_class: "transient_transport",
+          failure_code: "TEST_TRANSPORT_CONNECTION_RESET",
+          retry_scheduled: true,
+        },
+        { attempt: 2, outcome: "passed", duration_ms: 11 },
+      ],
+    });
   });
 
   test("never presents active or queued tests after a terminal run", () => {

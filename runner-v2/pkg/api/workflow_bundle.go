@@ -49,6 +49,7 @@ func (h *Handler) RunWorkflowBundle(w http.ResponseWriter, r *http.Request) {
 		response.Summary.TotalTests += result.Summary.Total
 		response.Summary.PassedTests += result.Summary.Passed
 		response.Summary.FailedTests += result.Summary.Failed
+		response.Summary.RetriedTests += result.Summary.Retried
 		if result.Success {
 			response.Summary.PassedScenarios++
 		} else {
@@ -261,6 +262,9 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 		} else {
 			summary.Failed++
 		}
+		if len(result.Attempts) > 1 {
+			summary.Retried++
+		}
 	}
 	response.Results = results
 	response.Summary = summary
@@ -370,7 +374,7 @@ func (h *Handler) executeWorkflowBundleTestsWithCallback(
 	summary := dto.TestSummary{Total: len(testsToRun)}
 
 	for _, testCfg := range testsToRun {
-		executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageExecution, Kind: "test", Status: "started", Message: fmt.Sprintf("Running test %q", testCfg.Name), TestID: testCfg.ID, TestName: testCfg.Name, ServiceNames: testCfg.TargetServices})
+		executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageExecution, Kind: "test", Status: "started", Message: fmt.Sprintf("Running test %q", testCfg.Name), TestID: testCfg.ID, TestName: testCfg.Name, ServiceNames: testCfg.TargetServices, Attempt: 1, MaxAttempts: 2})
 		interpolated, err := test.InterpolateTestConfig(testCfg.Config, sess)
 		if err != nil {
 			wrapped := errors.Wrap(err, errors.ErrConfiguration, "test configuration interpolation failed").WithDetail("test", testCfg.Name)
@@ -412,18 +416,39 @@ func (h *Handler) executeWorkflowBundleTestsWithCallback(
 			continue
 		}
 
-		if err := executor.Execute(testCtxRoot, testCfg, sess.Orchestrator.GetRegistry()); err != nil {
+		retryReport, executeErr := test.ExecuteWithRetry(
+			testCtxRoot, executor, testCfg, sess.Orchestrator.GetRegistry(),
+			test.RetryOptions{
+				Disabled: h.disableTestRetries,
+				Observer: func(event test.RetryEvent) {
+					executionevent.Report(ctx, executionevent.Activity{
+						Stage: executionevent.StageExecution, Kind: "test", Status: "retrying",
+						Message: fmt.Sprintf("Retrying test %q after a transient transport failure", testCfg.Name),
+						TestID:  testCfg.ID, TestName: testCfg.Name, ServiceNames: testCfg.TargetServices,
+						Attempt: event.NextAttempt, MaxAttempts: event.MaxAttempts, RetryReason: event.Reason,
+					})
+				},
+			},
+		)
+		attempts, durationMs, recovered := retryReportFields(retryReport)
+		if len(attempts) > 1 {
+			summary.Retried++
+		}
+		if err := executeErr; err != nil {
 			containerLogs := sess.Orchestrator.GetAllServiceLogs(sess.Context)
 			testErr := typedTestExecutionError(err, testCfg.Name, testCfg.Type, containerLogs)
 			if len(testErr.ContainerLogs) > 0 {
 				containerLogs = testErr.ContainerLogs
 			}
 			diagnostic := buildExecutionDiagnostic(executionevent.StageExecution, testErr, "The test observed behavior that did not match its expectation.", "", testCfg.ID, testCfg.Name, testCfg.TargetServices)
+			appendAttemptEvidence(&diagnostic, attempts)
 			result := dto.TestResult{
 				Name:          testCfg.Name,
 				Type:          testCfg.Type,
 				Passed:        false,
 				Error:         extractBaseError(err),
+				DurationMs:    durationMs,
+				Attempts:      attempts,
 				ContainerLogs: containerLogs,
 				Diagnostic:    &diagnostic,
 			}
@@ -432,7 +457,11 @@ func (h *Handler) executeWorkflowBundleTestsWithCallback(
 			if onResult != nil {
 				onResult(testCfg, result, asPersistedInterpolationData(result))
 			}
-			executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageExecution, Kind: "test", Status: "failed", Message: fmt.Sprintf("Test %q failed", testCfg.Name), TestID: testCfg.ID, TestName: testCfg.Name, ServiceNames: testCfg.TargetServices, Diagnostic: &diagnostic})
+			failureMessage := fmt.Sprintf("Test %q failed", testCfg.Name)
+			if len(attempts) > 1 {
+				failureMessage = fmt.Sprintf("Test %q failed after %d attempts", testCfg.Name, len(attempts))
+			}
+			executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageExecution, Kind: "test", Status: "failed", Message: failureMessage, TestID: testCfg.ID, TestName: testCfg.Name, ServiceNames: testCfg.TargetServices, Attempt: len(attempts), MaxAttempts: 2, Diagnostic: &diagnostic})
 			continue
 		}
 
@@ -442,16 +471,23 @@ func (h *Handler) executeWorkflowBundleTestsWithCallback(
 			"type":   testCfg.Type,
 		})
 		result := dto.TestResult{
-			Name:   testCfg.Name,
-			Type:   testCfg.Type,
-			Passed: true,
+			Name:       testCfg.Name,
+			Type:       testCfg.Type,
+			Passed:     true,
+			DurationMs: durationMs,
+			Attempts:   attempts,
+			Recovered:  recovered,
 		}
 		results = append(results, result)
 		summary.Passed++
 		if onResult != nil {
 			onResult(testCfg, result, map[string]any{"status": "passed", "name": testCfg.Name, "type": testCfg.Type})
 		}
-		executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageExecution, Kind: "test", Status: "passed", Message: fmt.Sprintf("Test %q passed", testCfg.Name), TestID: testCfg.ID, TestName: testCfg.Name, ServiceNames: testCfg.TargetServices})
+		passedMessage := fmt.Sprintf("Test %q passed", testCfg.Name)
+		if recovered {
+			passedMessage = fmt.Sprintf("Test %q passed after retry", testCfg.Name)
+		}
+		executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageExecution, Kind: "test", Status: "passed", Message: passedMessage, TestID: testCfg.ID, TestName: testCfg.Name, ServiceNames: testCfg.TargetServices, Attempt: len(attempts), MaxAttempts: 2})
 	}
 
 	return results, summary

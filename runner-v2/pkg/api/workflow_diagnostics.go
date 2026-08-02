@@ -63,6 +63,24 @@ func buildExecutionDiagnostic(stage executionevent.Stage, err error, summary, sc
 }
 
 func classifyExecutionError(err error) (executionevent.DiagnosticSource, executionevent.DiagnosticConfidence, string) {
+	var executionFailure *testpkg.ExecutionFailure
+	var typedTestError *testpkg.TestError
+	if errors.As(err, &executionFailure) || errors.As(err, &typedTestError) {
+		failure := testpkg.ClassifyFailure(err)
+		switch failure.Class {
+		case testpkg.FailureTransientTransport:
+			return executionevent.SourceUndetermined, executionevent.ConfidenceUnknown, failure.Code
+		case testpkg.FailureConfiguration:
+			return executionevent.SourceWorkflowConfig, executionevent.ConfidenceCertain, failure.Code
+		case testpkg.FailureAssertion:
+			return executionevent.SourceServiceEnvironment, executionevent.ConfidenceLikely, failure.Code
+		case testpkg.FailureTimeout, testpkg.FailureCancelled, testpkg.FailureExecution:
+			if executionFailure != nil {
+				return executionevent.SourceUndetermined, executionevent.ConfidenceUnknown, failure.Code
+			}
+		}
+	}
+
 	var appErr *apperrors.AppError
 	if errors.As(err, &appErr) {
 		switch appErr.Code {

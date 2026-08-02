@@ -1,8 +1,14 @@
 "use client";
 
-import { IconPlus, IconTrash } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconPlus,
+  IconRefresh,
+  IconTrash,
+} from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,6 +20,12 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  clearStaleIdempotencyConfirmation,
+  guidedRetryDescription,
+  hasExplicitIdempotencyRetry,
+  isAutomaticallyRetrySafe,
+} from "../lib/test-retry-policy";
 import { createDefaultTest } from "../lib/workflow-defaults";
 import type {
   FlowNode,
@@ -29,6 +41,7 @@ interface TestConfigFormProps {
   availableServices: string[];
   serviceNodes?: FlowNode[];
   onChange: (tests: ScenarioTestDefinition[]) => void;
+  authoringMode?: "guided" | "expert";
 }
 
 type DelayUnit = "ms" | "sec" | "min";
@@ -225,6 +238,7 @@ function withTypeDefaults(
     ...defaults,
     name: test.name,
     dependsOnTestIds: test.dependsOnTestIds,
+    retryPolicy: test.retryPolicy ? { mode: test.retryPolicy.mode } : undefined,
   };
 }
 
@@ -278,6 +292,7 @@ export const TestConfigForm = ({
   availableServices,
   serviceNodes = [],
   onChange,
+  authoringMode = "expert",
 }: TestConfigFormProps) => {
   const [localTests, setLocalTests] = useState<ScenarioTestDefinition[]>(tests);
   const [delayUnits, setDelayUnits] = useState<Record<string, DelayUnit>>({});
@@ -313,7 +328,11 @@ export const TestConfigForm = ({
     updater: (test: ScenarioTestDefinition) => ScenarioTestDefinition,
   ) => {
     updateTests(
-      localTests.map((test) => (test.id === testId ? updater(test) : test)),
+      localTests.map((test) =>
+        test.id === testId
+          ? clearStaleIdempotencyConfirmation(test, updater(test))
+          : test,
+      ),
     );
   };
 
@@ -506,6 +525,134 @@ export const TestConfigForm = ({
                 </div>
               </div>
 
+              {authoringMode === "guided" ? (
+                <div className="flex items-start gap-2 border border-border/60 bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
+                  <IconRefresh
+                    className="mt-0.5 size-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <p>{guidedRetryDescription(test)}</p>
+                </div>
+              ) : (
+                <div className="border border-border/60 bg-muted/15 p-3">
+                  <div className="flex items-start gap-2">
+                    <IconRefresh
+                      className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <div className="min-w-0 flex-1 space-y-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-foreground/80">
+                          Reliability
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          A single typed transport interruption may run this
+                          test one more time. Status and body assertions are
+                          never retried.
+                        </p>
+                      </div>
+
+                      {test.type === "delay" ? (
+                        <p className="text-xs text-muted-foreground">
+                          Delay steps are not retryable.
+                        </p>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="max-w-sm">
+                            <Label htmlFor={`retry-mode-${test.id}`}>
+                              Retry behavior
+                            </Label>
+                            <Select
+                              value={test.retryPolicy?.mode ?? "transient"}
+                              onValueChange={(mode) =>
+                                updateTest(test.id, (current) => ({
+                                  ...current,
+                                  retryPolicy:
+                                    mode === "never"
+                                      ? { mode: "never" }
+                                      : {
+                                          mode: "transient",
+                                          ...(current.retryPolicy
+                                            ?.idempotencyConfirmed
+                                            ? {
+                                                idempotencyConfirmed:
+                                                  true as const,
+                                              }
+                                            : {}),
+                                        },
+                                }))
+                              }
+                            >
+                              <SelectTrigger id={`retry-mode-${test.id}`}>
+                                <SelectValue>
+                                  {test.retryPolicy?.mode === "never"
+                                    ? "Never retry"
+                                    : "Automatic transient retry"}
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="transient">
+                                  Automatic transient retry
+                                </SelectItem>
+                                <SelectItem value="never">
+                                  Never retry
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {test.retryPolicy?.mode !== "never" &&
+                          !isAutomaticallyRetrySafe(test) ? (
+                            <div className="border-l-2 border-amber-500/70 pl-3">
+                              <div className="flex items-start gap-2">
+                                <Checkbox
+                                  id={`retry-idempotency-${test.id}`}
+                                  checked={hasExplicitIdempotencyRetry(test)}
+                                  onCheckedChange={(checked) =>
+                                    updateTest(test.id, (current) => ({
+                                      ...current,
+                                      retryPolicy: checked
+                                        ? {
+                                            mode: "transient",
+                                            idempotencyConfirmed: true,
+                                          }
+                                        : { mode: "transient" },
+                                    }))
+                                  }
+                                />
+                                <div className="space-y-1">
+                                  <Label
+                                    htmlFor={`retry-idempotency-${test.id}`}
+                                    className="normal-case tracking-normal"
+                                  >
+                                    Retry once; I confirm this operation is
+                                    idempotent
+                                  </Label>
+                                  <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                                    <IconAlertTriangle
+                                      className="mt-0.5 size-3.5 shrink-0 text-amber-600"
+                                      aria-hidden="true"
+                                    />
+                                    Only enable this when executing the
+                                    operation twice cannot duplicate writes,
+                                    messages, or other side effects.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ) : test.retryPolicy?.mode !== "never" ? (
+                            <p className="text-xs text-muted-foreground">
+                              This read-only operation is eligible for one
+                              automatic transient retry.
+                            </p>
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <Separator />
 
               {test.type === "http" && (
@@ -515,7 +662,10 @@ export const TestConfigForm = ({
                   </h5>
                   <div className="grid gap-3 md:grid-cols-3">
                     <div>
-                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      <Label
+                        htmlFor={`http-method-${test.id}`}
+                        className="text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+                      >
                         Method
                       </Label>
                       <Select
@@ -538,17 +688,23 @@ export const TestConfigForm = ({
                           }))
                         }
                       >
-                        <SelectTrigger>
+                        <SelectTrigger id={`http-method-${test.id}`}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {["GET", "POST", "PUT", "DELETE", "PATCH"].map(
-                            (method) => (
-                              <SelectItem key={method} value={method}>
-                                {method}
-                              </SelectItem>
-                            ),
-                          )}
+                          {[
+                            "GET",
+                            "POST",
+                            "PUT",
+                            "DELETE",
+                            "PATCH",
+                            "HEAD",
+                            "OPTIONS",
+                          ].map((method) => (
+                            <SelectItem key={method} value={method}>
+                              {method}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>

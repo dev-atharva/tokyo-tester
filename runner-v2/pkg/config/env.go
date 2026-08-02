@@ -19,6 +19,7 @@ type AppConfig struct {
 	ContainerMemoryMB        int    `envconfig:"WORKFLOW_CONTAINER_MEMORY_MB" default:"1024"`
 	ContainerCPUMilli        int    `envconfig:"WORKFLOW_CONTAINER_CPU_MILLI" default:"1000"`
 	ContainerPIDs            int    `envconfig:"WORKFLOW_CONTAINER_PIDS" default:"256"`
+	DisableTestRetries       bool   `envconfig:"DISABLE_TEST_RETRIES" default:"false"`
 }
 
 func (a *AppConfig) ContainerResources() ContainerResourceLimits {

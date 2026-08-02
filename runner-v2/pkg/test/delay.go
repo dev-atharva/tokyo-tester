@@ -14,18 +14,18 @@ type DelayExecutor struct{}
 func (e *DelayExecutor) Execute(ctx context.Context, testCfg config.TestConfig, _ *orchestrator.RuntimeRegsitry) error {
 	_, found, err := lookupConfigValue(testCfg.Config, "duration_ms")
 	if err != nil {
-		return err
+		return ConfigurationFailure(err)
 	}
 	if !found {
-		return fmt.Errorf("delay test requires 'duration_ms' in the configuration")
+		return ConfigurationFailure(fmt.Errorf("delay test requires 'duration_ms' in the configuration"))
 	}
 	durationMs, err := getIntOrDefault(testCfg.Config, "duration_ms", 0)
 	if err != nil {
-		return err
+		return ConfigurationFailure(err)
 	}
 
 	if durationMs <= 0 {
-		return fmt.Errorf("duration_ms must be greater than 0")
+		return ConfigurationFailure(fmt.Errorf("duration_ms must be greater than 0"))
 	}
 
 	timer := time.NewTimer(time.Duration(durationMs) * time.Millisecond)
@@ -33,7 +33,7 @@ func (e *DelayExecutor) Execute(ctx context.Context, testCfg config.TestConfig, 
 
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("delay interrupted: %w", ctx.Err())
+		return ctx.Err()
 	case <-timer.C:
 		return nil
 	}

@@ -120,6 +120,36 @@ describe("readiness translation", () => {
     ]);
   });
 
+  test("preserves retry policy in the low-level runner DTO", () => {
+    if (!scenarioTest.httpConfig) {
+      throw new Error("HTTP fixture is missing its config");
+    }
+    const graph = translateWorkflowGraphToServiceGraph(
+      [node("app", "generic")],
+      [],
+    );
+    const translated = translateScenarioToExecutionBundle(graph, {
+      id: "scenario",
+      name: "scenario",
+      tests: [
+        {
+          ...scenarioTest,
+          httpConfig: { ...scenarioTest.httpConfig, method: "POST" },
+          retryPolicy: {
+            mode: "transient",
+            idempotencyConfirmed: true,
+          },
+        },
+      ],
+      testOrder: ["test"],
+    });
+
+    expect(translated.tests[0]?.retry_policy).toEqual({
+      mode: "transient",
+      idempotency_confirmed: true,
+    });
+  });
+
   test("validates and translates service-owned MockServer expectations", () => {
     const mock = node("mock-api", "mockserver");
     mock.data.service.mockServer = {

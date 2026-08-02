@@ -17,22 +17,22 @@ type CacheExecutor struct{}
 func (e *CacheExecutor) Execute(ctx context.Context, testCfg config.TestConfig, registry *orchestrator.RuntimeRegsitry) error {
 	serviceName, ok := testCfg.Config["service"].(string)
 	if !ok {
-		return fmt.Errorf("cache test requires 'service' in config")
+		return ConfigurationFailure(fmt.Errorf("cache test requires 'service' in config"))
 	}
 
 	operation, ok := testCfg.Config["operation"].(string)
 	if !ok {
-		return fmt.Errorf("cache test requires 'operation' in config")
+		return ConfigurationFailure(fmt.Errorf("cache test requires 'operation' in config"))
 	}
 
 	runtime, ok := registry.Get(serviceName)
 	if !ok {
-		return fmt.Errorf("service not found : %s", serviceName)
+		return ConfigurationFailure(fmt.Errorf("service not found : %s", serviceName))
 	}
 
 	cacheType, err := getStringOrDefault(testCfg.Config, "cache_type", "")
 	if err != nil {
-		return err
+		return ConfigurationFailure(err)
 	}
 	if cacheType == "" {
 		cacheType = e.inferCacheType(runtime.EnvVars, serviceName)
@@ -40,11 +40,11 @@ func (e *CacheExecutor) Execute(ctx context.Context, testCfg config.TestConfig, 
 
 	switch cacheType {
 	case "redis":
-		return e.executeRedis(ctx, testCfg, runtime, operation)
+		return OperationFailure(PhaseDispatch, e.executeRedis(ctx, testCfg, runtime, operation))
 	case "memcached":
-		return e.executeMemcached(ctx, testCfg, runtime, operation)
+		return OperationFailure(PhaseDispatch, e.executeMemcached(ctx, testCfg, runtime, operation))
 	default:
-		return fmt.Errorf("unsupported cache type : %s (expected 'redis' or 'memcached')", cacheType)
+		return ConfigurationFailure(fmt.Errorf("unsupported cache type : %s (expected 'redis' or 'memcached')", cacheType))
 	}
 }
 
@@ -62,7 +62,7 @@ func (e *CacheExecutor) inferCacheType(_ map[string]string, serviceName string) 
 func (e *CacheExecutor) executeRedis(ctx context.Context, testCfg config.TestConfig, runtime *types.ServiceRuntime, operation string) error {
 	port, ok := runtime.MappedPorts["6379"]
 	if !ok {
-		return fmt.Errorf("redis port 6379 not mapped")
+		return ConfigurationFailure(fmt.Errorf("redis port 6379 not mapped"))
 	}
 
 	addr := types.JoinHostPort(runtime.Host, port)
@@ -85,7 +85,7 @@ func (e *CacheExecutor) executeRedis(ctx context.Context, testCfg config.TestCon
 	defer client.Close()
 
 	if err := client.Ping(ctx).Err(); err != nil {
-		return fmt.Errorf("failed to connect to radius: %w", err)
+		return SetupFailure(fmt.Errorf("failed to connect to redis: %w", err))
 	}
 
 	switch operation {
@@ -100,7 +100,7 @@ func (e *CacheExecutor) executeRedis(ctx context.Context, testCfg config.TestCon
 	case "delete", "del":
 		return e.redisDelete(ctx, client, testCfg)
 	default:
-		return fmt.Errorf("unsupported redis operation: %s", operation)
+		return ConfigurationFailure(fmt.Errorf("unsupported redis operation: %s", operation))
 	}
 }
 
@@ -111,11 +111,11 @@ func (e *CacheExecutor) redisOp(ctx context.Context, client *redis.Client, _ con
 func (e *CacheExecutor) redisSet(ctx context.Context, client *redis.Client, testCfg config.TestConfig) error {
 	key, ok := testCfg.Config["key"].(string)
 	if !ok {
-		return fmt.Errorf("set operation requires 'key' in the config")
+		return ConfigurationFailure(fmt.Errorf("set operation requires 'key' in the config"))
 	}
 	value, ok := testCfg.Config["value"]
 	if !ok {
-		return fmt.Errorf("set operation requires 'value' in the config")
+		return ConfigurationFailure(fmt.Errorf("set operation requires 'value' in the config"))
 	}
 	ttlSeconds, err := getIntOrDefault(testCfg.Config, "ttl", 0)
 	if err != nil {
@@ -129,7 +129,7 @@ func (e *CacheExecutor) redisSet(ctx context.Context, client *redis.Client, test
 func (e *CacheExecutor) redisGet(ctx context.Context, client *redis.Client, testCfg config.TestConfig) error {
 	key, ok := testCfg.Config["key"].(string)
 	if !ok {
-		return fmt.Errorf("get opertion requires 'key' in the config")
+		return ConfigurationFailure(fmt.Errorf("get operation requires 'key' in the config"))
 	}
 
 	result, err := client.Get(ctx, key).Result()
@@ -139,7 +139,7 @@ func (e *CacheExecutor) redisGet(ctx context.Context, client *redis.Client, test
 			return lookupErr
 		}
 		if ok && expectedValue != nil {
-			return fmt.Errorf("key %s does not exist , expected: %v", key, expectedValue)
+			return AssertionFailure(fmt.Errorf("key %s does not exist, expected: %v", key, expectedValue))
 		}
 		return nil
 	}
@@ -154,7 +154,7 @@ func (e *CacheExecutor) redisGet(ctx context.Context, client *redis.Client, test
 	if ok {
 		expectedStr := fmt.Sprintf("%v", expectedValue)
 		if result != expectedStr {
-			return fmt.Errorf("expected value %q, got %q", expectedStr, result)
+			return AssertionFailure(fmt.Errorf("expected value %q, got %q", expectedStr, result))
 		}
 	}
 	return nil
@@ -163,7 +163,7 @@ func (e *CacheExecutor) redisGet(ctx context.Context, client *redis.Client, test
 func (e *CacheExecutor) redisExists(ctx context.Context, client *redis.Client, testCfg config.TestConfig) error {
 	key, ok := testCfg.Config["key"].(string)
 	if !ok {
-		return fmt.Errorf("exists operation requires 'key' in the config")
+		return ConfigurationFailure(fmt.Errorf("exists operation requires 'key' in the config"))
 	}
 
 	count, err := client.Exists(ctx, key).Result()
@@ -182,7 +182,7 @@ func (e *CacheExecutor) redisExists(ctx context.Context, client *redis.Client, t
 		}
 		exists := count > 0
 		if exists != expectedExists {
-			return fmt.Errorf("expected exists=%v, got exists=%v", expectedExists, exists)
+			return AssertionFailure(fmt.Errorf("expected exists=%v, got exists=%v", expectedExists, exists))
 		}
 	}
 	return nil
@@ -191,7 +191,7 @@ func (e *CacheExecutor) redisExists(ctx context.Context, client *redis.Client, t
 func (e *CacheExecutor) redisDelete(ctx context.Context, client *redis.Client, testCfg config.TestConfig) error {
 	key, ok := testCfg.Config["key"].(string)
 	if !ok {
-		return fmt.Errorf("delete operation requires 'key' in config")
+		return ConfigurationFailure(fmt.Errorf("delete operation requires 'key' in config"))
 	}
 	return client.Del(ctx, key).Err()
 }
@@ -199,7 +199,7 @@ func (e *CacheExecutor) redisDelete(ctx context.Context, client *redis.Client, t
 func (e *CacheExecutor) executeMemcached(_ context.Context, testCfg config.TestConfig, runtime *types.ServiceRuntime, operation string) error {
 	port, ok := runtime.MappedPorts["11211"]
 	if !ok {
-		return fmt.Errorf("memcached port 11211 not mapped")
+		return ConfigurationFailure(fmt.Errorf("memcached port 11211 not mapped"))
 	}
 
 	addr := types.JoinHostPort(runtime.Host, port)
@@ -207,7 +207,7 @@ func (e *CacheExecutor) executeMemcached(_ context.Context, testCfg config.TestC
 	client.Timeout = 3 * time.Second
 
 	if err := client.Ping(); err != nil {
-		return fmt.Errorf("failed to connect to memcached: %w", err)
+		return SetupFailure(fmt.Errorf("failed to connect to memcached: %w", err))
 	}
 
 	switch operation {
@@ -220,19 +220,19 @@ func (e *CacheExecutor) executeMemcached(_ context.Context, testCfg config.TestC
 	case "delete", "del":
 		return e.memCachedDelete(client, testCfg)
 	default:
-		return fmt.Errorf("unsupported memcached operation: %s", operation)
+		return ConfigurationFailure(fmt.Errorf("unsupported memcached operation: %s", operation))
 	}
 }
 
 func (e *CacheExecutor) memCachedSet(client *memcache.Client, testCfg config.TestConfig) error {
 	key, ok := testCfg.Config["key"].(string)
 	if !ok {
-		return fmt.Errorf("set operation requires 'key' in config")
+		return ConfigurationFailure(fmt.Errorf("set operation requires 'key' in config"))
 	}
 
 	value, ok := testCfg.Config["value"]
 	if !ok {
-		return fmt.Errorf("set opertaion requires 'value' in config")
+		return ConfigurationFailure(fmt.Errorf("set operation requires 'value' in config"))
 	}
 
 	ttlSeconds, err := getIntOrDefault(testCfg.Config, "ttl", 0)
@@ -254,7 +254,7 @@ func (e *CacheExecutor) memCachedSet(client *memcache.Client, testCfg config.Tes
 func (e *CacheExecutor) memCachedGet(client *memcache.Client, testCfg config.TestConfig) error {
 	key, ok := testCfg.Config["key"].(string)
 	if !ok {
-		return fmt.Errorf("get operation 'key' in config")
+		return ConfigurationFailure(fmt.Errorf("get operation requires 'key' in config"))
 	}
 
 	item, err := client.Get(key)
@@ -264,7 +264,7 @@ func (e *CacheExecutor) memCachedGet(client *memcache.Client, testCfg config.Tes
 			return lookupErr
 		}
 		if ok && expectedValue != nil {
-			return fmt.Errorf("key %s does not exist, expected : %v", key, expectedValue)
+			return AssertionFailure(fmt.Errorf("key %s does not exist, expected: %v", key, expectedValue))
 		}
 		return nil
 	}
@@ -280,7 +280,7 @@ func (e *CacheExecutor) memCachedGet(client *memcache.Client, testCfg config.Tes
 	if ok {
 		expectedStr := fmt.Sprintf("%v", expectedValue)
 		if string(item.Value) != expectedStr {
-			return fmt.Errorf("expected value %q, got %q", expectedStr, string(item.Value))
+			return AssertionFailure(fmt.Errorf("expected value %q, got %q", expectedStr, string(item.Value)))
 		}
 	}
 	return nil
@@ -289,7 +289,7 @@ func (e *CacheExecutor) memCachedGet(client *memcache.Client, testCfg config.Tes
 func (e *CacheExecutor) memCachedDelete(client *memcache.Client, testCfg config.TestConfig) error {
 	key, ok := testCfg.Config["key"].(string)
 	if !ok {
-		return fmt.Errorf("delete operation requires 'key' in config")
+		return ConfigurationFailure(fmt.Errorf("delete operation requires 'key' in config"))
 	}
 
 	err := client.Delete(key)

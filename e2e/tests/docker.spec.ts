@@ -263,6 +263,49 @@ test("a failed service test opens typed diagnostic evidence in guided and expert
 		page.getByRole("log", { name: "Workflow run raw logs" }),
 	).toBeVisible();
 
+	await page.setViewportSize({ width: 1366, height: 768 });
+	const inspector = page.getByTestId("workflow-run-inspector");
+	await inspector.scrollIntoViewIfNeeded();
+	await expect
+		.poll(() =>
+			inspector.evaluate((element) => {
+				const rect = element.getBoundingClientRect();
+				return rect.top >= 0 && rect.bottom <= window.innerHeight + 1;
+			}),
+		)
+		.toBe(true);
+	await expect(page.getByTestId("workflow-run-diagnostic-body")).toHaveCSS(
+		"overflow-y",
+		"auto",
+	);
+	await expect(page.getByTestId("workflow-run-activity")).toBeInViewport();
+
+	await page.setViewportSize({ width: 2560, height: 1080 });
+	const ultrawideGeometry = await page
+		.getByTestId("workflow-run-content")
+		.evaluate((content) => {
+			const cockpit = content.closest<HTMLElement>(
+				'[data-testid="workflow-run-cockpit"]',
+			);
+			if (!cockpit) return null;
+			const contentRect = content.getBoundingClientRect();
+			const cockpitRect = cockpit.getBoundingClientRect();
+			return {
+				width: contentRect.width,
+				centerDelta: Math.abs(
+					contentRect.left +
+						contentRect.width / 2 -
+						(cockpitRect.left + cockpitRect.width / 2),
+				),
+				hasHorizontalOverflow:
+					document.documentElement.scrollWidth > window.innerWidth,
+			};
+		});
+	expect(ultrawideGeometry).not.toBeNull();
+	expect(ultrawideGeometry?.width).toBeLessThanOrEqual(1920);
+	expect(ultrawideGeometry?.centerDelta).toBeLessThanOrEqual(1);
+	expect(ultrawideGeometry?.hasHorizontalOverflow).toBe(false);
+
 	const diagnosticCode = await diagnostic.getAttribute("data-diagnostic-code");
 	await page.getByRole("button", { name: "Expert mode" }).click();
 	await expect(page.getByTestId("execution-diagnostic")).toHaveAttribute(
@@ -440,6 +483,138 @@ test("guided onboarding explains setup and remembers the selected builder mode",
 	await expect(
 		page.getByText(/Guided organizes the same workflow into recommended steps/),
 	).toBeVisible();
+});
+
+test("workflow authoring surfaces stay contained from mobile to ultrawide", async ({
+	page,
+}) => {
+	const workflow = new GuidedWorkflowPage(page);
+	const expectInsideViewport = async (testId: string) => {
+		const surface = page.getByTestId(testId);
+		await expect(surface).toBeVisible();
+		await expect
+			.poll(() =>
+				surface.evaluate((element) => {
+					const rect = element.getBoundingClientRect();
+					return (
+						rect.left >= -1 &&
+						rect.top >= -1 &&
+						rect.right <= window.innerWidth + 1 &&
+						rect.bottom <= window.innerHeight + 1
+					);
+				}),
+			)
+			.toBe(true);
+	};
+	const expectNoPageOverflow = async () => {
+		await expect
+			.poll(() =>
+				page.evaluate(
+					() => document.documentElement.scrollWidth <= window.innerWidth,
+				),
+			)
+			.toBe(true);
+	};
+
+	await page.emulateMedia({ reducedMotion: "reduce" });
+	await workflow.createWorkflow(`Responsive workflow ${randomUUID()}`);
+	await workflow.addApplicationService("tokyo-test-api:latest", "Test API");
+	await workflow.addHttpScenario("Responsive health", "/health", 200);
+
+	await page.setViewportSize({ width: 390, height: 844 });
+	await workflow.openStage("Services");
+	await page.getByRole("button", { name: "Add service" }).click();
+	await expectInsideViewport("workflow-node-drawer");
+	await expectNoPageOverflow();
+	await page.keyboard.press("Escape");
+
+	await page.getByTitle("Edit Test API").click();
+	await expectInsideViewport("service-config-dialog");
+	await page.keyboard.press("Escape");
+	await expect(page.getByRole("tab", { name: /^Services/ })).toBeVisible();
+	await expect(page.getByRole("tab", { name: /^Review/ })).toBeVisible();
+	await expectNoPageOverflow();
+
+	await page.setViewportSize({ width: 1366, height: 768 });
+	await page.getByRole("button", { name: "Expert mode" }).click();
+	const toolbarGeometry = await page.evaluate(() => {
+		const view = document.querySelector<HTMLElement>(
+			'[data-testid="expert-view-controls"]',
+		);
+		const actions = document.querySelector<HTMLElement>(
+			'[data-testid="expert-action-controls"]',
+		);
+		if (!view || !actions) return null;
+		const viewRect = view.getBoundingClientRect();
+		const actionRect = actions.getBoundingClientRect();
+		return {
+			viewRight: viewRect.right,
+			actionsLeft: actionRect.left,
+		};
+	});
+	expect(toolbarGeometry).not.toBeNull();
+	expect(toolbarGeometry?.viewRight).toBeLessThanOrEqual(
+		(toolbarGeometry?.actionsLeft ?? 0) - 8,
+	);
+
+	await page.getByRole("button", { name: "Add node" }).click();
+	await expectInsideViewport("workflow-node-drawer");
+	await page.keyboard.press("Escape");
+	await page.getByRole("button", { name: "Open scenarios" }).click();
+	await expectInsideViewport("scenario-dialog");
+	await page.keyboard.press("Escape");
+
+	await page.getByRole("button", { name: "Execution history" }).click();
+	await expectInsideViewport("execution-history-dialog");
+	await expect
+		.poll(() =>
+			page
+				.getByTestId("execution-history-dialog")
+				.evaluate((element) => element.getBoundingClientRect().width),
+		)
+		.toBeGreaterThanOrEqual(1100);
+	await page.keyboard.press("Escape");
+
+	await page.getByRole("button", { name: "Workflow versions" }).click();
+	await expectInsideViewport("workflow-versions-dialog");
+	await page.keyboard.press("Escape");
+	await page.getByRole("button", { name: "Keyboard shortcuts" }).click();
+	await expectInsideViewport("workflow-shortcuts-dialog");
+	await page.keyboard.press("Escape");
+
+	await page.getByRole("button", { name: "Run Workflow" }).click();
+	await expectInsideViewport("run-workflow-dialog");
+	await page.keyboard.press("Escape");
+	await expectNoPageOverflow();
+
+	await page.setViewportSize({ width: 2560, height: 1080 });
+	await page.goto("/workflow");
+	await expect(page.getByTestId("workflow-list")).toHaveAttribute(
+		"data-hydrated",
+		"true",
+	);
+	const listGeometry = await page
+		.getByTestId("workflow-list")
+		.evaluate((list) => {
+			const rect = list.getBoundingClientRect();
+			const parentRect = list.parentElement?.getBoundingClientRect();
+			return {
+				width: rect.width,
+				centerDelta: parentRect
+					? Math.abs(
+							rect.left +
+								rect.width / 2 -
+								(parentRect.left + parentRect.width / 2),
+						)
+					: Number.POSITIVE_INFINITY,
+			};
+		});
+	expect(listGeometry.width).toBeLessThanOrEqual(1920);
+	expect(listGeometry.centerDelta).toBeLessThanOrEqual(1);
+	await expectNoPageOverflow();
+
+	await page.getByRole("button", { name: "Templates", exact: true }).click();
+	await expectInsideViewport("workflow-template-gallery");
 });
 
 test("guided application and Redis workflow executes, persists, and cleans up through Docker", async ({

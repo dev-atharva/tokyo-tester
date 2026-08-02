@@ -69,6 +69,9 @@ type Activity struct {
 	ServiceNames []string    `json:"serviceNames,omitempty"`
 	TestID       string      `json:"testId,omitempty"`
 	TestName     string      `json:"testName,omitempty"`
+	Attempt      int         `json:"attempt,omitempty"`
+	MaxAttempts  int         `json:"maxAttempts,omitempty"`
+	RetryReason  string      `json:"retryReason,omitempty"`
 	Diagnostic   *Diagnostic `json:"diagnostic,omitempty"`
 }
 

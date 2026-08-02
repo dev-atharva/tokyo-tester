@@ -415,6 +415,7 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 		summary.TotalTests += result.Summary.Total
 		summary.PassedTests += result.Summary.Passed
 		summary.FailedTests += result.Summary.Failed
+		summary.RetriedTests += result.Summary.Retried
 		if result.Success {
 			summary.PassedScenarios++
 		} else {
@@ -436,6 +437,7 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 		"totalScenarios": summary.TotalScenarios, "passedScenarios": summary.PassedScenarios,
 		"failedScenarios": summary.FailedScenarios, "totalTests": summary.TotalTests,
 		"passedTests": summary.PassedTests, "failedTests": summary.FailedTests,
+		"retriedTests":    summary.RetriedTests,
 		"scenarioResults": scenarioSnapshots(request.Scenarios, results),
 		"diagnostics":     workflowDiagnostics(results),
 	}
@@ -690,6 +692,15 @@ func (s *WorkflowService) emitActivity(ctx context.Context, request *workflowrun
 	if activity.TestName != "" {
 		payload["testName"] = activity.TestName
 	}
+	if activity.Attempt > 0 {
+		payload["attempt"] = activity.Attempt
+	}
+	if activity.MaxAttempts > 0 {
+		payload["maxAttempts"] = activity.MaxAttempts
+	}
+	if activity.RetryReason != "" {
+		payload["retryReason"] = activity.RetryReason
+	}
 	if activity.Diagnostic != nil {
 		payload["diagnostic"] = activity.Diagnostic
 	}
@@ -719,7 +730,7 @@ func (s *WorkflowService) emitTestResults(ctx context.Context, request *workflow
 		if result.Passed {
 			status = "passed"
 		}
-		results = append(results, map[string]any{"testResultId": request.WorkflowRunID + "_" + scenario.ID + "_" + result.Name, "testName": result.Name, "testType": result.Type, "status": status, "resultData": result, "durationMs": 0, "executedAt": now.Format(time.RFC3339Nano), "action": "update", "containerLogs": result.ContainerLogs, "diagnostic": result.Diagnostic, "sequence": index})
+		results = append(results, map[string]any{"testResultId": request.WorkflowRunID + "_" + scenario.ID + "_" + result.Name, "testName": result.Name, "testType": result.Type, "status": status, "resultData": result, "durationMs": result.DurationMs, "executedAt": now.Format(time.RFC3339Nano), "action": "update", "containerLogs": result.ContainerLogs, "diagnostic": result.Diagnostic, "sequence": index})
 	}
 	s.appendEvent(ctx, request.WorkflowRunID, "testresult", map[string]any{"workflowRunId": request.WorkflowRunID, "projectId": request.ProjectID, "workflowId": request.WorkflowID, "scenarioId": scenario.ID, "scenarioName": scenario.Name, "backendSessionId": response.SessionID, "bulkId": uuid.NewString(), "timestamp": now.UnixMilli(), "results": results})
 }

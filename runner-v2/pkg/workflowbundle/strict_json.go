@@ -92,8 +92,13 @@ func rejectUnknownBundleFields(raw []byte) error {
 		for testIndex, value := range asJSONArray(scenario["tests"]) {
 			test, _ := value.(map[string]any)
 			testPath := fmt.Sprintf("%s/tests/%d", path, testIndex)
-			if err := rejectUnknown(test, testPath, "id", "name", "type", "targetServices", "dependsOnTestIds", "databaseConfig", "documentConfig", "httpConfig", "shellConfig", "cacheConfig", "queueConfig", "delayConfig"); err != nil {
+			if err := rejectUnknown(test, testPath, "id", "name", "type", "targetServices", "dependsOnTestIds", "retryPolicy", "databaseConfig", "documentConfig", "httpConfig", "shellConfig", "cacheConfig", "queueConfig", "delayConfig"); err != nil {
 				return err
+			}
+			if policy, _ := test["retryPolicy"].(map[string]any); policy != nil {
+				if err := rejectUnknown(policy, testPath+"/retryPolicy", "mode", "idempotencyConfirmed"); err != nil {
+					return err
+				}
 			}
 			configs := map[string][]string{
 				"databaseConfig": {"driver", "database", "user", "password", "query", "expectedResult"},

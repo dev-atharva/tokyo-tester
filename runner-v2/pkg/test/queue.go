@@ -25,30 +25,30 @@ type rabbitMQManagementQueue struct {
 func (e *QueueExecutor) Execute(ctx context.Context, testCfg config.TestConfig, registry *orchestrator.RuntimeRegsitry) error {
 	serviceName, ok := testCfg.Config["service"].(string)
 	if !ok {
-		return fmt.Errorf("queue test requires 'service' in the config")
+		return ConfigurationFailure(fmt.Errorf("queue test requires 'service' in the config"))
 	}
 
 	operation, ok := testCfg.Config["operation"].(string)
 	if !ok {
-		return fmt.Errorf("queue test requires 'operation' in the config")
+		return ConfigurationFailure(fmt.Errorf("queue test requires 'operation' in the config"))
 	}
 
 	runtime, ok := registry.Get(serviceName)
 	if !ok {
-		return fmt.Errorf("service not found : %s", serviceName)
+		return ConfigurationFailure(fmt.Errorf("service not found : %s", serviceName))
 	}
 	brokerType, err := e.inferBrokerType(serviceName, testCfg.Config)
 	if err != nil {
-		return err
+		return ConfigurationFailure(err)
 	}
 
 	switch brokerType {
 	case "kafka":
-		return e.executeKafka(ctx, testCfg, runtime, operation)
+		return OperationFailure(PhaseDispatch, e.executeKafka(ctx, testCfg, runtime, operation))
 	case "rabbitmq":
-		return e.executeRabbitMQ(ctx, testCfg, runtime, operation)
+		return OperationFailure(PhaseDispatch, e.executeRabbitMQ(ctx, testCfg, runtime, operation))
 	default:
-		return fmt.Errorf("unsupported broker type : %s (expected 'kafka' or 'rabbitmq')", brokerType)
+		return ConfigurationFailure(fmt.Errorf("unsupported broker type : %s (expected 'kafka' or 'rabbitmq')", brokerType))
 	}
 }
 
@@ -117,13 +117,13 @@ func (e *QueueExecutor) executeRabbitMQ(ctx context.Context, testCfg config.Test
 
 	conn, err := amqp.Dial(amqpURL)
 	if err != nil {
-		return fmt.Errorf("failed to connect to rabbitmq: %w", err)
+		return SetupFailure(fmt.Errorf("failed to connect to rabbitmq: %w", err))
 	}
 	defer conn.Close()
 
 	channel, err := conn.Channel()
 	if err != nil {
-		return fmt.Errorf("failed to open rabbitmq channel: %w", err)
+		return SetupFailure(fmt.Errorf("failed to open rabbitmq channel: %w", err))
 	}
 	defer channel.Close()
 
@@ -146,12 +146,12 @@ func (e *QueueExecutor) executeRabbitMQ(ctx context.Context, testCfg config.Test
 func (e *QueueExecutor) kafkaProduce(ctx context.Context, brokers []string, testCfg config.TestConfig) error {
 	topic, ok := testCfg.Config["topic"].(string)
 	if !ok {
-		return fmt.Errorf("produce operation requires 'topic' in config")
+		return ConfigurationFailure(fmt.Errorf("produce operation requires 'topic' in config"))
 	}
 
 	message, ok := testCfg.Config["message"].(string)
 	if !ok {
-		return fmt.Errorf("produce operation requires 'message' in config")
+		return ConfigurationFailure(fmt.Errorf("produce operation requires 'message' in config"))
 	}
 
 	key, err := getStringOrDefault(testCfg.Config, "key", "")
@@ -246,17 +246,17 @@ func (e *QueueExecutor) kafkaConsume(ctx context.Context, brokers []string, test
 			expectedStr := fmt.Sprintf("%v", expectedMessage)
 			actualStr := string(msg.Value)
 			if expectedStr != actualStr {
-				return fmt.Errorf("expected message %q , got %q", expectedStr, actualStr)
+				return AssertionFailure(fmt.Errorf("expected message %q, got %q", expectedStr, actualStr))
 			}
 		}
 	}
 
 	if expectedCount > 0 && messagesRead != expectedCount {
-		return fmt.Errorf("expected %d messages, got %d", expectedCount, messagesRead)
+		return AssertionFailure(fmt.Errorf("expected %d messages, got %d", expectedCount, messagesRead))
 	}
 
 	if messagesRead == 0 && expectedCount > 0 {
-		return fmt.Errorf("no messages found in topic %s", topic)
+		return AssertionFailure(fmt.Errorf("no messages found in topic %s", topic))
 	}
 	return nil
 }
@@ -325,7 +325,7 @@ func (e *QueueExecutor) kafkaProduceAndConsume(ctx context.Context, brokers []st
 	expectedStr := fmt.Sprintf("%v", message)
 	actualStr := string(consumedMsg.Value)
 	if actualStr != expectedStr {
-		return fmt.Errorf("produced message %q but consumed %q", expectedStr, actualStr)
+		return AssertionFailure(fmt.Errorf("produced message %q but consumed %q", expectedStr, actualStr))
 	}
 
 	return nil
@@ -361,7 +361,7 @@ func (e *QueueExecutor) kafkaCheckTopic(ctx context.Context, brokers []string, t
 	}
 
 	if topicExists != expectedExists {
-		return fmt.Errorf("expected topic %s exists=%v got exists=%v", topic, expectedExists, topicExists)
+		return AssertionFailure(fmt.Errorf("expected topic %s exists=%v got exists=%v", topic, expectedExists, topicExists))
 	}
 	return nil
 }
@@ -464,7 +464,7 @@ func (e *QueueExecutor) rabbitMQConsume(ctx context.Context, channel *amqp.Chann
 			actualStr := string(msg.Body)
 			if expectedStr != actualStr {
 				_ = msg.Nack(false, true)
-				return fmt.Errorf("expected message %q , got %q", expectedStr, actualStr)
+				return AssertionFailure(fmt.Errorf("expected message %q, got %q", expectedStr, actualStr))
 			}
 		}
 
@@ -475,11 +475,11 @@ func (e *QueueExecutor) rabbitMQConsume(ctx context.Context, channel *amqp.Chann
 	}
 
 	if expectedCount > 0 && messagesRead != expectedCount {
-		return fmt.Errorf("expected %d messages, got %d", expectedCount, messagesRead)
+		return AssertionFailure(fmt.Errorf("expected %d messages, got %d", expectedCount, messagesRead))
 	}
 
 	if messagesRead == 0 && expectedCount > 0 {
-		return fmt.Errorf("no messages found in queue %s", queueName)
+		return AssertionFailure(fmt.Errorf("no messages found in queue %s", queueName))
 	}
 	return nil
 }
@@ -553,7 +553,7 @@ func (e *QueueExecutor) rabbitMQCheckTopic(ctx context.Context, runtime *types.S
 	}
 
 	if actualExists != expectedExists {
-		return fmt.Errorf("expected queue %s exists=%v got exists=%v", queueName, expectedExists, actualExists)
+		return AssertionFailure(fmt.Errorf("expected queue %s exists=%v got exists=%v", queueName, expectedExists, actualExists))
 	}
 	return nil
 }

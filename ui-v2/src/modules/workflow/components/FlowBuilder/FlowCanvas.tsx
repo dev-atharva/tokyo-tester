@@ -224,7 +224,7 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
       <Controls showInteractive={false} />
 
       {/* Top Left Toolbar */}
-      <Panel position="top-left">
+      <Panel data-testid="expert-status-controls" position="top-left">
         <div className="flex flex-col items-start gap-2">
           <SyncStatusIndicator />
           <div className="rounded-md border bg-background/95 px-2.5 py-1.5 text-[10px] text-muted-foreground shadow-sm">
@@ -273,29 +273,39 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
         </div>
       </Panel>
 
-      <Panel position="top-center">
+      <Panel
+        data-testid="expert-view-controls"
+        className="hidden lg:block"
+        position="top-center"
+      >
         <div className="flex items-center gap-1 rounded-lg border bg-background/92 p-1 shadow-md backdrop-blur-sm">
           <Button
+            aria-label="Architecture overview"
+            title="Architecture overview"
             size="sm"
             variant={viewMode === "overview" ? "secondary" : "ghost"}
             className="h-8"
             onClick={() => onViewModeChange("overview")}
           >
-            <IconLayoutBoardSplit className="mr-1.5 size-4" />
-            Overview
+            <IconLayoutBoardSplit className="size-4 2xl:mr-1.5" />
+            <span className="hidden 2xl:inline">Overview</span>
           </Button>
           <Button
+            aria-label="Architecture detail"
+            title="Architecture detail"
             size="sm"
             variant={viewMode === "detail" ? "secondary" : "ghost"}
             className="h-8"
             onClick={() => onViewModeChange("detail")}
           >
-            <IconListDetails className="mr-1.5 size-4" />
-            Detail
+            <IconListDetails className="size-4 2xl:mr-1.5" />
+            <span className="hidden 2xl:inline">Detail</span>
           </Button>
           {canEdit ? <div className="mx-1 h-5 w-px bg-border" /> : null}
           {canEdit ? (
             <Button
+              aria-label="Tidy layout"
+              title="Tidy layout"
               size="sm"
               variant="ghost"
               className="h-8"
@@ -306,15 +316,19 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
                 );
               }}
             >
-              <IconSparkles className="mr-1.5 size-4" />
-              Tidy layout
+              <IconSparkles className="size-4 2xl:mr-1.5" />
+              <span className="hidden 2xl:inline">Tidy layout</span>
             </Button>
           ) : null}
         </div>
       </Panel>
 
       {/* Top Right Toolbar */}
-      <Panel className="flex gap-2" position="top-right">
+      <Panel
+        data-testid="expert-action-controls"
+        className="flex flex-col gap-1 sm:flex-row"
+        position="top-right"
+      >
         {canEdit ? (
           <Button
             className="cursor-pointer shadow-md"
@@ -322,6 +336,7 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
             size="icon"
             onClick={onOpenShortcuts}
             title="Keyboard shortcuts (?)"
+            aria-label="Keyboard shortcuts"
           >
             <IconKeyboard className="size-4" />
           </Button>
@@ -333,6 +348,7 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
           size="icon"
           onClick={onOpenHistory}
           title="Execution history"
+          aria-label="Execution history"
         >
           <IconHistory className="size-4" />
         </Button>
@@ -343,6 +359,7 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
           size="icon"
           onClick={onOpenVersions}
           title="Workflow versions"
+          aria-label="Workflow versions"
         >
           <IconGitBranch className="size-4" />
         </Button>
@@ -352,9 +369,10 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
           variant="secondary"
           onClick={onOpenScenarios}
           title="Open scenario configuration"
+          aria-label="Open scenarios"
         >
-          <IconSitemap className="mr-2 size-4" />
-          Scenarios
+          <IconSitemap className="size-4 2xl:mr-2" />
+          <span className="hidden 2xl:inline">Scenarios</span>
         </Button>
 
         <Button
@@ -363,9 +381,10 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
           onClick={onOpenLogs}
           disabled={!hasActiveExecution}
           title="View workflow run (Ctrl+L)"
+          aria-label="View workflow run"
         >
-          <IconTerminal2 className="mr-2 size-4" />
-          View run
+          <IconTerminal2 className="size-4 2xl:mr-2" />
+          <span className="hidden 2xl:inline">View run</span>
         </Button>
 
         {canEdit ? (
@@ -373,9 +392,10 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
             className="cursor-pointer shadow-md"
             onClick={onOpenDrawer}
             title="Add node (Ctrl+N)"
+            aria-label="Add node"
           >
-            <IconPlus className="mr-2 size-4" />
-            Add Node
+            <IconPlus className="size-4 2xl:mr-2" />
+            <span className="hidden 2xl:inline">Add node</span>
           </Button>
         ) : null}
       </Panel>
@@ -398,7 +418,7 @@ export const FlowCanvas: React.FC<FlowCanvasProps> = ({
         </DisabledActionHelp>
       </Panel>
 
-      <Panel position="bottom-left">
+      <Panel className="hidden md:block" position="bottom-left">
         <ArchitectureLegend />
       </Panel>
 

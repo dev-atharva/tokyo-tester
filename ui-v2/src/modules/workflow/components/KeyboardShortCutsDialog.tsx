@@ -29,8 +29,11 @@ export function ShortcutsDialog({
 }: ShortcutsDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[72vh] w-[92vw] max-w-2xl overflow-hidden p-0">
-        <DialogHeader className="border-b px-6 py-5">
+      <DialogContent
+        data-testid="workflow-shortcuts-dialog"
+        className="h-[min(72dvh,42rem)] w-[calc(100vw-2rem)] max-w-2xl overflow-hidden p-0 sm:max-w-2xl"
+      >
+        <DialogHeader className="border-b px-4 py-4 sm:px-6 sm:py-5">
           <DialogTitle className="flex items-center gap-2">
             <IconKeyboard className="size-5" />
             Keyboard Shortcuts
@@ -40,7 +43,7 @@ export function ShortcutsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex h-full flex-col overflow-hidden px-6 py-5">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden px-4 py-4 sm:px-6 sm:py-5">
           <div className="space-y-4 overflow-auto pr-1">
             {shortcuts.map((item) => (
               <div

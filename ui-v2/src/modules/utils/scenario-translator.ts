@@ -566,6 +566,14 @@ function translateScenarioTests(
       name: test.name,
       type: test.type,
       depends_on: Array.from(dependsOn),
+      retry_policy: test.retryPolicy
+        ? {
+            mode: test.retryPolicy.mode,
+            ...(test.retryPolicy.idempotencyConfirmed
+              ? { idempotency_confirmed: true as const }
+              : {}),
+          }
+        : undefined,
       config,
     };
   });

@@ -20,6 +20,7 @@ type WorkflowBundleRunSummary struct {
 	TotalTests      int `json:"total_tests"`
 	PassedTests     int `json:"passed_tests"`
 	FailedTests     int `json:"failed_tests"`
+	RetriedTests    int `json:"retried_tests,omitempty"`
 }
 
 type WorkflowBundleRunResponse struct {

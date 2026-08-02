@@ -49,12 +49,25 @@ type ContainerResourceLimits struct {
 }
 
 type TestConfig struct {
-	ID             string         `yaml:"id,omitempty" json:"id,omitempty"`
-	Name           string         `yaml:"name" json:"name"`
-	Type           string         `yaml:"type" json:"type"`
-	TargetServices []string       `yaml:"target_services,omitempty" json:"target_services,omitempty"`
-	DependsOn      []string       `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
-	Config         map[string]any `yaml:"config" json:"config"`
+	ID             string          `yaml:"id,omitempty" json:"id,omitempty"`
+	Name           string          `yaml:"name" json:"name"`
+	Type           string          `yaml:"type" json:"type"`
+	TargetServices []string        `yaml:"target_services,omitempty" json:"target_services,omitempty"`
+	DependsOn      []string        `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
+	RetryPolicy    TestRetryPolicy `yaml:"retry_policy,omitempty" json:"retry_policy,omitempty"`
+	Config         map[string]any  `yaml:"config" json:"config"`
+}
+
+type TestRetryPolicy struct {
+	Mode                 string `yaml:"mode,omitempty" json:"mode,omitempty"`
+	IdempotencyConfirmed bool   `yaml:"idempotency_confirmed,omitempty" json:"idempotency_confirmed,omitempty"`
+}
+
+func (p TestRetryPolicy) EffectiveMode() string {
+	if p.Mode == "" {
+		return "transient"
+	}
+	return p.Mode
 }
 
 type WaitStratergyConfig struct {

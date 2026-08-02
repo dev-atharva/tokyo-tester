@@ -82,6 +82,41 @@ describe("workflow bundle", () => {
     expect(parsed.scenarios[0]?.testOrder).toEqual(["test-1", "test-2"]);
   });
 
+  test("round-trips an explicit idempotency retry policy", () => {
+    const baseTest = tests[0];
+    if (!baseTest?.httpConfig) {
+      throw new Error("HTTP fixture is missing its config");
+    }
+    const retriedTests: ScenarioTestDefinition[] = [
+      {
+        ...baseTest,
+        httpConfig: { ...baseTest.httpConfig, method: "POST" },
+        retryPolicy: {
+          mode: "transient",
+          idempotencyConfirmed: true,
+        },
+      },
+    ];
+    const bundle = createWorkflowBundle(
+      { name: "Retry", description: "", nodes, edges },
+      [
+        {
+          name: "Retry scenario",
+          description: "",
+          tests: retriedTests,
+          testOrder: ["test-1"],
+        },
+      ],
+    );
+
+    const parsed = parseWorkflowBundle(JSON.stringify(bundle));
+    expect(parsed.schemaVersion).toBe(2);
+    expect(parsed.scenarios[0]?.tests[0]?.retryPolicy).toEqual({
+      mode: "transient",
+      idempotencyConfirmed: true,
+    });
+  });
+
   test("materializes imported bundles with new test ids", () => {
     const bundle = createWorkflowBundle(
       {

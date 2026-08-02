@@ -36,6 +36,7 @@ func NewConfigManager() (*ConfigManager, error) {
 		ContainerMemoryMB:        getEnvIntOrDefault("WORKFLOW_CONTAINER_MEMORY_MB", 1024),
 		ContainerCPUMilli:        getEnvIntOrDefault("WORKFLOW_CONTAINER_CPU_MILLI", 1000),
 		ContainerPIDs:            getEnvIntOrDefault("WORKFLOW_CONTAINER_PIDS", 256),
+		DisableTestRetries:       getEnvBoolOrDefault("DISABLE_TEST_RETRIES", false),
 	}
 
 	cm.Database = *LoadDatabaseConfig()

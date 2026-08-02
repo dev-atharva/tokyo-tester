@@ -178,8 +178,11 @@ export const NodeConfigDialog: React.FC<NodeConfigProps> = ({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="h-[80vh] min-w-[80vw] overflow-hidden p-0">
-        <DialogHeader className="border-b bg-muted/30 px-6 py-5">
+      <DialogContent
+        data-testid="service-config-dialog"
+        className="h-[min(80dvh,52rem)] w-[calc(100vw-2rem)] max-w-6xl overflow-hidden p-0 sm:max-w-6xl"
+      >
+        <DialogHeader className="border-b bg-muted/30 px-4 py-4 sm:px-6 sm:py-5">
           <div className="flex items-center gap-2.5">
             <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
               <IconSettings2 className="size-4" />
@@ -198,15 +201,15 @@ export const NodeConfigDialog: React.FC<NodeConfigProps> = ({
           onValueChange={(v) => SetactiveTab(v as "service" | "registry")}
           className="flex h-full flex-col overflow-hidden"
         >
-          <div className="px-6 pt-5 pb-2">
-            <TabsList className="grid w-72 grid-cols-2">
+          <div className="px-4 pt-4 pb-2 sm:px-6 sm:pt-5">
+            <TabsList className="grid w-full grid-cols-2 sm:w-72">
               <TabsTrigger value="service">Service</TabsTrigger>
               <TabsTrigger value="registry">Registry</TabsTrigger>
             </TabsList>
           </div>
           <TabsContent
             value="service"
-            className="mt-0 h-full overflow-auto px-6 pb-5 w-full"
+            className="mt-0 h-full w-full overflow-auto px-4 pb-5 sm:px-6"
           >
             <ServiceConfigForm
               serviceData={editedNode.data}
@@ -216,7 +219,7 @@ export const NodeConfigDialog: React.FC<NodeConfigProps> = ({
           </TabsContent>
           <TabsContent
             value="registry"
-            className="mt-0 h-full overflow-auto px-6 pb-5 w-full"
+            className="mt-0 h-full w-full overflow-auto px-4 pb-5 sm:px-6"
           >
             <RegistryConfigForm
               serviceId={editedNode.id}
@@ -226,7 +229,7 @@ export const NodeConfigDialog: React.FC<NodeConfigProps> = ({
             />
           </TabsContent>
         </Tabs>
-        <DialogFooter className="border-t bg-muted/20 px-6 py-3">
+        <DialogFooter className="border-t bg-muted/20 px-4 py-3 sm:px-6">
           <DialogClose
             render={<Button variant="outline" className="shadow-sm" />}
           >

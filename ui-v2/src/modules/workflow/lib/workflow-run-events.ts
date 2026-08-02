@@ -1,5 +1,6 @@
 import type {
   ScenarioRunStatus,
+  TestAttempt,
   WorkflowLogEvent,
   WorkflowRunStatus,
 } from "../types/react-flow-cots";
@@ -23,6 +24,38 @@ export type TestExecutionDisplayStatus =
   | "not_run"
   | "not_recorded"
   | "interrupted";
+
+export function testRetryResult(value: unknown): {
+  attempts: TestAttempt[];
+  recovered: boolean;
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { attempts: [], recovered: false };
+  }
+  const result = value as {
+    attempts?: unknown;
+    recovered_after_retry?: unknown;
+    recoveredAfterRetry?: unknown;
+  };
+  const attempts = Array.isArray(result.attempts)
+    ? result.attempts.filter((attempt): attempt is TestAttempt =>
+        Boolean(
+          attempt &&
+            typeof attempt === "object" &&
+            typeof (attempt as TestAttempt).attempt === "number" &&
+            typeof (attempt as TestAttempt).outcome === "string",
+        ),
+      )
+    : [];
+  return {
+    attempts,
+    recovered: Boolean(
+      result.recovered_after_retry ??
+        result.recoveredAfterRetry ??
+        (attempts.length > 1 && attempts.at(-1)?.outcome === "passed"),
+    ),
+  };
+}
 
 function isTerminalWorkflowStatus(status?: WorkflowRunStatus) {
   return Boolean(
@@ -71,7 +104,8 @@ export function reconcileServiceExecutionState(
 function normalizeActiveTestStatus(
   status?: string,
 ): TestExecutionDisplayStatus {
-  if (status === "started" || status === "running") return "running";
+  if (status === "started" || status === "running" || status === "retrying")
+    return "running";
   if (status === "passed" || status === "failed" || status === "pending") {
     return status;
   }
@@ -111,6 +145,7 @@ export function reconcileTestExecutionStatus({
   if (
     eventStatus === "started" ||
     eventStatus === "running" ||
+    eventStatus === "retrying" ||
     storedStatus === "running"
   ) {
     return "interrupted";

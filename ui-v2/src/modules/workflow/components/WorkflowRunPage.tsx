@@ -66,6 +66,7 @@ import {
   resolveScenarioPresentationStatus,
   type ServiceExecutionState,
   type TestExecutionDisplayStatus,
+  testRetryResult,
 } from "../lib/workflow-run-events";
 import { hydrateWorkflowRunSnapshot } from "../lib/workflow-run-snapshot";
 import { useExecutionStore } from "../stores/execution.store.sync";
@@ -179,6 +180,34 @@ const CODE_ACTIONS: Record<string, string[]> = {
   TEST_TIMEOUT: [
     "Inspect service readiness and latency around the timed-out test.",
     "Adjust the timeout only if the observed behavior is expected.",
+  ],
+  TEST_TRANSPORT_CONNECTION_RESET: [
+    "Inspect the targeted service and host around the reset before assigning fault.",
+    "Retry the run after checking container restarts, readiness, and host pressure.",
+  ],
+  TEST_TRANSPORT_CONNECTION_REFUSED: [
+    "Confirm the targeted service remained ready and listening on the configured port.",
+    "Inspect container lifecycle and host capacity before retrying the run.",
+  ],
+  TEST_TRANSPORT_BROKEN_PIPE: [
+    "Inspect the targeted service and network path for an interrupted response.",
+    "Retry once after checking container restarts and host pressure.",
+  ],
+  TEST_TRANSPORT_CLOSED: [
+    "Check whether the service or Docker network closed while the request was active.",
+    "Inspect lifecycle evidence before changing the application assertion.",
+  ],
+  TEST_TRANSPORT_UNEXPECTED_EOF: [
+    "Inspect the service response and lifecycle evidence for an incomplete connection.",
+    "Retry after verifying readiness and available host resources.",
+  ],
+  TEST_TRANSPORT_EOF: [
+    "Check whether the target closed the connection without a complete response.",
+    "Inspect service and host evidence before retrying.",
+  ],
+  TEST_TRANSPORT_BAD_CONNECTION: [
+    "Inspect the database connection and host evidence around the interruption.",
+    "Retry once if the driver discarded a stale connection without other provider evidence.",
   ],
   SERVICE_CLEANUP_ERROR: [
     "Confirm the Docker host can stop and remove the listed resource.",
@@ -857,7 +886,7 @@ export function WorkflowRunPage({
       )}
     >
       <div className="border-b bg-background/90 backdrop-blur">
-        <div className="mx-auto grid max-w-[1680px] grid-cols-[28px_minmax(0,1fr)] items-start gap-x-3 gap-y-3 px-4 py-4 lg:grid-cols-[28px_minmax(0,1fr)_auto] lg:px-6">
+        <div className="mx-auto grid max-w-[1920px] grid-cols-[28px_minmax(0,1fr)] items-start gap-x-3 gap-y-3 px-4 py-4 lg:grid-cols-[28px_minmax(0,1fr)_auto] lg:px-6">
           <Link
             href={`/workflow/${encodeURIComponent(workflowId)}`}
             className={cn(
@@ -933,7 +962,7 @@ export function WorkflowRunPage({
             ) : null}
           </div>
         </div>
-        <div className="mx-auto grid max-w-[1680px] grid-cols-2 border-t md:grid-cols-4 lg:px-6">
+        <div className="mx-auto grid max-w-[1920px] grid-cols-2 border-t md:grid-cols-4 lg:px-6">
           <HeaderMetric
             label="Elapsed"
             value={formatDuration(elapsed)}
@@ -971,7 +1000,10 @@ export function WorkflowRunPage({
         Workflow run status: {execution?.status || "pending"}.
       </div>
 
-      <div className="mx-auto grid max-w-[1680px] gap-4 p-4 lg:p-6">
+      <div
+        data-testid="workflow-run-content"
+        className="mx-auto grid w-full max-w-[1920px] gap-4 p-4 lg:p-6"
+      >
         {definition ? (
           <ScenarioSwimlanes
             definition={definition}
@@ -1000,7 +1032,7 @@ export function WorkflowRunPage({
           </Alert>
         )}
 
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_460px]">
           <div className="grid min-w-0 gap-4">
             <Card>
               <CardHeader className="border-b">
@@ -1058,6 +1090,7 @@ export function WorkflowRunPage({
                 (result) => result.scenarioId === selectedScenarioId,
               )}
               diagnostics={diagnostics}
+              mode={mode}
               onSelect={(diagnostic, services) => {
                 if (diagnostic)
                   setSelectedDiagnosticKey(diagnosticKey(diagnostic));
@@ -1080,7 +1113,16 @@ export function WorkflowRunPage({
             />
           </div>
 
-          <div className="grid gap-4 xl:sticky xl:top-4">
+          <aside
+            data-testid="workflow-run-inspector"
+            aria-label="Run diagnostics and activity"
+            className={cn(
+              "grid min-w-0 gap-4 xl:sticky xl:top-4",
+              diagnostics.length > 0
+                ? "xl:h-[calc(100dvh-4.75rem)] xl:grid-rows-[minmax(0,3fr)_minmax(10rem,2fr)]"
+                : "xl:max-h-[calc(100dvh-4.75rem)] xl:grid-rows-[auto_minmax(0,1fr)]",
+            )}
+          >
             <DiagnosticInspector
               diagnostics={diagnostics}
               selectedKey={selectedDiagnosticKey}
@@ -1106,7 +1148,7 @@ export function WorkflowRunPage({
                 );
               }}
             />
-          </div>
+          </aside>
         </div>
       </div>
     </main>
@@ -1280,14 +1322,20 @@ function TestOrder({
   scenarioStatus,
   workflowStatus,
   diagnostics,
+  mode,
   onSelect,
 }: {
   tests: ScenarioTestDefinition[];
   events: WorkflowLogEvent[];
-  testResults: Array<{ testName: string; status: string }>;
+  testResults: Array<{
+    testName: string;
+    status: string;
+    resultData?: unknown;
+  }>;
   scenarioStatus?: ScenarioRunStatus;
   workflowStatus?: WorkflowRunStatus;
   diagnostics: ExecutionDiagnostic[];
+  mode: "guided" | "expert";
   onSelect: (
     diagnostic: ExecutionDiagnostic | undefined,
     services: string[],
@@ -1323,6 +1371,22 @@ function TestOrder({
             const diagnostic = diagnostics.find(
               (item) => item.testId === test.id || item.testName === test.name,
             );
+            const latestEvent = [...events]
+              .reverse()
+              .find(
+                (event) =>
+                  event.kind === "test" &&
+                  (event.testId === test.id || event.testName === test.name),
+              );
+            const retryResult = testRetryResult(stored?.resultData);
+            const isRetrying = latestEvent?.activityStatus === "retrying";
+            const statusLabel = isRetrying
+              ? `Attempt ${latestEvent.attempt ?? 2} of ${latestEvent.maxAttempts ?? 2}`
+              : status === "passed" && retryResult.recovered
+                ? "Passed after retry"
+                : status === "failed" && retryResult.attempts.length > 1
+                  ? `Failed after ${retryResult.attempts.length} attempts`
+                  : TEST_STATUS_LABELS[status];
             return (
               <button
                 type="button"
@@ -1349,12 +1413,30 @@ function TestOrder({
                       ? `observed at ${test.targetServices.join(", ")}`
                       : "no service target"}
                   </span>
+                  {retryResult.attempts.length > 1 ? (
+                    <span className="mt-1 block text-[10px] text-amber-700 dark:text-amber-400">
+                      {mode === "expert"
+                        ? retryResult.attempts
+                            .map(
+                              (attempt) =>
+                                `#${attempt.attempt} ${attempt.failure_code ?? attempt.outcome} ${attempt.duration_ms}ms`,
+                            )
+                            .join(" · ")
+                        : retryResult.recovered
+                          ? "Recovered from one transient connection interruption."
+                          : "The transient interruption continued after one retry."}
+                    </span>
+                  ) : null}
                 </span>
                 <Badge
                   variant={status === "failed" ? "destructive" : "outline"}
                   className="gap-1 capitalize"
+                  aria-live="polite"
+                  aria-atomic="true"
                 >
-                  {status === "passed" ? (
+                  {retryResult.recovered ? (
+                    <IconRefresh />
+                  ) : status === "passed" ? (
                     <IconCheck />
                   ) : status === "failed" ? (
                     <IconCircleX />
@@ -1365,7 +1447,7 @@ function TestOrder({
                   ) : (
                     <IconClock />
                   )}
-                  {TEST_STATUS_LABELS[status]}
+                  {statusLabel}
                 </Badge>
               </button>
             );
@@ -1411,7 +1493,10 @@ function DiagnosticInspector({
     : [];
 
   return (
-    <Card>
+    <Card
+      data-testid="workflow-run-diagnostics"
+      className={cn(diagnostics.length > 0 && "xl:min-h-0")}
+    >
       <CardHeader className="border-b">
         <CardTitle className="flex items-center gap-2">
           <IconAlertTriangle className="size-4" /> Diagnostics
@@ -1427,7 +1512,13 @@ function DiagnosticInspector({
           </Badge>
         </CardAction>
       </CardHeader>
-      <CardContent className="grid gap-3">
+      <CardContent
+        data-testid="workflow-run-diagnostic-body"
+        role={diagnostics.length > 0 ? "region" : undefined}
+        aria-label={diagnostics.length > 0 ? "Diagnostic details" : undefined}
+        tabIndex={diagnostics.length > 0 ? 0 : undefined}
+        className="grid gap-3 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain xl:[scrollbar-gutter:stable]"
+      >
         {diagnostics.length === 0 ? (
           <div className="flex items-start gap-3 border border-dashed p-4">
             <IconCircleCheck className="mt-0.5 size-4 text-primary" />
@@ -1560,7 +1651,7 @@ function ActivityInspector({
     .slice(-12)
     .reverse();
   return (
-    <Card data-testid="workflow-run-activity">
+    <Card data-testid="workflow-run-activity" className="xl:min-h-0">
       <CardHeader className="border-b">
         <CardTitle className="flex items-center gap-2">
           <IconActivity className="size-4" /> Activity
@@ -1569,8 +1660,8 @@ function ActivityInspector({
           Recent structured runner events for the selected scenario.
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <ScrollArea className="h-64">
+      <CardContent className="xl:min-h-0 xl:flex-1">
+        <ScrollArea className="h-64 xl:h-full">
           <div className="grid gap-1 pr-3">
             {structured.length === 0 ? (
               <p className="border border-dashed p-3 text-xs text-muted-foreground">
@@ -1588,6 +1679,7 @@ function ActivityInspector({
                     className={cn(
                       "mt-0.5 size-2 bg-muted-foreground",
                       event.activityStatus === "failed" && "bg-destructive",
+                      event.activityStatus === "retrying" && "bg-amber-500",
                       (event.activityStatus === "started" ||
                         event.activityStatus === "running") &&
                         "run-activity-dot bg-primary",
@@ -1600,6 +1692,9 @@ function ActivityInspector({
                         ? `${new Date(event.timestamp).toLocaleTimeString()} · #${event.sequence} · `
                         : ""}
                       {event.stage || "event"} / {event.kind || "log"}
+                      {expert && event.attempt
+                        ? ` · attempt ${event.attempt}/${event.maxAttempts ?? 2}${event.retryReason ? ` · ${event.retryReason}` : ""}`
+                        : ""}
                     </span>
                   </span>
                 </button>
@@ -1745,7 +1840,7 @@ function RawLogPanel({
 function WorkflowRunSkeleton() {
   return (
     <main
-      className="mx-auto grid max-w-[1680px] gap-4 p-6"
+      className="mx-auto grid max-w-[1920px] gap-4 p-6"
       aria-label="Loading workflow run"
     >
       <div className="flex items-center justify-between gap-4">
@@ -1756,7 +1851,7 @@ function WorkflowRunSkeleton() {
         <Skeleton className="h-8 w-64" />
       </div>
       <Skeleton className="h-28 w-full" />
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_460px]">
         <Skeleton className="h-[560px] w-full" />
         <Skeleton className="h-[560px] w-full" />
       </div>

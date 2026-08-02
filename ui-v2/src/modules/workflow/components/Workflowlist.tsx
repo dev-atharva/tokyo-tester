@@ -463,7 +463,7 @@ export const WorkflowList = () => {
         }}
       >
         <div
-          className="workflow-shell-enter flex flex-col gap-5 p-4 sm:p-6"
+          className="workflow-shell-enter mx-auto flex w-full max-w-[1920px] flex-col gap-5 p-4 sm:p-6"
           data-testid="workflow-list"
           data-hydrated={isReady}
         >

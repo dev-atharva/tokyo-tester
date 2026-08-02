@@ -106,7 +106,7 @@ func (r *Runner) RunTests(ctx context.Context, tests []config.TestConfig) error 
 			}
 
 			fmt.Printf("Running test : %s (type %s)\n", testName, testCfg.Type)
-			if err := executor.Execute(ctx, testCfg, r.runtimeReg); err != nil {
+			if _, err := ExecuteWithRetry(ctx, executor, testCfg, r.runtimeReg, RetryOptions{}); err != nil {
 				// Collect logs from all services when test fails
 				testErr := &TestError{
 					TestName:      testName,
@@ -131,7 +131,7 @@ func (r *Runner) RunSingleTest(ctx context.Context, testCfg config.TestConfig) e
 	}
 
 	fmt.Printf("Running test: %s (type %s)\n", testCfg.Name, testCfg.Type)
-	if err := executor.Execute(ctx, testCfg, r.runtimeReg); err != nil {
+	if _, err := ExecuteWithRetry(ctx, executor, testCfg, r.runtimeReg, RetryOptions{}); err != nil {
 		testErr := &TestError{
 			TestName:      testCfg.Name,
 			TestType:      testCfg.Type,

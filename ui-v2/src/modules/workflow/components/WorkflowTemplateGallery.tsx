@@ -52,7 +52,10 @@ export function WorkflowTemplateGallery({
 }: WorkflowTemplateGalleryProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent
+        data-testid="workflow-template-gallery"
+        className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-3xl"
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <IconTemplate />
@@ -63,7 +66,7 @@ export function WorkflowTemplateGallery({
             inspect, and adapt to your own system.
           </DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[70vh]">
+        <ScrollArea className="min-h-0 flex-1">
           <div className="grid gap-4 p-1 md:grid-cols-3">
             {WORKFLOW_TEMPLATES.map((template) => {
               const Icon = templateIcons[template.id];

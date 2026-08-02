@@ -67,8 +67,11 @@ export function RunWorkflowDialog({
         if (!isExecuting) onOpenChange(nextOpen);
       }}
     >
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
+      <DialogContent
+        data-testid="run-workflow-dialog"
+        className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-xl"
+      >
+        <DialogHeader className="shrink-0">
           <DialogTitle>Review and run in Docker</DialogTitle>
           <DialogDescription>
             Select the scenarios for this isolated workflow run.
@@ -124,7 +127,7 @@ export function RunWorkflowDialog({
             </div>
           </div>
         ) : null}
-        <FieldSet className="max-h-[55vh] overflow-y-auto pr-1">
+        <FieldSet className="min-h-0 flex-1 overflow-y-auto pr-1">
           <FieldGroup data-slot="checkbox-group">
             {scenarios.map((scenario) => {
               const checked = selectedIds.has(scenario.id);
@@ -156,7 +159,7 @@ export function RunWorkflowDialog({
             })}
           </FieldGroup>
         </FieldSet>
-        <DialogFooter>
+        <DialogFooter className="shrink-0">
           <Button
             variant="outline"
             disabled={isExecuting}

@@ -20,51 +20,51 @@ type DatabaseExecutor struct{}
 func (e *DatabaseExecutor) Execute(ctx context.Context, testCfg config.TestConfig, registry *orchestrator.RuntimeRegsitry) error {
 	query, ok := testCfg.Config["query"].(string)
 	if !ok {
-		return fmt.Errorf("database test requires 'query' in the configuration")
+		return ConfigurationFailure(fmt.Errorf("database test requires 'query' in the configuration"))
 	}
 	serviceName, ok := testCfg.Config["service"].(string)
 	if !ok {
-		return fmt.Errorf("database test requires 'service' in the configuration")
+		return ConfigurationFailure(fmt.Errorf("database test requires 'service' in the configuration"))
 	}
 
 	driver, ok := testCfg.Config["driver"].(string)
 	if !ok {
-		return fmt.Errorf("database test requires 'driver' in the configuration")
+		return ConfigurationFailure(fmt.Errorf("database test requires 'driver' in the configuration"))
 	}
 
 	runtime, ok := registry.Get(serviceName)
 	if !ok {
-		return fmt.Errorf("service not found : %s", serviceName)
+		return ConfigurationFailure(fmt.Errorf("service not found : %s", serviceName))
 	}
 
 	connStr, err := e.buildConnectionString(driver, runtime, testCfg.Config)
 	if err != nil {
-		return fmt.Errorf("failed to build the connection string")
+		return ConfigurationFailure(fmt.Errorf("failed to build the connection string: %w", err))
 	}
 
 	db, err := sql.Open(resolveSQLDriverName(driver), connStr)
 	if err != nil {
-		return fmt.Errorf("failed to connect to teh database : %w", err)
+		return SetupFailure(fmt.Errorf("failed to connect to the database: %w", err))
 	}
 	defer db.Close()
 
 	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping the database : %w", err)
+		return SetupFailure(fmt.Errorf("failed to ping the database: %w", err))
 	}
 
 	//Exexute the query
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
-		return fmt.Errorf("query failed: %w", err)
+		return OperationFailure(PhaseDispatch, fmt.Errorf("query failed: %w", err))
 	}
 	defer rows.Close()
 
 	expectedResult, ok, err := lookupConfigValue(testCfg.Config, "expected_result")
 	if err != nil {
-		return err
+		return ConfigurationFailure(err)
 	}
 	if ok {
-		return e.validateResult(rows, expectedResult)
+		return ResultValidationFailure(e.validateResult(rows, expectedResult))
 	}
 	return nil
 }

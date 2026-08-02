@@ -133,6 +133,7 @@ type ScenarioTestDefinition struct {
 	Type             string          `json:"type"`
 	TargetServices   []string        `json:"targetServices"`
 	DependsOnTestIDs []string        `json:"dependsOnTestIds,omitempty"`
+	RetryPolicy      *RetryPolicy    `json:"retryPolicy,omitempty"`
 	DatabaseConfig   *DatabaseConfig `json:"databaseConfig,omitempty"`
 	DocumentConfig   *DocumentConfig `json:"documentConfig,omitempty"`
 	HTTPConfig       *HTTPConfig     `json:"httpConfig,omitempty"`
@@ -140,6 +141,11 @@ type ScenarioTestDefinition struct {
 	CacheConfig      *CacheConfig    `json:"cacheConfig,omitempty"`
 	QueueConfig      *QueueConfig    `json:"queueConfig,omitempty"`
 	DelayConfig      *DelayConfig    `json:"delayConfig,omitempty"`
+}
+
+type RetryPolicy struct {
+	Mode                 string `json:"mode"`
+	IdempotencyConfirmed bool   `json:"idempotencyConfirmed,omitempty"`
 }
 
 type DatabaseConfig struct {
@@ -624,6 +630,18 @@ func validPort(value string) bool {
 }
 
 func validateScenarioTestConfig(test ScenarioTestDefinition, services map[string]struct{}) error {
+	if test.RetryPolicy != nil {
+		if !slices.Contains([]string{"transient", "never"}, test.RetryPolicy.Mode) {
+			return fmt.Errorf("scenario test %q has invalid retry mode %q", test.Name, test.RetryPolicy.Mode)
+		}
+		if test.RetryPolicy.Mode == "never" && test.RetryPolicy.IdempotencyConfirmed {
+			return fmt.Errorf("scenario test %q cannot confirm idempotency when retries are disabled", test.Name)
+		}
+		if test.Type == "delay" && test.RetryPolicy.IdempotencyConfirmed {
+			return fmt.Errorf("delay test %q cannot enable idempotent retries", test.Name)
+		}
+	}
+
 	configs := map[string]bool{
 		"databaseConfig": test.DatabaseConfig != nil,
 		"documentConfig": test.DocumentConfig != nil,
@@ -1017,11 +1035,21 @@ func translateScenarioTests(
 			Type:           testDef.Type,
 			TargetServices: slices.Clone(testDef.TargetServices),
 			DependsOn:      dependsOn,
+			RetryPolicy:    translateRetryPolicy(testDef.RetryPolicy),
 			Config:         buildTestConfig(testDef, defaultService, requiredServices),
 		})
 	}
 
 	return result
+}
+
+func translateRetryPolicy(policy *RetryPolicy) config.TestRetryPolicy {
+	if policy == nil {
+		return config.TestRetryPolicy{}
+	}
+	return config.TestRetryPolicy{
+		Mode: policy.Mode, IdempotencyConfirmed: policy.IdempotencyConfirmed,
+	}
 }
 
 func buildTestConfig(

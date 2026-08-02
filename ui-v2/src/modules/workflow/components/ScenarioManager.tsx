@@ -57,6 +57,7 @@ import { TestConfigForm } from "./TestConfigForm";
 interface ScenarioManagerProps {
   workflowId: string;
   nodes: FlowNode[];
+  authoringMode?: "guided" | "expert";
 }
 
 // ── Sortable test row ────────────────────────────────────────────────────────
@@ -70,6 +71,7 @@ interface SortableTestRowProps {
   onUpdate: (updated: ScenarioTestDefinition) => void;
   availableServices: string[];
   serviceNodes: FlowNode[];
+  authoringMode: "guided" | "expert";
 }
 
 function SortableTestRow({
@@ -81,6 +83,7 @@ function SortableTestRow({
   onUpdate,
   availableServices,
   serviceNodes,
+  authoringMode,
 }: SortableTestRowProps) {
   const {
     attributes,
@@ -168,6 +171,7 @@ function SortableTestRow({
                 tests={[test]}
                 availableServices={availableServices}
                 serviceNodes={serviceNodes}
+                authoringMode={authoringMode}
                 onChange={(updated) => {
                   if (updated[0]) onUpdate(updated[0]);
                 }}
@@ -209,7 +213,11 @@ function DragOverlayRow({
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
+export function ScenarioManager({
+  workflowId,
+  nodes,
+  authoringMode = "expert",
+}: ScenarioManagerProps) {
   const createScenario = useScenarioStore((state) => state.createScenario);
   const updateScenario = useScenarioStore((state) => state.updateScenario);
   const deleteScenario = useScenarioStore((state) => state.deleteScenario);
@@ -578,6 +586,7 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
                               }}
                               availableServices={availableServices}
                               serviceNodes={nodes}
+                              authoringMode={authoringMode}
                             />
                           ))}
                         </div>

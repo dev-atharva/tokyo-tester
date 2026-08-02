@@ -91,6 +91,10 @@ export interface TestConfig {
     | "queue"
     | "delay";
   depends_on: string[];
+  retry_policy?: {
+    mode: "transient" | "never";
+    idempotency_confirmed?: true;
+  };
   config: Record<string, JsonValue>;
 }
 
@@ -126,7 +130,29 @@ export interface RunTestsResponse {
     total: number;
     passed: number;
     failed: number;
+    retried?: number;
   };
+}
+
+export interface TestRetryPolicy {
+  mode: "transient" | "never";
+  idempotencyConfirmed?: true;
+}
+
+export interface TestAttempt {
+  attempt: number;
+  outcome: "passed" | "failed";
+  duration_ms: number;
+  failure_class?:
+    | "transient_transport"
+    | "assertion"
+    | "configuration"
+    | "execution"
+    | "timeout"
+    | "cancelled";
+  failure_code?: string;
+  message?: string;
+  retry_scheduled?: boolean;
 }
 
 export interface TestResult {
@@ -135,6 +161,9 @@ export interface TestResult {
   type: string;
   message?: string;
   duration?: number;
+  duration_ms?: number;
+  attempts?: TestAttempt[];
+  recovered_after_retry?: boolean;
   output?: JsonValue;
   container_logs?: Record<string, string>;
   diagnostic?: ExecutionDiagnostic;
@@ -183,6 +212,7 @@ export interface ScenarioTestDefinition {
     | "delay";
   targetServices: string[];
   dependsOnTestIds?: string[];
+  retryPolicy?: TestRetryPolicy;
   databaseConfig?: {
     driver: "postgres" | "mysql" | "mariadb";
     database: string;
@@ -212,7 +242,7 @@ export interface ScenarioTestDefinition {
     expectedExists?: boolean;
   };
   httpConfig?: {
-    method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+    method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS";
     path: string;
     port: string;
     headers?: Record<string, string>;
@@ -471,6 +501,7 @@ export interface WorkflowResult {
     totalTests: number;
     passedTests: number;
     failedTests: number;
+    retriedTests?: number;
   };
   errors?: string[];
   diagnostics?: ExecutionDiagnostic[];
@@ -524,6 +555,7 @@ export interface WorkflowLogEvent {
     | "started"
     | "ready"
     | "running"
+    | "retrying"
     | "passed"
     | "failed"
     | "completed";
@@ -532,6 +564,9 @@ export interface WorkflowLogEvent {
   serviceNames?: string[];
   testId?: string;
   testName?: string;
+  attempt?: number;
+  maxAttempts?: number;
+  retryReason?: string;
   diagnostic?: ExecutionDiagnostic;
   timestamp: number;
   sequence: number;

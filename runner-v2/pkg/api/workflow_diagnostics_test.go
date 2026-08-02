@@ -3,12 +3,14 @@ package api
 import (
 	"errors"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/dev-atharva/cots/pkg/dto"
 	apperrors "github.com/dev-atharva/cots/pkg/errors"
 	"github.com/dev-atharva/cots/pkg/executionevent"
 	"github.com/dev-atharva/cots/pkg/orchestrator"
+	testpkg "github.com/dev-atharva/cots/pkg/test"
 )
 
 func TestClassifyExecutionError(t *testing.T) {
@@ -55,6 +57,36 @@ func TestClassifyExecutionError(t *testing.T) {
 			source, confidence, code := classifyExecutionError(apperrors.New(test.code, "typed failure"))
 			if source != test.source || confidence != test.confidence || code != test.code.String() {
 				t.Fatalf("got (%s, %s, %s), want (%s, %s, %s)", source, confidence, code, test.source, test.confidence, test.code)
+			}
+		})
+	}
+}
+
+func TestClassifyTypedRetryFailuresWithoutInferringFault(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		err        error
+		source     executionevent.DiagnosticSource
+		confidence executionevent.DiagnosticConfidence
+		code       string
+	}{
+		{
+			name: "transient transport", err: testpkg.OperationFailure(testpkg.PhaseDispatch, syscall.ECONNRESET),
+			source: executionevent.SourceUndetermined, confidence: executionevent.ConfidenceUnknown, code: "TEST_TRANSPORT_CONNECTION_RESET",
+		},
+		{
+			name: "assertion", err: testpkg.AssertionFailure(errors.New("expected 200, got 418")),
+			source: executionevent.SourceServiceEnvironment, confidence: executionevent.ConfidenceLikely, code: "TEST_ASSERTION_ERROR",
+		},
+		{
+			name: "configuration", err: testpkg.ConfigurationFailure(errors.New("missing service")),
+			source: executionevent.SourceWorkflowConfig, confidence: executionevent.ConfidenceCertain, code: "TEST_CONFIGURATION_ERROR",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, confidence, code := classifyExecutionError(tt.err)
+			if source != tt.source || confidence != tt.confidence || code != tt.code {
+				t.Fatalf("got (%s, %s, %s), want (%s, %s, %s)", source, confidence, code, tt.source, tt.confidence, tt.code)
 			}
 		})
 	}

@@ -48,13 +48,20 @@ func workflowBundleToolSchema() map[string]any {
 			"type":             map[string]any{"type": "string", "enum": []string{"http", "database", "document", "cache", "queue", "shell", "delay"}, "description": "Test executor type; include exactly the matching *Config field."},
 			"targetServices":   map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "description": "Validated sanitized service labels.", "items": map[string]any{"type": "string", "minLength": 1}},
 			"dependsOnTestIds": map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string", "minLength": 1}},
-			"httpConfig":       configs["httpConfig"],
-			"databaseConfig":   configs["databaseConfig"],
-			"documentConfig":   configs["documentConfig"],
-			"cacheConfig":      configs["cacheConfig"],
-			"queueConfig":      configs["queueConfig"],
-			"shellConfig":      configs["shellConfig"],
-			"delayConfig":      configs["delayConfig"],
+			"retryPolicy": map[string]any{
+				"type": "object", "description": "Optional transient retry policy. Omission enables one safe automatic retry.", "required": []string{"mode"}, "additionalProperties": false,
+				"properties": map[string]any{
+					"mode":                 map[string]any{"type": "string", "enum": []string{"transient", "never"}},
+					"idempotencyConfirmed": map[string]any{"type": "boolean", "const": true, "description": "Explicit assertion that a state-changing operation may be executed twice."},
+				},
+			},
+			"httpConfig":     configs["httpConfig"],
+			"databaseConfig": configs["databaseConfig"],
+			"documentConfig": configs["documentConfig"],
+			"cacheConfig":    configs["cacheConfig"],
+			"queueConfig":    configs["queueConfig"],
+			"shellConfig":    configs["shellConfig"],
+			"delayConfig":    configs["delayConfig"],
 		},
 	}
 	return map[string]any{
