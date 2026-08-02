@@ -15,9 +15,36 @@ export type ServiceType =
   | "memcached"
   | "kafka"
   | "rabbitmq"
-  | "mongodb";
+  | "mongodb"
+  | "nginx"
+  | "mockserver";
+
+export type MockServerHttpMethod =
+  | "GET"
+  | "POST"
+  | "PUT"
+  | "PATCH"
+  | "DELETE"
+  | "HEAD"
+  | "OPTIONS";
+
+export interface MockServerExpectation {
+  id: string;
+  request: {
+    method: MockServerHttpMethod;
+    path: string;
+    headers?: Record<string, string>;
+    body?: string;
+  };
+  response: {
+    statusCode: number;
+    headers?: Record<string, string>;
+    body?: string;
+  };
+}
 
 export interface ServiceConfig {
+  id?: string;
   name: string;
   type: ServiceType;
   image?: string;
@@ -27,6 +54,15 @@ export interface ServiceConfig {
   depends_on?: string[];
   wait_strategy?: WaitStratergyConfig;
   init_scripts?: string[];
+  mockserver_expectations?: Array<{
+    id: string;
+    request: MockServerExpectation["request"];
+    response: {
+      status_code: number;
+      headers?: Record<string, string>;
+      body?: string;
+    };
+  }>;
   registry?: RegistryConfig;
 }
 
@@ -55,6 +91,10 @@ export interface TestConfig {
     | "queue"
     | "delay";
   depends_on: string[];
+  retry_policy?: {
+    mode: "transient" | "never";
+    idempotency_confirmed?: true;
+  };
   config: Record<string, JsonValue>;
 }
 
@@ -90,7 +130,29 @@ export interface RunTestsResponse {
     total: number;
     passed: number;
     failed: number;
+    retried?: number;
   };
+}
+
+export interface TestRetryPolicy {
+  mode: "transient" | "never";
+  idempotencyConfirmed?: true;
+}
+
+export interface TestAttempt {
+  attempt: number;
+  outcome: "passed" | "failed";
+  duration_ms: number;
+  failure_class?:
+    | "transient_transport"
+    | "assertion"
+    | "configuration"
+    | "execution"
+    | "timeout"
+    | "cancelled";
+  failure_code?: string;
+  message?: string;
+  retry_scheduled?: boolean;
 }
 
 export interface TestResult {
@@ -99,8 +161,12 @@ export interface TestResult {
   type: string;
   message?: string;
   duration?: number;
+  duration_ms?: number;
+  attempts?: TestAttempt[];
+  recovered_after_retry?: boolean;
   output?: JsonValue;
   container_logs?: Record<string, string>;
+  diagnostic?: ExecutionDiagnostic;
 }
 
 export interface ServiceNodeData {
@@ -120,6 +186,9 @@ export interface ServiceNodeData {
       timeout?: number;
     };
     initScripts?: InitScript[];
+    mockServer?: {
+      expectations: MockServerExpectation[];
+    };
     registry?: {
       url: string;
       auth_type: "none" | "basic" | "token";
@@ -143,6 +212,7 @@ export interface ScenarioTestDefinition {
     | "delay";
   targetServices: string[];
   dependsOnTestIds?: string[];
+  retryPolicy?: TestRetryPolicy;
   databaseConfig?: {
     driver: "postgres" | "mysql" | "mariadb";
     database: string;
@@ -172,7 +242,7 @@ export interface ScenarioTestDefinition {
     expectedExists?: boolean;
   };
   httpConfig?: {
-    method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+    method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS";
     path: string;
     port: string;
     headers?: Record<string, string>;
@@ -431,8 +501,10 @@ export interface WorkflowResult {
     totalTests: number;
     passedTests: number;
     failedTests: number;
+    retriedTests?: number;
   };
   errors?: string[];
+  diagnostics?: ExecutionDiagnostic[];
   duration?: number;
 }
 
@@ -444,6 +516,7 @@ export interface ScenarioExecutionResult {
   status: ScenarioRunStatus;
   testResults?: RunTestsResponse;
   error?: string;
+  diagnostics?: ExecutionDiagnostic[];
 }
 
 export type NodeMap = Map<string, FlowNode>;
@@ -463,7 +536,13 @@ export interface WorkflowLogEvent {
   scenarioName?: string;
   backendSessionId?: string;
   message: string;
-  status?: "running" | "completed" | "failed" | "cleanup_failed";
+  status?:
+    | "running"
+    | "cancelling"
+    | "cancelled"
+    | "completed"
+    | "failed"
+    | "cleanup_failed";
   stage?:
     | "validation"
     | "translation"
@@ -471,10 +550,58 @@ export interface WorkflowLogEvent {
     | "execution"
     | "cleanup"
     | "aggregation";
+  kind?: "lifecycle" | "network" | "service" | "test" | "diagnostic";
+  activityStatus?:
+    | "started"
+    | "ready"
+    | "running"
+    | "retrying"
+    | "passed"
+    | "failed"
+    | "completed";
+  serviceId?: string;
+  serviceName?: string;
+  serviceNames?: string[];
+  testId?: string;
+  testName?: string;
+  attempt?: number;
+  maxAttempts?: number;
+  retryReason?: string;
+  diagnostic?: ExecutionDiagnostic;
   timestamp: number;
   sequence: number;
   result?: JsonValue;
   error?: string;
+}
+
+export type ExecutionDiagnosticSource =
+  | "tokyo_tester"
+  | "workflow_configuration"
+  | "service_environment"
+  | "host_infrastructure"
+  | "undetermined";
+
+export interface ExecutionDiagnostic {
+  code: string;
+  source: ExecutionDiagnosticSource;
+  confidence: "certain" | "likely" | "unknown";
+  stage:
+    | "validation"
+    | "translation"
+    | "provision"
+    | "execution"
+    | "cleanup"
+    | "aggregation";
+  summary: string;
+  scenarioId?: string;
+  testId?: string;
+  testName?: string;
+  serviceNames?: string[];
+  evidence?: Array<{
+    kind: "runner_error" | "container_log" | "test_result" | "lifecycle_event";
+    serviceName?: string;
+    message: string;
+  }>;
 }
 
 export type ScenarioTestResultStatus =
@@ -502,6 +629,7 @@ export interface ScenarioTestResultEvent {
     executedAt?: string;
     action: "create" | "update";
     containerLogs?: Record<string, string>;
+    diagnostic?: ExecutionDiagnostic;
     sequence: number;
   }>;
 }

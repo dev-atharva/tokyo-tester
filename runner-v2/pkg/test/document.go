@@ -17,76 +17,76 @@ type DocumentExecutor struct{}
 func (e *DocumentExecutor) Execute(ctx context.Context, testCfg config.TestConfig, registry *orchestrator.RuntimeRegsitry) error {
 	serviceName, ok := testCfg.Config["service"].(string)
 	if !ok || serviceName == "" {
-		return fmt.Errorf("document test requires 'service' in the configuration")
+		return ConfigurationFailure(fmt.Errorf("document test requires 'service' in the configuration"))
 	}
 
 	databaseName, ok := testCfg.Config["database"].(string)
 	if !ok || databaseName == "" {
-		return fmt.Errorf("document test requires 'database' in the configuration")
+		return ConfigurationFailure(fmt.Errorf("document test requires 'database' in the configuration"))
 	}
 
 	collectionName, ok := testCfg.Config["collection"].(string)
 	if !ok || collectionName == "" {
-		return fmt.Errorf("document test requires 'collection' in the configuration")
+		return ConfigurationFailure(fmt.Errorf("document test requires 'collection' in the configuration"))
 	}
 
 	operation, ok := testCfg.Config["operation"].(string)
 	if !ok || operation == "" {
-		return fmt.Errorf("document test requires 'operation' in the configuration")
+		return ConfigurationFailure(fmt.Errorf("document test requires 'operation' in the configuration"))
 	}
 
 	runtime, ok := registry.Get(serviceName)
 	if !ok {
-		return fmt.Errorf("service not found : %s", serviceName)
+		return ConfigurationFailure(fmt.Errorf("service not found : %s", serviceName))
 	}
 
 	mongoURI := runtime.EnvVars["MONGODB_URI"]
 	if mongoURI == "" {
-		return fmt.Errorf("MONGODB_URI not found in the service runtime")
+		return ConfigurationFailure(fmt.Errorf("MONGODB_URI not found in the service runtime"))
 	}
 	mongoURI, err := types.NormalizeURLHost(mongoURI)
 	if err != nil {
-		return fmt.Errorf("invalid MONGODB_URI: %w", err)
+		return ConfigurationFailure(fmt.Errorf("invalid MONGODB_URI: %w", err))
 	}
 
 	client, err := mongo.Connect(options.Client().ApplyURI(mongoURI))
 	if err != nil {
-		return fmt.Errorf("failed to connect to mongodb: %w", err)
+		return SetupFailure(fmt.Errorf("failed to connect to mongodb: %w", err))
 	}
 	defer func() {
 		_ = client.Disconnect(ctx)
 	}()
 
 	if err := client.Ping(ctx, nil); err != nil {
-		return fmt.Errorf("failed to ping mongodb: %w", err)
+		return SetupFailure(fmt.Errorf("failed to ping mongodb: %w", err))
 	}
 
 	collection := client.Database(databaseName).Collection(collectionName)
 
 	switch operation {
 	case "insert_one":
-		return e.insertOne(ctx, collection, testCfg.Config)
+		return OperationFailure(PhaseDispatch, e.insertOne(ctx, collection, testCfg.Config))
 	case "find_one":
-		return e.findOne(ctx, collection, testCfg.Config)
+		return OperationFailure(PhaseDispatch, e.findOne(ctx, collection, testCfg.Config))
 	case "find_many":
-		return e.findMany(ctx, collection, testCfg.Config)
+		return OperationFailure(PhaseDispatch, e.findMany(ctx, collection, testCfg.Config))
 	case "update_one":
-		return e.updateOne(ctx, collection, testCfg.Config)
+		return OperationFailure(PhaseDispatch, e.updateOne(ctx, collection, testCfg.Config))
 	case "delete_one":
-		return e.deleteOne(ctx, collection, testCfg.Config)
+		return OperationFailure(PhaseDispatch, e.deleteOne(ctx, collection, testCfg.Config))
 	case "count_documents":
-		return e.countDocuments(ctx, collection, testCfg.Config)
+		return OperationFailure(PhaseDispatch, e.countDocuments(ctx, collection, testCfg.Config))
 	case "exists":
-		return e.exists(ctx, collection, testCfg.Config)
+		return OperationFailure(PhaseDispatch, e.exists(ctx, collection, testCfg.Config))
 	default:
-		return fmt.Errorf("unsupported document operation: %s", operation)
+		return ConfigurationFailure(fmt.Errorf("unsupported document operation: %s", operation))
 	}
 }
 
 func (e *DocumentExecutor) insertOne(ctx context.Context, collection *mongo.Collection, cfg map[string]any) error {
 	document, ok := toDocumentMap(cfg["document"])
 	if !ok {
-		return fmt.Errorf("insert_one requires 'document' object")
+		return ConfigurationFailure(fmt.Errorf("insert_one requires 'document' object"))
 	}
 
 	_, err := collection.InsertOne(ctx, document)
@@ -99,7 +99,7 @@ func (e *DocumentExecutor) insertOne(ctx context.Context, collection *mongo.Coll
 func (e *DocumentExecutor) findOne(ctx context.Context, collection *mongo.Collection, cfg map[string]any) error {
 	filter, ok := toDocumentMap(cfg["filter"])
 	if !ok {
-		return fmt.Errorf("find_one requires 'filter' object")
+		return ConfigurationFailure(fmt.Errorf("find_one requires 'filter' object"))
 	}
 
 	var actual bson.M
@@ -109,15 +109,15 @@ func (e *DocumentExecutor) findOne(ctx context.Context, collection *mongo.Collec
 
 	expectedValue, found, err := lookupConfigValue(cfg, "expected_document")
 	if err != nil {
-		return err
+		return ConfigurationFailure(err)
 	}
 	expected, ok := toDocumentMap(expectedValue)
 	if !found || !ok {
-		return fmt.Errorf("find_one requires 'expected_document' object")
+		return ConfigurationFailure(fmt.Errorf("find_one requires 'expected_document' object"))
 	}
 
 	if !matchesPartialDocument(actual, expected) {
-		return fmt.Errorf("find_one result did not match expected document")
+		return AssertionFailure(fmt.Errorf("find_one result did not match expected document"))
 	}
 	return nil
 }
@@ -125,7 +125,7 @@ func (e *DocumentExecutor) findOne(ctx context.Context, collection *mongo.Collec
 func (e *DocumentExecutor) findMany(ctx context.Context, collection *mongo.Collection, cfg map[string]any) error {
 	filter, ok := toDocumentMap(cfg["filter"])
 	if !ok {
-		return fmt.Errorf("find_many requires 'filter' object")
+		return ConfigurationFailure(fmt.Errorf("find_many requires 'filter' object"))
 	}
 
 	cursor, err := collection.Find(ctx, filter)
@@ -141,11 +141,11 @@ func (e *DocumentExecutor) findMany(ctx context.Context, collection *mongo.Colle
 
 	expectedValue, found, err := lookupConfigValue(cfg, "expected_documents")
 	if err != nil {
-		return err
+		return ConfigurationFailure(err)
 	}
 	expectedDocs, ok := toDocumentList(expectedValue)
 	if !found || !ok {
-		return fmt.Errorf("find_many requires 'expected_documents' array")
+		return ConfigurationFailure(fmt.Errorf("find_many requires 'expected_documents' array"))
 	}
 
 	for _, expected := range expectedDocs {
@@ -157,7 +157,7 @@ func (e *DocumentExecutor) findMany(ctx context.Context, collection *mongo.Colle
 			}
 		}
 		if !found {
-			return fmt.Errorf("expected document not found in find_many results")
+			return AssertionFailure(fmt.Errorf("expected document not found in find_many results"))
 		}
 	}
 	return nil
@@ -178,7 +178,7 @@ func (e *DocumentExecutor) updateOne(ctx context.Context, collection *mongo.Coll
 		return fmt.Errorf("update_one failed: %w", err)
 	}
 	if result.MatchedCount == 0 {
-		return fmt.Errorf("update_one matched no documents")
+		return AssertionFailure(fmt.Errorf("update_one matched no documents"))
 	}
 	return nil
 }
@@ -194,7 +194,7 @@ func (e *DocumentExecutor) deleteOne(ctx context.Context, collection *mongo.Coll
 		return fmt.Errorf("delete_one failed: %w", err)
 	}
 	if result.DeletedCount == 0 {
-		return fmt.Errorf("delete_one deleted no documents")
+		return AssertionFailure(fmt.Errorf("delete_one deleted no documents"))
 	}
 	return nil
 }
@@ -215,10 +215,10 @@ func (e *DocumentExecutor) countDocuments(ctx context.Context, collection *mongo
 		return err
 	}
 	if !found {
-		return fmt.Errorf("count_documents requires 'expected_count'")
+		return ConfigurationFailure(fmt.Errorf("count_documents requires 'expected_count'"))
 	}
 	if count != expectedCount {
-		return fmt.Errorf("expected %d documents, got %d", expectedCount, count)
+		return AssertionFailure(fmt.Errorf("expected %d documents, got %d", expectedCount, count))
 	}
 	return nil
 }
@@ -240,7 +240,7 @@ func (e *DocumentExecutor) exists(ctx context.Context, collection *mongo.Collect
 	}
 	actualExists := count > 0
 	if actualExists != expectedExists {
-		return fmt.Errorf("expected exists=%v, got exists=%v", expectedExists, actualExists)
+		return AssertionFailure(fmt.Errorf("expected exists=%v, got exists=%v", expectedExists, actualExists))
 	}
 	return nil
 }

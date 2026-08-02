@@ -253,11 +253,14 @@ export function WorkflowLogsDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="h-[88vh]">
+      <DrawerContent
+        data-testid="workflow-logs-drawer"
+        className="h-[min(88dvh,56rem)] max-h-none overflow-hidden"
+      >
         <DrawerHeader className="border-b bg-muted/30 pb-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <DrawerTitle className="flex items-center text-xl font-semibold gap-3">
+          <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+            <div className="min-w-0 space-y-1">
+              <DrawerTitle className="flex flex-wrap items-center gap-3 text-xl font-semibold">
                 <span className="text-muted-foreground font-mono text-sm">
                   {execution.workflowRunId.slice(0, 8)}
                 </span>
@@ -268,7 +271,7 @@ export function WorkflowLogsDrawer({
                   {statusBadge(execution.status)}
                 </span>
               </DrawerTitle>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                 <IconClock className="size-4" />
                 <span className="font-medium">
                   {Math.max(0, Math.floor(duration / 1000))}s
@@ -361,7 +364,7 @@ export function WorkflowLogsDrawer({
           </div>
         </DrawerHeader>
 
-        <ScrollArea className="h-screen overflow-y-auto px-6 py-6">
+        <ScrollArea className="min-h-0 flex-1 px-4 py-5 sm:px-6 sm:py-6">
           <div className="space-y-8">
             <section className="space-y-3">
               <h3 className="text-sm font-semibold tracking-tight text-foreground/90 uppercase">
@@ -446,23 +449,22 @@ export function WorkflowLogsDrawer({
                         className="rounded-xl border border-border/60 bg-card shadow-sm hover:shadow-md transition-all duration-200"
                       >
                         <div className=" px-5 py-4 border-b bg-muted/20">
-                          <div className="flex items-center justify-between gap-3 mb-1">
-                            <h4 className="font-semibold text-sm truncate">
+                          <div className="mb-1 flex items-center justify-between gap-3">
+                            <h4 className="min-w-0 flex-1 truncate text-sm font-semibold">
                               {scenarioRun.scenarioName}
                             </h4>
                             <div className="shrink-0">
                               {statusBadge(scenarioStatus)}
                             </div>
-                            <div className=" flex items-center gap-2 text-xs text-muted-foreground">
-                              <span className="font-medium">Session:</span>
-                              <code className="px-1.5 py-0.5 rounded bg-muted/60 font-mono">
-                                {scenarioRun.backendSessionId
-                                  ? scenarioRun.backendSessionId.slice(0, 8)
-                                  : "pending"}
-                              </code>
-                            </div>
                           </div>
-                          {statusBadge(scenarioStatus)}
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span className="font-medium">Session:</span>
+                            <code className="rounded bg-muted/60 px-1.5 py-0.5 font-mono">
+                              {scenarioRun.backendSessionId
+                                ? scenarioRun.backendSessionId.slice(0, 8)
+                                : "pending"}
+                            </code>
+                          </div>
                         </div>
 
                         {scenarioRun.logs.length > 0 && (

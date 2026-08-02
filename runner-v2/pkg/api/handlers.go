@@ -12,6 +12,7 @@ import (
 	"github.com/dev-atharva/cots/pkg/db"
 	"github.com/dev-atharva/cots/pkg/dto"
 	"github.com/dev-atharva/cots/pkg/errors"
+	"github.com/dev-atharva/cots/pkg/executionevent"
 	"github.com/dev-atharva/cots/pkg/logger"
 	"github.com/dev-atharva/cots/pkg/middleware"
 	"github.com/dev-atharva/cots/pkg/orchestrator"
@@ -121,6 +122,7 @@ type Handler struct {
 	resourceCleaner          sessionResourceCleaner
 	readinessCheck           func(context.Context) error
 	containerResources       config.ContainerResourceLimits
+	disableTestRetries       bool
 }
 
 type sessionResourceCleaner interface {
@@ -151,6 +153,8 @@ func NewHandler(database db.Database, appCfg config.AppConfig) *Handler {
 	providers.Register("kafka", &predefined.KafkaProvider{})
 	providers.Register("rabbitmq", &predefined.RabbitMQProvider{})
 	providers.Register("mongodb", &predefined.MongoDBProvider{})
+	providers.Register("nginx", &predefined.NginxProvider{})
+	providers.Register("mockserver", &predefined.MockServerProvider{})
 
 	return &Handler{
 		sessionManager:           session.NewManager(),
@@ -167,6 +171,7 @@ func NewHandler(database db.Database, appCfg config.AppConfig) *Handler {
 		testRunSlots:             make(chan struct{}, appCfg.MaxConcurrentTestRuns),
 		cleanupSlots:             make(chan struct{}, appCfg.MaxConcurrentCleanup),
 		containerResources:       appCfg.ContainerResources(),
+		disableTestRetries:       appCfg.DisableTestRetries,
 	}
 }
 
@@ -327,6 +332,12 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 		errors.RespondValidationError(w, "validation failed", fieldErros)
 		return
 	}
+	for index := range req.Tests {
+		if err := req.Tests[index].ValidateRetryPolicy(); err != nil {
+			errors.ResponseBadRequest(w, err.Error())
+			return
+		}
+	}
 
 	sess, persisted, err := h.getOrRecoverSession(ctx, sessionId, req.ExecutionContext)
 	if err != nil {
@@ -363,11 +374,15 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 	}
 	passed := 0
 	failed := 0
+	retried := 0
 	for _, existing := range results {
 		if existing.Passed {
 			passed++
 		} else {
 			failed++
+		}
+		if len(existing.Attempts) > 1 {
+			retried++
 		}
 	}
 
@@ -425,7 +440,15 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		err = executor.Execute(testCtxRoot, testCfg, sess.Orchestrator.GetRegistry())
+		retryReport, executeErr := test.ExecuteWithRetry(
+			testCtxRoot, executor, testCfg, sess.Orchestrator.GetRegistry(),
+			test.RetryOptions{Disabled: h.disableTestRetries},
+		)
+		err = executeErr
+		attempts, durationMs, recovered := retryReportFields(retryReport)
+		if len(attempts) > 1 {
+			retried++
+		}
 		if err != nil {
 			var containerLogs map[string]string
 			var errorMsg string
@@ -437,13 +460,27 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 				errorMsg = extractBaseError(err)
 				containerLogs = sess.Orchestrator.GetAllServiceLogs(sess.Context)
 			}
+			testErr := typedTestExecutionError(err, testCfg.Name, testCfg.Type, containerLogs)
+			diagnostic := buildExecutionDiagnostic(
+				executionevent.StageExecution,
+				testErr,
+				"The test observed behavior that did not match its expectation.",
+				executionScenarioID(req.ExecutionContext),
+				"",
+				testCfg.Name,
+				testCfg.TargetServices,
+			)
+			appendAttemptEvidence(&diagnostic, attempts)
 			logger.ErrorContext(testCtx, "test execution failed", "test_name", testCfg.Name, "error", errorMsg)
 			result := dto.TestResult{
 				Name:          testCfg.Name,
 				Type:          testCfg.Type,
 				Passed:        false,
 				Error:         errorMsg,
+				DurationMs:    durationMs,
+				Attempts:      attempts,
 				ContainerLogs: containerLogs,
+				Diagnostic:    &diagnostic,
 			}
 			results = append(results, result)
 			failed++
@@ -462,9 +499,12 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 
 			logger.InfoContext(testCtx, "test passed")
 			result := dto.TestResult{
-				Name:   testCfg.Name,
-				Type:   testCfg.Type,
-				Passed: true,
+				Name:       testCfg.Name,
+				Type:       testCfg.Type,
+				Passed:     true,
+				DurationMs: durationMs,
+				Attempts:   attempts,
+				Recovered:  recovered,
 			}
 			results = append(results, result)
 			passed++
@@ -491,9 +531,10 @@ func (h *Handler) RunTests(w http.ResponseWriter, r *http.Request) {
 		SessionID: sessionId,
 		Results:   results,
 		Summary: dto.TestSummary{
-			Total:  len(req.Tests),
-			Passed: passed,
-			Failed: failed,
+			Total:   len(req.Tests),
+			Passed:  passed,
+			Failed:  failed,
+			Retried: retried,
 		},
 	})
 }

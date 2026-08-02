@@ -5,10 +5,12 @@ import {
   IconCircleCheck,
   IconCircleX,
   IconClock,
+  IconExternalLink,
   IconHistory,
   IconLoader,
   IconTrash,
 } from "@tabler/icons-react";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -132,6 +134,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   onOpenChange,
   canEdit,
 }) => {
+  const router = useRouter();
   const [selectedExecution, setSelectedExecution] =
     useState<WorkflowExecution | null>(null);
 
@@ -194,8 +197,11 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] min-h-0 min-w-[80vw] max-w-368 flex-col overflow-hidden p-0">
-        <DialogHeader className="shrink-0 border-b bg-muted/30 px-6 py-5">
+      <DialogContent
+        data-testid="execution-history-dialog"
+        className="flex h-[min(85dvh,56rem)] min-h-0 w-[min(72rem,calc(100vw-1rem))] max-w-none flex-col overflow-hidden p-0 sm:max-w-none"
+      >
+        <DialogHeader className="shrink-0 border-b bg-muted/30 px-4 py-4 sm:px-6 sm:py-5">
           <div className="flex items-center justify-between">
             <div className=" flex items-center gap-2.5">
               <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
@@ -213,8 +219,8 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
           </div>
         </DialogHeader>
 
-        <div className="grid min-h-0 flex-1 gap-5 overflow-hidden px-6 py-5 md:grid-cols-[360px_minmax(0,1fr)]">
-          <div className="flex min-h-0 flex-col gap-3">
+        <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto px-4 py-4 sm:px-6 md:grid-cols-[300px_minmax(0,1fr)] md:overflow-hidden md:py-5 lg:grid-cols-[360px_minmax(0,1fr)]">
+          <div className="flex min-h-64 flex-col gap-3 md:min-h-0">
             <div className="flex items-center justify-between">
               <h3 className=" text-sm font-semibold tracking-tight text-foreground/90 uppercase">
                 Recent Runs
@@ -223,7 +229,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                 {executions.length} total
               </span>
             </div>
-            <ScrollArea className="min-h-0 flex-1 rounded-xl border border-border/60 bg-muted/20 shadow-sm">
+            <ScrollArea className="h-56 min-h-0 rounded-xl border border-border/60 bg-muted/20 shadow-sm md:h-auto md:flex-1">
               <div className="space-y-2 p-3">
                 {executions.length === 0 ? (
                   <div className="flex items-center justify-center py-12 text-sm text-muted-foreground italic">
@@ -241,6 +247,8 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                       <button
                         type="button"
                         key={execution.workflowRunId}
+                        data-testid="execution-history-run"
+                        data-workflow-run-id={execution.workflowRunId}
                         onClick={() => setSelectedExecution(execution)}
                         className={cn(
                           "w-full rounded-lg border p-4 text-left transition-all duration-200",
@@ -281,7 +289,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
             </ScrollArea>
           </div>
 
-          <div className="flex min-h-0 flex-col gap-4">
+          <div className="flex min-h-[28rem] flex-col gap-4 md:min-h-0">
             <h3 className="text-sm font-semibold tracking-tight text-foreground/90 uppercase">
               Execution Details
             </h3>
@@ -303,7 +311,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
               ) : (
                 <div className="flex h-full min-h-0 flex-col">
                   <div className="shrink-0 p-4 border-b bg-muted/20 space-y-3">
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
                       <div className="flex-1 min-w-0 space-y-2">
                         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                           Workflow Run ID
@@ -312,23 +320,37 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                           {selectedExecution.workflowRunId}
                         </code>
                       </div>
-                      {canEdit ? (
+                      <div className="flex w-full shrink-0 flex-wrap gap-2 sm:w-auto">
                         <Button
-                          variant="destructive"
                           size="sm"
                           onClick={() => {
-                            clearExecution(selectedExecution.workflowRunId);
-                            setSelectedExecution(null);
+                            onOpenChange(false);
+                            router.push(
+                              `/workflow/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(selectedExecution.workflowRunId)}?projectId=${encodeURIComponent(selectedExecution.projectId)}`,
+                            );
                           }}
-                          className="shadow-sm"
                         >
-                          <IconTrash className=" mr-2 size-4" />
-                          Delete
+                          <IconExternalLink data-icon="inline-start" />
+                          Open run
                         </Button>
-                      ) : null}
+                        {canEdit ? (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => {
+                              clearExecution(selectedExecution.workflowRunId);
+                              setSelectedExecution(null);
+                            }}
+                            className="shadow-sm"
+                          >
+                            <IconTrash data-icon="inline-start" />
+                            Delete
+                          </Button>
+                        ) : null}
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-3 text-sm">
+                    <div className="flex flex-wrap items-center gap-3 text-sm">
                       <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background/80 border">
                         <IconClock className="size-4 text-muted-foreground" />
                         <span className="font-medium">

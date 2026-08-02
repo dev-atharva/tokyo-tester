@@ -6,6 +6,8 @@ import (
 	"sync"
 
 	"github.com/dev-atharva/cots/pkg/config"
+	apperrors "github.com/dev-atharva/cots/pkg/errors"
+	"github.com/dev-atharva/cots/pkg/executionevent"
 	"github.com/dev-atharva/cots/pkg/logger"
 	"github.com/dev-atharva/cots/pkg/provider"
 	"github.com/dev-atharva/cots/pkg/registry"
@@ -20,6 +22,7 @@ type Orchestrator struct {
 	registry   *RuntimeRegsitry
 	providers  *provider.Registry
 	containers map[string]testcontainers.Container
+	serviceIDs map[string]string
 	network    *testcontainers.DockerNetwork
 	mu         sync.RWMutex
 }
@@ -29,6 +32,7 @@ func NewOrchestrator(providers *provider.Registry) *Orchestrator {
 		registry:   NewRuntimeRegistry(),
 		providers:  providers,
 		containers: make(map[string]testcontainers.Container),
+		serviceIDs: make(map[string]string),
 	}
 }
 
@@ -41,12 +45,22 @@ func (o *Orchestrator) ProvisionServices(ctx context.Context, services []config.
 	services = preparedServices
 
 	logger.InfoContext(ctx, "creating shared Docker network")
+	executionevent.Report(ctx, executionevent.Activity{
+		Stage: executionevent.StageProvision, Kind: "network", Status: "started", Message: "Creating isolated Docker network",
+	})
 	dockerNetwork, err := network.New(ctx, network.WithLabels(provider.ResourceLabels(ctx, provider.ResourceTypeNetwork)))
 	if err != nil {
-		return fmt.Errorf("failed to create the docker network: %w", err)
+		wrapped := apperrors.Wrap(err, apperrors.ErrNetworkCreate, "failed to create the Docker network")
+		executionevent.Report(ctx, executionevent.Activity{
+			Stage: executionevent.StageProvision, Kind: "network", Status: "failed", Message: wrapped.Error(),
+		})
+		return wrapped
 	}
 	o.network = dockerNetwork
 	logger.InfoContext(ctx, "Docker network created", "network_name", dockerNetwork.Name)
+	executionevent.Report(ctx, executionevent.Activity{
+		Stage: executionevent.StageProvision, Kind: "network", Status: "ready", Message: "Isolated Docker network is ready",
+	})
 
 	graph := NewDependencyGraph()
 	serviceMap := make(map[string]config.ServiceConfig)
@@ -54,11 +68,12 @@ func (o *Orchestrator) ProvisionServices(ctx context.Context, services []config.
 	for _, svc := range services {
 		graph.AddNode(svc.Name, svc.DependsOn)
 		serviceMap[svc.Name] = svc
+		o.serviceIDs[svc.Name] = svc.ID
 	}
 
 	levels, err := graph.TopologicalSort()
 	if err != nil {
-		return fmt.Errorf("dependency resolution failed: %w", err)
+		return apperrors.Wrap(err, apperrors.ErrDependencyCycle, "service dependency resolution failed")
 	}
 
 	for levelIdx, level := range levels {
@@ -96,10 +111,20 @@ func (o *Orchestrator) prepareRegistryImages(ctx context.Context, services []con
 		}
 
 		logger.InfoContext(ctx, "pulling service image from configured registry", "service_name", svc.Name, "registry_url", svc.Registry.URL)
+		executionevent.Report(ctx, executionevent.Activity{
+			Stage: executionevent.StageProvision, Kind: "service", Status: "started", Message: fmt.Sprintf("Pulling image for service %q", svc.Name), ServiceID: svc.ID, ServiceName: svc.Name,
+		})
 		resolvedImage, pullErr := registry.PullImage(ctx, dockerClient, svc.Image, svc.Registry)
 		if pullErr != nil {
-			return nil, fmt.Errorf("service %q: %w", svc.Name, pullErr)
+			wrapped := apperrors.Wrap(pullErr, apperrors.ErrImagePull, "failed to pull service image").WithDetail("service", svc.Name)
+			executionevent.Report(ctx, executionevent.Activity{
+				Stage: executionevent.StageProvision, Kind: "service", Status: "failed", Message: wrapped.Error(), ServiceID: svc.ID, ServiceName: svc.Name,
+			})
+			return nil, wrapped
 		}
+		executionevent.Report(ctx, executionevent.Activity{
+			Stage: executionevent.StageProvision, Kind: "service", Status: "running", Message: fmt.Sprintf("Image for service %q is available", svc.Name), ServiceID: svc.ID, ServiceName: svc.Name,
+		})
 
 		// The authenticated request pulled the image into the local daemon. Clear
 		// the registry credentials before handing the config to providers so they
@@ -123,6 +148,9 @@ func (o *Orchestrator) provisionlevel(ctx context.Context, serviceNames []string
 		go func(serviceName string) {
 			defer wg.Done()
 			cfg := serviceMap[serviceName]
+			executionevent.Report(ctx, executionevent.Activity{
+				Stage: executionevent.StageProvision, Kind: "service", Status: "started", Message: fmt.Sprintf("Starting service %q", serviceName), ServiceID: cfg.ID, ServiceName: serviceName,
+			})
 
 			// Wait for dependencies
 			for _, dep := range cfg.DependsOn {
@@ -134,7 +162,9 @@ func (o *Orchestrator) provisionlevel(ctx context.Context, serviceNames []string
 			// Get provider first
 			providerInst, ok := o.providers.Get(cfg.Type)
 			if !ok {
-				errChan <- fmt.Errorf("service %s: provider not found: %s", serviceName, cfg.Type)
+				err := apperrors.New(apperrors.ErrConfiguration, "service provider is not available").WithDetails(map[string]string{"service": serviceName, "type": cfg.Type})
+				executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageProvision, Kind: "service", Status: "failed", Message: err.Error(), ServiceID: cfg.ID, ServiceName: serviceName})
+				errChan <- err
 				return
 			}
 
@@ -143,7 +173,9 @@ func (o *Orchestrator) provisionlevel(ctx context.Context, serviceNames []string
 			if len(cfg.Env) > 0 {
 				interpolated, err := o.registry.InterpolateEnvVars(cfg.Env)
 				if err != nil {
-					errChan <- fmt.Errorf("service %s : env interpolation failed: %w", serviceName, err)
+					wrapped := apperrors.Wrap(err, apperrors.ErrEnvVarMissing, "service environment interpolation failed").WithDetail("service", serviceName)
+					executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageProvision, Kind: "service", Status: "failed", Message: wrapped.Error(), ServiceID: cfg.ID, ServiceName: serviceName})
+					errChan <- wrapped
 					return
 				}
 				finalCfg.Env = interpolated
@@ -160,7 +192,9 @@ func (o *Orchestrator) provisionlevel(ctx context.Context, serviceNames []string
 					o.mu.Unlock()
 				}
 				enhancedErr := o.WrapErrorWithLogs(ctx, err, serviceName, false)
-				errChan <- fmt.Errorf("service %s: provisioning failed: %w", serviceName, enhancedErr)
+				wrapped := apperrors.Wrap(enhancedErr, apperrors.ErrServiceProvision, "service provisioning failed").WithDetail("service", serviceName)
+				executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageProvision, Kind: "service", Status: "failed", Message: wrapped.Error(), ServiceID: cfg.ID, ServiceName: serviceName})
+				errChan <- wrapped
 				return
 			}
 
@@ -169,6 +203,9 @@ func (o *Orchestrator) provisionlevel(ctx context.Context, serviceNames []string
 			o.mu.Unlock()
 
 			o.registry.Regsiter(runtime)
+			executionevent.Report(ctx, executionevent.Activity{
+				Stage: executionevent.StageProvision, Kind: "service", Status: "ready", Message: fmt.Sprintf("Service %q is ready", serviceName), ServiceID: cfg.ID, ServiceName: serviceName,
+			})
 			close(readyChans[serviceName])
 		}(name)
 	}
@@ -214,11 +251,16 @@ func (o *Orchestrator) CleanUp(ctx context.Context) error {
 		wg.Add(1)
 		go func(serviceName string, cont testcontainers.Container) {
 			defer wg.Done()
+			executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageCleanup, Kind: "service", Status: "started", Message: fmt.Sprintf("Stopping service %q", serviceName), ServiceID: o.serviceIDs[serviceName], ServiceName: serviceName})
 			serviceCtx := logger.WithFields(ctx, "service_name", serviceName)
 			logger.InfoContext(serviceCtx, "cleaning up service")
 			if err := cont.Terminate(serviceCtx); err != nil {
-				errorChan <- fmt.Errorf("failed to cleanup %s: %w", serviceName, err)
+				wrapped := apperrors.Wrap(err, apperrors.ErrServiceCleanup, "failed to clean up service").WithDetail("service", serviceName)
+				executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageCleanup, Kind: "service", Status: "failed", Message: wrapped.Error(), ServiceID: o.serviceIDs[serviceName], ServiceName: serviceName})
+				errorChan <- wrapped
+				return
 			}
+			executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageCleanup, Kind: "service", Status: "completed", Message: fmt.Sprintf("Service %q stopped", serviceName), ServiceID: o.serviceIDs[serviceName], ServiceName: serviceName})
 		}(name, container)
 	}
 	wg.Wait()
@@ -228,9 +270,14 @@ func (o *Orchestrator) CleanUp(ctx context.Context) error {
 		errors = append(errors, err)
 	}
 	if o.network != nil {
+		executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageCleanup, Kind: "network", Status: "started", Message: "Removing isolated Docker network"})
 		logger.InfoContext(ctx, "removing Docker network", "network_name", o.network.Name)
 		if err := o.network.Remove(ctx); err != nil {
-			errors = append(errors, fmt.Errorf("failed to remove network: %w", err))
+			wrapped := apperrors.Wrap(err, apperrors.ErrNetworkCleanup, "failed to remove Docker network")
+			executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageCleanup, Kind: "network", Status: "failed", Message: wrapped.Error()})
+			errors = append(errors, wrapped)
+		} else {
+			executionevent.Report(ctx, executionevent.Activity{Stage: executionevent.StageCleanup, Kind: "network", Status: "completed", Message: "Isolated Docker network removed"})
 		}
 	}
 

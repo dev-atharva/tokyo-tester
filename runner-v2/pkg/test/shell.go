@@ -16,12 +16,12 @@ type ShellExecutor struct{}
 func (e *ShellExecutor) Execute(ctx context.Context, testCfg config.TestConfig, registry *orchestrator.RuntimeRegsitry) error {
 	command, ok := testCfg.Config["command"].(string)
 	if !ok {
-		return fmt.Errorf("shell test requires 'command' in configuration")
+		return ConfigurationFailure(fmt.Errorf("shell test requires 'command' in configuration"))
 	}
 
 	env, err := e.buildEnvironment(registry, testCfg.Config)
 	if err != nil {
-		return err
+		return ConfigurationFailure(err)
 	}
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
@@ -29,28 +29,28 @@ func (e *ShellExecutor) Execute(ctx context.Context, testCfg config.TestConfig, 
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("command failed %w\nOutput: %s", err, string(output))
+		return OperationFailure(PhaseDispatch, fmt.Errorf("command failed %w\nOutput: %s", err, string(output)))
 	}
 
 	expectedOutputValue, ok, err := lookupConfigValue(testCfg.Config, "expected_output")
 	if err != nil {
-		return err
+		return ConfigurationFailure(err)
 	}
 	if ok {
 		expectedOutput, ok := expectedOutputValue.(string)
 		if !ok {
-			return fmt.Errorf("expected_output must be a string")
+			return ConfigurationFailure(fmt.Errorf("expected_output must be a string"))
 		}
 		if !strings.Contains(string(output), expectedOutput) {
-			return fmt.Errorf("output does not match expected string: %s\n ActualOutput: %s", expectedOutput, string(output))
+			return AssertionFailure(fmt.Errorf("output does not match expected string: %s\n ActualOutput: %s", expectedOutput, string(output)))
 		}
 	}
 
 	if expectedCode, found, err := getInt64Config(testCfg.Config, "expected_exit_code"); err != nil {
-		return err
+		return ConfigurationFailure(err)
 	} else if found {
 		if cmd.ProcessState.ExitCode() != int(expectedCode) {
-			return fmt.Errorf("expected exit code %d, got %d", expectedCode, cmd.ProcessState.ExitCode())
+			return AssertionFailure(fmt.Errorf("expected exit code %d, got %d", expectedCode, cmd.ProcessState.ExitCode()))
 		}
 	}
 

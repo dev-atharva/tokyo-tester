@@ -38,9 +38,12 @@ export function ScenarioDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[80vh] min-w-[80vw] flex-col overflow-hidden p-0">
-        <DialogHeader className="border-b bg-muted/30 px-6 py-3">
-          <div className="flex items-center justify-between gap-4 pr-8">
+      <DialogContent
+        data-testid="scenario-dialog"
+        className="flex h-[min(82dvh,54rem)] w-[calc(100vw-2rem)] max-w-7xl flex-col overflow-hidden p-0 sm:max-w-7xl"
+      >
+        <DialogHeader className="border-b bg-muted/30 px-4 py-3 sm:px-6">
+          <div className="flex flex-col items-start justify-between gap-3 pr-8 sm:flex-row sm:items-center sm:gap-4">
             <div className="flex items-center gap-2.5">
               <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
                 <IconSitemap className="size-4" />
@@ -57,11 +60,11 @@ export function ScenarioDialog({
               </div>
             </div>
             {canEdit ? (
-              <div className="flex rounded-lg border bg-background/80 p-1 shadow-sm">
+              <div className="flex w-full rounded-lg border bg-background/80 p-1 shadow-sm sm:w-auto">
                 <Button
                   size="sm"
                   variant={mode === "journey" ? "secondary" : "ghost"}
-                  className="h-7 px-2.5 text-xs"
+                  className="h-7 flex-1 px-2.5 text-xs sm:flex-none"
                   onClick={() => setMode("journey")}
                 >
                   <IconRoute className="mr-1.5 size-3.5" />
@@ -70,7 +73,7 @@ export function ScenarioDialog({
                 <Button
                   size="sm"
                   variant={mode === "configure" ? "secondary" : "ghost"}
-                  className="h-7 px-2.5 text-xs"
+                  className="h-7 flex-1 px-2.5 text-xs sm:flex-none"
                   onClick={() => setMode("configure")}
                 >
                   <IconListDetails className="mr-1.5 size-3.5" />
@@ -81,7 +84,7 @@ export function ScenarioDialog({
           </div>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-hidden px-6 py-5">
+        <div className="min-h-0 flex-1 overflow-hidden px-3 py-4 sm:px-6 sm:py-5">
           {mode === "journey" ? (
             <ScenarioJourney
               workflowId={workflowId}

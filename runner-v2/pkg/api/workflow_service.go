@@ -12,6 +12,8 @@ import (
 	"github.com/dev-atharva/cots/pkg/config"
 	"github.com/dev-atharva/cots/pkg/db"
 	"github.com/dev-atharva/cots/pkg/dto"
+	apperrors "github.com/dev-atharva/cots/pkg/errors"
+	"github.com/dev-atharva/cots/pkg/executionevent"
 	"github.com/dev-atharva/cots/pkg/logger"
 	"github.com/dev-atharva/cots/pkg/workflowrun"
 	"github.com/google/uuid"
@@ -350,13 +352,18 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 				s.emitLog(ctx, &request, fmt.Sprintf("Restored completed scenario %q from its checkpoint", scenario.Name), mapScenarioStatusValue(checkpoint.Success), &scenario, errorValue(checkpoint.Error))
 				return
 			}
-			if err := s.updateScenario(ctx, scenario, "running", "", ""); err != nil {
+			if err := s.updateScenario(ctx, scenario, "running", "", "", nil); err != nil {
 				results[index] = dto.WorkflowBundleScenarioResponse{ScenarioName: scenario.Name, Success: false, Error: "failed to persist running scenario state: " + err.Error(), Summary: dto.TestSummary{Total: len(scenario.Tests)}}
 				return
 			}
 			s.emitLog(ctx, &request, fmt.Sprintf("Running scenario %q", scenario.Name), "running", &scenario, nil)
-			scenarioCtx := withWorkflowProgressReporter(ctx, func(stage, message string) {
-				s.emitActivity(ctx, &request, scenario, stage, message)
+			scenarioCtx := withWorkflowProgressReporter(ctx, func(activity executionevent.Activity) {
+				if activity.Diagnostic != nil && activity.Diagnostic.ScenarioID == "" {
+					copy := *activity.Diagnostic
+					copy.ScenarioID = scenario.ID
+					activity.Diagnostic = &copy
+				}
+				s.emitActivity(ctx, &request, scenario, activity)
 			})
 			result := s.handler.runWorkflowBundleScenarioForRun(scenarioCtx, bundle, bundle.Scenarios[index], &dto.ExecutionContextDTO{
 				SessionID: scenario.ScenarioRunID, ProjectID: firstNonEmpty(scenario.ProjectID, request.ProjectID),
@@ -364,6 +371,7 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 				WorkflowID: request.WorkflowID, WorkflowRunID: request.WorkflowRunID,
 				ScenarioID: scenario.ID, ScenarioName: scenario.Name,
 			})
+			attachScenarioToDiagnostics(&result, scenario.ID)
 			results[index] = result
 			if ctx.Err() != nil {
 				return
@@ -374,7 +382,7 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 			} else if !result.Success {
 				status = "failed"
 			}
-			if err := s.updateScenario(ctx, scenario, status, result.SessionID, result.Error); err != nil {
+			if err := s.updateScenario(ctx, scenario, status, result.SessionID, result.Error, result); err != nil {
 				result.Success = false
 				if result.Error != "" {
 					result.Error += "; "
@@ -407,6 +415,7 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 		summary.TotalTests += result.Summary.Total
 		summary.PassedTests += result.Summary.Passed
 		summary.FailedTests += result.Summary.Failed
+		summary.RetriedTests += result.Summary.Retried
 		if result.Success {
 			summary.PassedScenarios++
 		} else {
@@ -428,7 +437,9 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 		"totalScenarios": summary.TotalScenarios, "passedScenarios": summary.PassedScenarios,
 		"failedScenarios": summary.FailedScenarios, "totalTests": summary.TotalTests,
 		"passedTests": summary.PassedTests, "failedTests": summary.FailedTests,
+		"retriedTests":    summary.RetriedTests,
 		"scenarioResults": scenarioSnapshots(request.Scenarios, results),
+		"diagnostics":     workflowDiagnostics(results),
 	}
 	logs := []string{fmt.Sprintf("Workflow run complete: %d/%d scenarios passed", summary.PassedScenarios, summary.TotalScenarios)}
 	if err := s.updateRun(ctx, &request, status, nil, resultPayload, workflowErrors(request.Scenarios, results)); err != nil {
@@ -450,6 +461,12 @@ func (s *WorkflowService) completedScenario(ctx context.Context, scenario workfl
 		ScenarioName: scenario.Name, SessionID: persisted.BackendSessionID,
 		Success: persisted.Status == "completed", Error: persisted.Error,
 		Summary: dto.TestSummary{Total: len(scenario.Tests)},
+	}
+	if persisted.Result != "" {
+		var stored dto.WorkflowBundleScenarioResponse
+		if json.Unmarshal([]byte(persisted.Result), &stored) == nil {
+			response.Diagnostics = stored.Diagnostics
+		}
 	}
 	rows, err := s.db.ListTestResults(ctx, scenario.ScenarioRunID)
 	if err != nil {
@@ -515,10 +532,12 @@ func (s *WorkflowService) failJob(ctx context.Context, owner string, job *db.Wor
 		run.Status, run.Error, run.UpdatedAt, run.CompletedAt, run.Version = "failed", err.Error(), now, &now, run.Version+1
 		_ = s.db.UpsertWorkflowRun(ctx, run)
 	}
+	diagnostic := buildExecutionDiagnostic(executionevent.StageAggregation, apperrors.Wrap(err, apperrors.ErrInternal, "workflow worker failed"), "Tokyo Tester could not continue this workflow run.", "", "", "", nil)
 	s.appendLogEvent(ctx, job.WorkflowRunID, job.ProjectID, "Workflow run failed: "+err.Error(), map[string]any{
 		"workflowRunId": job.WorkflowRunID, "projectId": job.ProjectID,
 		"message": "Workflow run failed: " + err.Error(), "status": "failed",
 		"error": err.Error(), "timestamp": now.UnixMilli(), "sequence": now.UnixNano(),
+		"stage": executionevent.StageAggregation, "kind": "diagnostic", "activityStatus": "failed", "diagnostic": diagnostic,
 	})
 }
 
@@ -533,6 +552,8 @@ func (s *WorkflowService) reconcileExhaustedJob(ctx context.Context, job *db.Wor
 		"workflowRunId": job.WorkflowRunID, "projectId": job.ProjectID,
 		"message": "Workflow run failed after repeated runner interruptions", "status": "failed",
 		"error": job.LastError, "timestamp": now.UnixMilli(), "sequence": now.UnixNano(),
+		"stage": executionevent.StageAggregation, "kind": "diagnostic", "activityStatus": "failed",
+		"diagnostic": buildExecutionDiagnostic(executionevent.StageAggregation, apperrors.New(apperrors.ErrInternal, job.LastError), "Tokyo Tester could not recover this workflow run after repeated interruptions.", "", "", "", nil),
 	})
 }
 
@@ -584,7 +605,7 @@ func (s *WorkflowService) updateRun(ctx context.Context, request *workflowrun.Re
 	return nil
 }
 
-func (s *WorkflowService) updateScenario(ctx context.Context, scenario workflowrun.Scenario, status, backendID, message string) error {
+func (s *WorkflowService) updateScenario(ctx context.Context, scenario workflowrun.Scenario, status, backendID, message string, result any) error {
 	run, err := s.db.GetSession(ctx, scenario.ScenarioRunID)
 	if err != nil {
 		return err
@@ -596,6 +617,10 @@ func (s *WorkflowService) updateScenario(ctx context.Context, scenario workflowr
 	}
 	if message != "" {
 		run.Error = message
+	}
+	if result != nil {
+		encoded, _ := json.Marshal(result)
+		run.Result = string(encoded)
 	}
 	if run.StartedAt == nil {
 		run.StartedAt = &now
@@ -642,14 +667,42 @@ func (s *WorkflowService) emitLog(ctx context.Context, request *workflowrun.Requ
 	}
 }
 
-func (s *WorkflowService) emitActivity(ctx context.Context, request *workflowrun.Request, scenario workflowrun.Scenario, stage, message string) {
-	message = boundedWorkflowLogMessage(message)
+func (s *WorkflowService) emitActivity(ctx context.Context, request *workflowrun.Request, scenario workflowrun.Scenario, activity executionevent.Activity) {
+	message := boundedWorkflowLogMessage(activity.Message)
 	now := time.Now().UTC()
 	payload := map[string]any{
 		"workflowRunId": request.WorkflowRunID, "projectId": request.ProjectID,
 		"workflowId": request.WorkflowID, "scenarioId": scenario.ID,
 		"scenarioName": scenario.Name, "message": message, "status": "running",
-		"stage": stage, "timestamp": now.UnixMilli(), "sequence": now.UnixNano(),
+		"stage": activity.Stage, "kind": activity.Kind, "activityStatus": activity.Status,
+		"timestamp": now.UnixMilli(), "sequence": now.UnixNano(),
+	}
+	if activity.ServiceName != "" {
+		payload["serviceName"] = activity.ServiceName
+	}
+	if activity.ServiceID != "" {
+		payload["serviceId"] = activity.ServiceID
+	}
+	if len(activity.ServiceNames) > 0 {
+		payload["serviceNames"] = activity.ServiceNames
+	}
+	if activity.TestID != "" {
+		payload["testId"] = activity.TestID
+	}
+	if activity.TestName != "" {
+		payload["testName"] = activity.TestName
+	}
+	if activity.Attempt > 0 {
+		payload["attempt"] = activity.Attempt
+	}
+	if activity.MaxAttempts > 0 {
+		payload["maxAttempts"] = activity.MaxAttempts
+	}
+	if activity.RetryReason != "" {
+		payload["retryReason"] = activity.RetryReason
+	}
+	if activity.Diagnostic != nil {
+		payload["diagnostic"] = activity.Diagnostic
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -677,7 +730,7 @@ func (s *WorkflowService) emitTestResults(ctx context.Context, request *workflow
 		if result.Passed {
 			status = "passed"
 		}
-		results = append(results, map[string]any{"testResultId": request.WorkflowRunID + "_" + scenario.ID + "_" + result.Name, "testName": result.Name, "testType": result.Type, "status": status, "resultData": result, "durationMs": 0, "executedAt": now.Format(time.RFC3339Nano), "action": "update", "containerLogs": result.ContainerLogs, "sequence": index})
+		results = append(results, map[string]any{"testResultId": request.WorkflowRunID + "_" + scenario.ID + "_" + result.Name, "testName": result.Name, "testType": result.Type, "status": status, "resultData": result, "durationMs": result.DurationMs, "executedAt": now.Format(time.RFC3339Nano), "action": "update", "containerLogs": result.ContainerLogs, "diagnostic": result.Diagnostic, "sequence": index})
 	}
 	s.appendEvent(ctx, request.WorkflowRunID, "testresult", map[string]any{"workflowRunId": request.WorkflowRunID, "projectId": request.ProjectID, "workflowId": request.WorkflowID, "scenarioId": scenario.ID, "scenarioName": scenario.Name, "backendSessionId": response.SessionID, "bulkId": uuid.NewString(), "timestamp": now.UnixMilli(), "results": results})
 }
@@ -723,10 +776,40 @@ func scenarioSnapshots(scenarios []workflowrun.Scenario, results []dto.WorkflowB
 		if results[i].CleanupFailed {
 			status = "cleanup_failed"
 		}
-		values[i] = map[string]any{"scenarioId": scenarios[i].ID, "scenarioName": scenarios[i].Name, "backendSessionId": results[i].SessionID, "success": results[i].Success, "status": status, "error": results[i].Error}
+		values[i] = map[string]any{"scenarioId": scenarios[i].ID, "scenarioName": scenarios[i].Name, "backendSessionId": results[i].SessionID, "success": results[i].Success, "status": status, "error": results[i].Error, "diagnostics": results[i].Diagnostics}
 	}
 	return values
 }
+
+func workflowDiagnostics(results []dto.WorkflowBundleScenarioResponse) []executionevent.Diagnostic {
+	diagnostics := make([]executionevent.Diagnostic, 0)
+	for _, result := range results {
+		diagnostics = append(diagnostics, result.Diagnostics...)
+		for _, testResult := range result.Results {
+			if testResult.Diagnostic != nil {
+				diagnostics = append(diagnostics, *testResult.Diagnostic)
+			}
+		}
+	}
+	return diagnostics
+}
+
+func attachScenarioToDiagnostics(result *dto.WorkflowBundleScenarioResponse, scenarioID string) {
+	if result == nil || scenarioID == "" {
+		return
+	}
+	for index := range result.Diagnostics {
+		if result.Diagnostics[index].ScenarioID == "" {
+			result.Diagnostics[index].ScenarioID = scenarioID
+		}
+	}
+	for index := range result.Results {
+		if result.Results[index].Diagnostic != nil && result.Results[index].Diagnostic.ScenarioID == "" {
+			result.Results[index].Diagnostic.ScenarioID = scenarioID
+		}
+	}
+}
+
 func workflowErrors(scenarios []workflowrun.Scenario, results []dto.WorkflowBundleScenarioResponse) string {
 	message := ""
 	for i, result := range results {

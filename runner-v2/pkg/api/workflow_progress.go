@@ -1,21 +1,17 @@
 package api
 
-import "context"
+import (
+	"context"
 
-type workflowProgressReporter func(stage, message string)
+	"github.com/dev-atharva/cots/pkg/executionevent"
+)
 
-type workflowProgressContextKey struct{}
-
-func withWorkflowProgressReporter(ctx context.Context, reporter workflowProgressReporter) context.Context {
-	if reporter == nil {
-		return ctx
-	}
-	return context.WithValue(ctx, workflowProgressContextKey{}, reporter)
+func withWorkflowProgressReporter(ctx context.Context, reporter executionevent.Reporter) context.Context {
+	return executionevent.WithReporter(ctx, reporter)
 }
 
 func reportWorkflowProgress(ctx context.Context, stage, message string) {
-	reporter, _ := ctx.Value(workflowProgressContextKey{}).(workflowProgressReporter)
-	if reporter != nil {
-		reporter(stage, message)
-	}
+	executionevent.Report(ctx, executionevent.Activity{
+		Stage: executionevent.Stage(stage), Kind: "lifecycle", Status: "running", Message: message,
+	})
 }

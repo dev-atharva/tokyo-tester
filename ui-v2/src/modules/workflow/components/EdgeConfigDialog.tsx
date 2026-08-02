@@ -77,7 +77,7 @@ export function EdgeConfigDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <div className="flex items-center gap-2">
             <div className="rounded-md bg-primary/10 p-1.5 text-primary">

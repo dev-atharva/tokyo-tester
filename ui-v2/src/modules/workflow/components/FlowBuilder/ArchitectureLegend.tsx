@@ -10,7 +10,7 @@ const items = [
 
 export function ArchitectureLegend() {
   return (
-    <div className="flex items-center gap-3 rounded-lg border bg-background/90 px-3 py-2 shadow-sm backdrop-blur-sm">
+    <div className="flex max-w-[calc(100vw-2rem)] items-center gap-3 overflow-x-auto rounded-lg border bg-background/90 px-3 py-2 shadow-sm backdrop-blur-sm">
       <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         Data flow
       </span>

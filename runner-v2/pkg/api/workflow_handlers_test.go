@@ -20,6 +20,7 @@ import (
 	mysqldb "github.com/dev-atharva/cots/pkg/db/mysql"
 	"github.com/dev-atharva/cots/pkg/dto"
 	"github.com/dev-atharva/cots/pkg/provider"
+	"github.com/dev-atharva/cots/pkg/workflowbundle"
 	"github.com/dev-atharva/cots/pkg/workflowrun"
 )
 
@@ -163,6 +164,68 @@ func TestWorkflowRunSubmissionIsIdempotent(t *testing.T) {
 	router.ServeHTTP(wrongProject, httptest.NewRequest(http.MethodGet, "/api/v1/workflow-runs/run-contract-1?projectId=another-project", nil))
 	if wrongProject.Code != http.StatusNotFound {
 		t.Fatalf("cross-project snapshot should be hidden, got status=%d body=%s", wrongProject.Code, wrongProject.Body.String())
+	}
+}
+
+func TestWorkflowRunSnapshotUsesImmutableExecutionRevision(t *testing.T) {
+	handler, _, client, payload := newWorkflowAPIHarness(t)
+	router := NewRouter(handler, nil, false)
+	var submitted workflowrun.Request
+	if err := json.Unmarshal(payload, &submitted); err != nil {
+		t.Fatal(err)
+	}
+
+	post := httptest.NewRecorder()
+	router.ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/api/v1/workflow-runs", bytes.NewReader(payload)))
+	if post.Code != http.StatusAccepted {
+		t.Fatalf("submission failed: status=%d body=%s", post.Code, post.Body.String())
+	}
+
+	current, err := client.GetWorkflow(context.Background(), submitted.WorkflowID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.Name = "Edited after execution started"
+	current.NodesConfig = "[]"
+	current.Version++
+	current.UpdatedAt = time.Now().UTC()
+	if err := client.UpsertWorkflow(context.Background(), current); err != nil {
+		t.Fatal(err)
+	}
+
+	get := httptest.NewRecorder()
+	router.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/api/v1/workflow-runs/"+submitted.WorkflowRunID+"?projectId="+submitted.ProjectID, nil))
+	if get.Code != http.StatusOK {
+		t.Fatalf("snapshot failed: status=%d body=%s", get.Code, get.Body.String())
+	}
+	var response struct {
+		ExecutionDefinition struct {
+			WorkflowRevisionID string `json:"workflowRevisionId"`
+			RevisionNumber     int    `json:"revisionNumber"`
+			Workflow           struct {
+				Name  string                    `json:"name"`
+				Nodes []workflowbundle.FlowNode `json:"nodes"`
+			} `json:"workflow"`
+			Scenarios []map[string]any `json:"scenarios"`
+		} `json:"executionDefinition"`
+	}
+	if err := json.Unmarshal(get.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	definition := response.ExecutionDefinition
+	if definition.WorkflowRevisionID == "" || definition.RevisionNumber < 1 {
+		t.Fatalf("missing revision metadata: %#v", definition)
+	}
+	if definition.Workflow.Name != submitted.WorkflowName || len(definition.Workflow.Nodes) != len(submitted.Nodes) {
+		t.Fatalf("snapshot rendered the edited workflow instead of the execution revision: %#v", definition.Workflow)
+	}
+	if len(definition.Scenarios) != len(submitted.Scenarios) {
+		t.Fatalf("got %d scenarios, want %d", len(definition.Scenarios), len(submitted.Scenarios))
+	}
+	for _, node := range definition.Workflow.Nodes {
+		if registry := node.Data.Service.Registry; registry != nil && (registry.Username != "" || registry.Password != "" || registry.Token != "") {
+			t.Fatalf("execution definition exposed registry credentials for node %s", node.ID)
+		}
 	}
 }
 

@@ -13,6 +13,8 @@ Service nodes describe everything the runner must provision before scenarios exe
 | `mongodb` | MongoDB document database | Document |
 | `rabbitmq` | RabbitMQ broker | Queue |
 | `kafka` | Kafka broker | Queue |
+| `nginx` | Nginx web server | HTTP |
+| `mockserver` | MockServer API double | HTTP |
 
 ## Generic services
 
@@ -21,6 +23,8 @@ Generic nodes accept an image, command override, environment, ports, readiness, 
 ## Dependency services
 
 Focused nodes expose the connection and startup fields relevant to their provider. They still create ordinary isolated containers and can be connected to several application nodes.
+
+MockServer expectations belong to the service: configure the request matcher and response in its drawer, then use an ordinary HTTP test to call port `1080` and assert the result. Nginx exposes HTTP on port `80` and HTTPS on port `443`.
 
 Provider support does not imply production clustering or managed-cloud emulation. The goal is a real, disposable dependency suitable for an integration scenario.
 

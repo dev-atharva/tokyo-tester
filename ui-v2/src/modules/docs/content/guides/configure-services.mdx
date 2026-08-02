@@ -8,9 +8,11 @@ Use container-network addresses between services. Host-published ports are for a
 
 ## Managed dependency nodes
 
-Focused nodes reduce repeated configuration for PostgreSQL, MySQL, MariaDB, Redis, Memcached, MongoDB, RabbitMQ, and Kafka. Their forms expose the credentials, database names, or broker settings relevant to that provider.
+Focused nodes reduce repeated configuration for PostgreSQL, MySQL, MariaDB, Redis, Memcached, MongoDB, RabbitMQ, Kafka, Nginx, and MockServer. Their forms expose the credentials, database names, broker settings, or HTTP expectations relevant to that provider.
 
 These are real containers. A database test talks to the started database; a queue test produces or consumes through the broker.
+
+MockServer expectations are configured on the service and loaded during startup. Scenarios consume those endpoints with the ordinary HTTP test type, so the expected method, path, status, headers, and body remain visible in the same journey as other assertions.
 
 ## Health and startup
 

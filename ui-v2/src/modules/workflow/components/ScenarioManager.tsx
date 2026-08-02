@@ -51,11 +51,13 @@ import type {
   FlowNode,
   ScenarioTestDefinition,
 } from "../types/react-flow-cots";
+import { ContextHelp } from "./BuilderHelp";
 import { TestConfigForm } from "./TestConfigForm";
 
 interface ScenarioManagerProps {
   workflowId: string;
   nodes: FlowNode[];
+  authoringMode?: "guided" | "expert";
 }
 
 // ── Sortable test row ────────────────────────────────────────────────────────
@@ -69,6 +71,7 @@ interface SortableTestRowProps {
   onUpdate: (updated: ScenarioTestDefinition) => void;
   availableServices: string[];
   serviceNodes: FlowNode[];
+  authoringMode: "guided" | "expert";
 }
 
 function SortableTestRow({
@@ -80,6 +83,7 @@ function SortableTestRow({
   onUpdate,
   availableServices,
   serviceNodes,
+  authoringMode,
 }: SortableTestRowProps) {
   const {
     attributes,
@@ -100,7 +104,7 @@ function SortableTestRow({
     <div ref={setNodeRef} style={style}>
       <Collapsible open={isOpen} onOpenChange={onToggle}>
         <div
-          className={`rounded-xl border transition-colors duration-150 ${
+          className={`border transition-colors duration-150 ${
             isOpen
               ? "border-primary/25 bg-primary/5"
               : "border-border/60 bg-background"
@@ -111,7 +115,7 @@ function SortableTestRow({
             {/* Drag handle — separate from the collapsible trigger */}
             <button
               type="button"
-              className="cursor-grab touch-none rounded p-0.5 text-muted-foreground/40 hover:text-muted-foreground/70 active:cursor-grabbing"
+              className="cursor-grab touch-none p-0.5 text-muted-foreground/40 hover:text-muted-foreground/70 active:cursor-grabbing"
               {...attributes}
               {...listeners}
               tabIndex={0}
@@ -121,7 +125,7 @@ function SortableTestRow({
             </button>
 
             {/* Index badge */}
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center border bg-muted/30 text-[10px] font-bold text-muted-foreground">
               {index + 1}
             </span>
 
@@ -134,7 +138,7 @@ function SortableTestRow({
             </CollapsibleTrigger>
 
             {/* Type badge */}
-            <span className="hidden shrink-0 rounded-full border border-border/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:inline-block">
+            <span className="hidden shrink-0 border border-border/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:inline-block">
               {test.type}
             </span>
 
@@ -146,11 +150,11 @@ function SortableTestRow({
                   e.stopPropagation();
                   onDelete();
                 }}
-                className="rounded-md p-1 text-muted-foreground/40 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                className="p-1 text-muted-foreground/40 transition-colors hover:bg-destructive/10 hover:text-destructive"
               >
                 <IconTrash className="size-3.5" />
               </button>
-              <CollapsibleTrigger className="rounded-md p-1 text-muted-foreground/40 hover:text-muted-foreground transition-colors">
+              <CollapsibleTrigger className="p-1 text-muted-foreground/40 transition-colors hover:text-muted-foreground">
                 {isOpen ? (
                   <IconChevronDown className="size-3.5" />
                 ) : (
@@ -167,6 +171,7 @@ function SortableTestRow({
                 tests={[test]}
                 availableServices={availableServices}
                 serviceNodes={serviceNodes}
+                authoringMode={authoringMode}
                 onChange={(updated) => {
                   if (updated[0]) onUpdate(updated[0]);
                 }}
@@ -189,16 +194,16 @@ function DragOverlayRow({
   index: number;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-popover shadow-xl ring-2 ring-ring/15">
+    <div className="border border-border bg-popover shadow-lg">
       <div className="flex w-full items-center gap-2 px-3 py-2.5">
         <IconGripVertical className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground">
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center border bg-muted/30 text-[10px] font-bold text-muted-foreground">
           {index + 1}
         </span>
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
           {test.name || `Test ${index + 1}`}
         </span>
-        <span className="hidden shrink-0 rounded-full border border-border/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:inline-block">
+        <span className="hidden shrink-0 border border-border/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:inline-block">
           {test.type}
         </span>
       </div>
@@ -208,7 +213,11 @@ function DragOverlayRow({
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
+export function ScenarioManager({
+  workflowId,
+  nodes,
+  authoringMode = "expert",
+}: ScenarioManagerProps) {
   const createScenario = useScenarioStore((state) => state.createScenario);
   const updateScenario = useScenarioStore((state) => state.updateScenario);
   const deleteScenario = useScenarioStore((state) => state.deleteScenario);
@@ -300,10 +309,13 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
     : 0;
 
   return (
-    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-5 overflow-hidden md:grid-cols-[280px_minmax(0,1fr)] md:grid-rows-1">
+    <div
+      data-testid="guided-scenario-manager"
+      className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden md:grid-cols-[260px_minmax(0,1fr)] md:grid-rows-1"
+    >
       {/* ── Scenario list ── */}
       <div className="flex max-h-48 min-h-0 flex-col gap-3 overflow-hidden md:max-h-none">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between border-b pb-2">
           <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-foreground/70">
             <IconListDetails className="size-3.5" />
             Scenarios
@@ -313,10 +325,13 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
           </span>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden rounded-xl border border-border/60 bg-muted/20 p-3 shadow-sm">
+        <div
+          data-testid="guided-scenario-list"
+          className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden border bg-muted/10 p-3"
+        >
           <Button
             size="sm"
-            className="w-full shadow-sm"
+            className="w-full"
             onClick={() => {
               const id = createScenario(
                 workflowId,
@@ -345,19 +360,17 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
                       type="button"
                       key={scenario.id}
                       onClick={() => setActiveScenario(workflowId, scenario.id)}
-                      className={`w-full rounded-lg border px-3 py-2.5 text-left transition-all duration-150 ${
+                      className={`w-full border px-3 py-2.5 text-left transition-colors duration-150 ${
                         isActive
-                          ? "border-primary/25 bg-primary/8 shadow-sm"
+                          ? "border-primary/45 bg-primary/8"
                           : "border-border/50 bg-background hover:border-border hover:bg-muted/40"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span
-                          className={`truncate text-sm font-medium ${isActive ? "text-foreground" : "text-foreground"}`}
-                        >
+                        <span className="truncate text-sm font-medium text-foreground">
                           {scenario.name}
                         </span>
-                        <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                        <span className="shrink-0 border bg-muted/30 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
                           {scenario.tests.length}
                         </span>
                       </div>
@@ -372,14 +385,17 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
 
       {/* ── Scenario detail ── */}
       <div className="flex min-h-0 flex-col gap-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
+        <h3 className="border-b pb-2 text-xs font-semibold uppercase tracking-wide text-foreground/70">
           Scenario Details
         </h3>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm">
+        <div
+          data-testid="guided-scenario-details"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden border bg-card"
+        >
           {!activeScenario ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 p-8">
-              <div className="rounded-full bg-muted/50 p-3">
+              <div className="border bg-muted/30 p-3">
                 <IconListDetails className="size-6 text-muted-foreground" />
               </div>
               <div className="space-y-1 text-center">
@@ -393,7 +409,7 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
             </div>
           ) : (
             <ScrollArea className="h-full">
-              <div className="space-y-5 p-5">
+              <div className="space-y-6 p-4 lg:p-5">
                 {/* Name + description + delete */}
                 <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1 space-y-3">
@@ -412,7 +428,6 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
                             name: e.target.value,
                           })
                         }
-                        className="shadow-sm"
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -427,7 +442,7 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
                           })
                         }
                         placeholder="What does this scenario verify?"
-                        className="resize-none shadow-sm"
+                        className="resize-none"
                         rows={2}
                       />
                     </div>
@@ -436,7 +451,7 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
                     variant="destructive"
                     size="sm"
                     onClick={() => deleteScenario(activeScenario.id)}
-                    className="mt-5 shrink-0 shadow-sm"
+                    className="mt-5 shrink-0"
                   >
                     <IconTrash className="size-3.5" />
                   </Button>
@@ -448,8 +463,13 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
                   <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-foreground/70">
                     <IconSparkles className="size-3.5" />
                     Start with a recipe
+                    <ContextHelp label="scenario recipes">
+                      Recipes insert a sensible ordered set of test steps for
+                      the services already in this workflow. Every generated
+                      step remains editable.
+                    </ContextHelp>
                   </h4>
-                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     {SCENARIO_RECIPES.map((recipe) => {
                       const availability = recipeAvailability(recipe, nodes);
                       return (
@@ -489,16 +509,21 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
                 {/* Tests section */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
-                      Tests
-                      <span className="ml-2 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                    <h4 className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-foreground/70">
+                      Test steps
+                      <span className="ml-2 border bg-muted/30 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
                         {activeScenario.tests.length}
                       </span>
+                      <ContextHelp label="ordered test steps">
+                        Steps run in the displayed order unless an explicit test
+                        dependency requires another step first. Drag a step to
+                        change its order.
+                      </ContextHelp>
                     </h4>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 px-2.5 text-xs shadow-sm"
+                      className="h-7 px-2.5 text-xs"
                       onClick={() => {
                         const newTest = createDefaultTest("http", nodes);
                         const updated = [...activeScenario.tests, newTest];
@@ -517,7 +542,7 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
                   </div>
 
                   {activeScenario.tests.length === 0 ? (
-                    <div className="flex items-center justify-center rounded-lg border border-dashed border-border/60 py-8">
+                    <div className="flex items-center justify-center border border-dashed border-border/60 py-8">
                       <p className="text-xs italic text-muted-foreground">
                         No tests yet — add one above
                       </p>
@@ -561,6 +586,7 @@ export function ScenarioManager({ workflowId, nodes }: ScenarioManagerProps) {
                               }}
                               availableServices={availableServices}
                               serviceNodes={nodes}
+                              authoringMode={authoringMode}
                             />
                           ))}
                         </div>

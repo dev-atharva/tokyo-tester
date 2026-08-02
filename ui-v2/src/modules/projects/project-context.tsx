@@ -9,19 +9,22 @@ import {
   useState,
 } from "react";
 import { clearProjectScopedClientState } from "@/modules/auth/client-state";
-import type { ProjectMembership } from "./types";
 import { setCurrentSessionProjectId } from "./session-project";
+import type { ProjectMembership } from "./types";
 
 const ACTIVE_PROJECT_KEY_PREFIX = "cots_active_project";
 
 interface ProjectContextValue {
+  userId: string | null;
   projects: ProjectMembership[];
   activeProjectId: string | null;
   activeProject: ProjectMembership | null;
   setActiveProjectId: (projectId: string | null) => Promise<void>;
 }
 
-const ProjectContext = createContext<ProjectContextValue | undefined>(undefined);
+const ProjectContext = createContext<ProjectContextValue | undefined>(
+  undefined,
+);
 
 function getStorageKey(userId: string) {
   return `${ACTIVE_PROJECT_KEY_PREFIX}:${userId}`;
@@ -38,7 +41,9 @@ export function ProjectProvider({
   userId,
   projects,
 }: ProjectProviderProps) {
-  const [activeProjectId, setActiveProjectIdState] = useState<string | null>(null);
+  const [activeProjectId, setActiveProjectIdState] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!userId) {
@@ -73,6 +78,7 @@ export function ProjectProvider({
       projects.find((project) => project.id === activeProjectId) ?? null;
 
     return {
+      userId,
       projects,
       activeProjectId,
       activeProject,

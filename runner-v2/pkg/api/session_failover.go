@@ -11,6 +11,7 @@ import (
 	"github.com/dev-atharva/cots/pkg/config"
 	"github.com/dev-atharva/cots/pkg/db"
 	"github.com/dev-atharva/cots/pkg/dto"
+	"github.com/dev-atharva/cots/pkg/executionevent"
 	"github.com/dev-atharva/cots/pkg/logger"
 	"github.com/dev-atharva/cots/pkg/orchestrator"
 	"github.com/dev-atharva/cots/pkg/session"
@@ -31,12 +32,16 @@ const (
 )
 
 type persistedTestResult struct {
-	Name              string            `json:"name"`
-	Type              string            `json:"type"`
-	Passed            bool              `json:"passed"`
-	Error             string            `json:"error,omitempty"`
-	ContainerLogs     map[string]string `json:"container_logs,omitempty"`
-	InterpolationData any               `json:"interpolation_data,omitempty"`
+	Name              string                     `json:"name"`
+	Type              string                     `json:"type"`
+	Passed            bool                       `json:"passed"`
+	Error             string                     `json:"error,omitempty"`
+	DurationMs        int64                      `json:"duration_ms,omitempty"`
+	Attempts          []dto.TestAttempt          `json:"attempts,omitempty"`
+	Recovered         bool                       `json:"recovered_after_retry,omitempty"`
+	Diagnostic        *executionevent.Diagnostic `json:"diagnostic,omitempty"`
+	ContainerLogs     map[string]string          `json:"container_logs,omitempty"`
+	InterpolationData any                        `json:"interpolation_data,omitempty"`
 }
 
 func runtimeOwnerID() string {
@@ -374,6 +379,10 @@ func (h *Handler) loadPersistedResults(ctx context.Context, persisted *db.Sessio
 			Type:          firstNonEmpty(stored.Type, row.TestType),
 			Passed:        row.Status == "passed",
 			Error:         stored.Error,
+			DurationMs:    stored.DurationMs,
+			Attempts:      stored.Attempts,
+			Recovered:     stored.Recovered,
+			Diagnostic:    stored.Diagnostic,
 			ContainerLogs: stored.ContainerLogs,
 		}
 		byName[row.TestName] = result
@@ -408,6 +417,10 @@ func (h *Handler) persistTestResult(ctx context.Context, persisted *db.Session, 
 		Type:              result.Type,
 		Passed:            result.Passed,
 		Error:             result.Error,
+		DurationMs:        result.DurationMs,
+		Attempts:          result.Attempts,
+		Recovered:         result.Recovered,
+		Diagnostic:        result.Diagnostic,
 		ContainerLogs:     result.ContainerLogs,
 		InterpolationData: interpolationData,
 	})
@@ -437,6 +450,7 @@ func (h *Handler) persistTestResult(ctx context.Context, persisted *db.Session, 
 		TestType:      result.Type,
 		Status:        status,
 		ResultData:    string(resultPayload),
+		DurationMs:    int(result.DurationMs),
 		ExecutedAt:    executedAt.UTC(),
 		CreatedAt:     executedAt.UTC(),
 		UpdatedAt:     executedAt.UTC(),
@@ -557,15 +571,19 @@ func firstNonEmpty(values ...string) string {
 
 func summarizeResults(results []dto.TestResult) map[string]any {
 	summary := map[string]any{
-		"total":  len(results),
-		"passed": 0,
-		"failed": 0,
+		"total":   len(results),
+		"passed":  0,
+		"failed":  0,
+		"retried": 0,
 	}
 	for _, result := range results {
 		if result.Passed {
 			summary["passed"] = summary["passed"].(int) + 1
 		} else {
 			summary["failed"] = summary["failed"].(int) + 1
+		}
+		if len(result.Attempts) > 1 {
+			summary["retried"] = summary["retried"].(int) + 1
 		}
 	}
 	return summary
@@ -592,18 +610,10 @@ func interpolationPayloadForResult(result dto.TestResult) any {
 }
 
 func replaySafeTest(testCfg config.TestConfig) bool {
-	switch testCfg.Type {
-	case "http", "database", "delay":
+	if testCfg.Type == "delay" || testCfg.RetryPolicy.IdempotencyConfirmed {
 		return true
-	case "cache":
-		op := fmt.Sprintf("%v", testCfg.Config["operation"])
-		return op == "get" || op == "exists" || op == "ping"
-	case "queue":
-		op := fmt.Sprintf("%v", testCfg.Config["operation"])
-		return op == "consume" || op == "check_topic" || op == "list_topics"
-	default:
-		return false
 	}
+	return test.IsAutomaticallyRetrySafe(testCfg)
 }
 
 func loadPersistedTestPlan(raw string) ([]config.TestConfig, error) {

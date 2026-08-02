@@ -277,6 +277,22 @@ function validateBundleScenario(
       );
     }
   }
+
+  for (const test of scenario.tests) {
+    const policy = test.retryPolicy;
+    if (!policy) continue;
+    if (policy.mode !== "transient" && policy.mode !== "never") {
+      throw new Error(`Test "${test.name}" has an invalid retry mode.`);
+    }
+    if (policy.mode === "never" && policy.idempotencyConfirmed) {
+      throw new Error(
+        `Test "${test.name}" cannot confirm idempotency when retries are disabled.`,
+      );
+    }
+    if (test.type === "delay" && policy.idempotencyConfirmed) {
+      throw new Error(`Delay test "${test.name}" cannot enable retries.`);
+    }
+  }
 }
 
 function cloneScenarioForImport(
@@ -342,6 +358,7 @@ function sanitizeNodesForBundle(nodes: FlowNode[]): FlowNode[] {
         env: cloneValue(node.data.service.env),
         waitStratergy: cloneValue(node.data.service.waitStratergy),
         initScripts: cloneValue(node.data.service.initScripts),
+        mockServer: cloneValue(node.data.service.mockServer),
       },
       tests: undefined,
       onDelete: undefined,

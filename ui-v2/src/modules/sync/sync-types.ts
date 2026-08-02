@@ -155,6 +155,7 @@ export interface TestResultData {
   test_type: string;
   status: string;
   result_data?: JsonValue | string | null;
+  container_logs?: JsonValue | string | null;
   duration_ms: number;
   executed_at: string;
   created_at: string;

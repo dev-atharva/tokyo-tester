@@ -4,6 +4,10 @@ import type {
   WorkflowRunData,
 } from "@/modules/sync/sync-types";
 import type {
+  FlowEdge,
+  FlowNode,
+  ScenarioTestDefinition,
+  WorkflowLogEvent,
   WorkflowRunInput,
   WorkflowRunStatus,
 } from "../types/react-flow-cots";
@@ -22,7 +26,7 @@ export async function submitWorkflowRun(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (response.ok) {
+  if (response.status === 202) {
     try {
       return (await response.json()) as WorkflowRunSubmission;
     } catch {
@@ -32,6 +36,12 @@ export async function submitWorkflowRun(
         created: true,
       };
     }
+  }
+
+  if (response.ok) {
+    throw new Error(
+      `Runner returned unexpected ${response.status}; the workflow was not accepted for execution`,
+    );
   }
 
   let message = `Runner returned ${response.status}`;
@@ -104,6 +114,27 @@ export interface WorkflowRunSnapshot {
   scenarioRuns: SessionData[];
   testResults: TestResultData[];
   queue?: WorkflowQueueInfo;
+  executionDefinition?: WorkflowExecutionDefinition | null;
+}
+
+export interface WorkflowExecutionDefinition {
+  workflowRevisionId: string;
+  revisionNumber: number;
+  workflowVersion: number;
+  workflow: {
+    id: string;
+    name: string;
+    description?: string;
+    nodes: FlowNode[];
+    edges: FlowEdge[];
+  };
+  scenarios: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    tests: ScenarioTestDefinition[];
+    testOrder: string[];
+  }>;
 }
 
 export interface WorkflowLogPage {
@@ -116,6 +147,16 @@ export interface WorkflowLogPage {
   }>;
   hasMore: boolean;
   nextBefore?: number;
+}
+
+export interface StoredWorkflowLogEvent {
+  id: number;
+  event: WorkflowLogEvent;
+}
+
+export interface WorkflowLogReplay {
+  events: StoredWorkflowLogEvent[];
+  newestEventId?: number;
 }
 
 export async function fetchWorkflowRunLogs(
@@ -137,6 +178,72 @@ export async function fetchWorkflowRunLogs(
   return (await response.json()) as WorkflowLogPage;
 }
 
+function parseStoredWorkflowLogEvent(
+  stored: WorkflowLogPage["events"][number],
+): StoredWorkflowLogEvent | null {
+  try {
+    return {
+      id: stored.id,
+      event: JSON.parse(stored.payload) as WorkflowLogEvent,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Replays every persisted event newer than `afterEventId`. Pages are returned
+ * newest-first by the runner, so reconciliation continues backwards until it
+ * reaches the known cursor. This prevents a terminal snapshot from hiding
+ * structured events that were persisted while SSE was disconnected.
+ */
+export async function fetchWorkflowRunEventsSince(
+  workflowRunId: string,
+  projectId: string,
+  afterEventId: number,
+  pageSize = 200,
+  fetcher: Fetcher = fetch,
+): Promise<WorkflowLogReplay> {
+  const collected = new Map<number, WorkflowLogEvent>();
+  const seenCursors = new Set<number>();
+  let newestStoredEventId: number | undefined;
+  let before: number | undefined;
+
+  while (true) {
+    const page = await fetchWorkflowRunLogs(
+      workflowRunId,
+      projectId,
+      before,
+      pageSize,
+      fetcher,
+    );
+    let reachedKnownCursor = false;
+    for (const stored of page.events) {
+      if (stored.id <= afterEventId) {
+        reachedKnownCursor = true;
+        continue;
+      }
+      newestStoredEventId = Math.max(newestStoredEventId || 0, stored.id);
+      const parsed = parseStoredWorkflowLogEvent(stored);
+      if (parsed) collected.set(parsed.id, parsed.event);
+    }
+
+    if (reachedKnownCursor || !page.hasMore || page.nextBefore === undefined) {
+      break;
+    }
+    if (seenCursors.has(page.nextBefore)) {
+      throw new Error("Runner returned a repeated pagination cursor");
+    }
+    seenCursors.add(page.nextBefore);
+    before = page.nextBefore;
+  }
+
+  const events = [...collected.entries()]
+    .map(([id, event]) => ({ id, event }))
+    .sort((left, right) => left.id - right.id);
+  return { events, newestEventId: newestStoredEventId };
+}
+
 export async function fetchWorkflowRunSnapshot(
   workflowRunId: string,
   projectId: string,
@@ -145,6 +252,7 @@ export async function fetchWorkflowRunSnapshot(
   const query = new URLSearchParams({ projectId });
   const response = await fetcher(
     `/api/v1/workflow-runs/${encodeURIComponent(workflowRunId)}?${query.toString()}`,
+    { cache: "no-store" },
   );
   if (!response.ok) {
     throw new Error(`Runner returned ${response.status}`);

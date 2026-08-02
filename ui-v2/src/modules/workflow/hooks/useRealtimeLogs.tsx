@@ -21,6 +21,9 @@ import type {
 } from "../types/react-flow-cots";
 
 interface UseRealtimeLogsProps {
+  workflowRunId?: string;
+  projectId?: string;
+  enabled?: boolean;
   onComplete?: (result: unknown) => void;
   onError?: (error: string) => void;
 }
@@ -38,6 +41,9 @@ function reconcileWorkflowRunSnapshot(
 }
 
 export function useRealtimeLogs({
+  workflowRunId,
+  projectId,
+  enabled = true,
   onComplete,
   onError,
 }: UseRealtimeLogsProps = {}) {
@@ -46,8 +52,8 @@ export function useRealtimeLogs({
     (state) => state.activeWorkflowRunId,
   );
   const activeExecution = useExecutionStore((state) =>
-    state.activeWorkflowRunId
-      ? state.executions[state.activeWorkflowRunId]
+    (workflowRunId ?? state.activeWorkflowRunId)
+      ? state.executions[workflowRunId ?? state.activeWorkflowRunId ?? ""]
       : undefined,
   );
   const updateExecutionStatus = useExecutionStore(
@@ -83,8 +89,10 @@ export function useRealtimeLogs({
   >([]);
   const [runnerConnected, setRunnerConnected] = useState(false);
   const [lastActivityAt, setLastActivityAt] = useState<number | null>(null);
+  const [activities, setActivities] = useState<WorkflowLogEvent[]>([]);
+  const resolvedWorkflowRunId = workflowRunId ?? activeWorkflowRunId;
   const activeExecutionStatus = activeExecution?.status;
-  const activeProjectId = activeExecution?.projectId;
+  const activeProjectId = projectId ?? activeExecution?.projectId;
   const updateReplayCursor = useExecutionStore(
     (state) => state.updateReplayCursor,
   );
@@ -93,17 +101,19 @@ export function useRealtimeLogs({
   const latestResultData = runnerResultQueue[0] ?? null;
 
   useEffect(() => {
-    if (processedRunId.current === activeWorkflowRunId) return;
-    processedRunId.current = activeWorkflowRunId;
+    if (processedRunId.current === resolvedWorkflowRunId) return;
+    processedRunId.current = resolvedWorkflowRunId;
     processedEventIds.current.clear();
     setRunnerLogQueue([]);
     setRunnerResultQueue([]);
+    setActivities([]);
     setLastActivityAt(null);
-  }, [activeWorkflowRunId]);
+  }, [resolvedWorkflowRunId]);
 
   useEffect(() => {
     if (
-      !activeWorkflowRunId ||
+      !enabled ||
+      !resolvedWorkflowRunId ||
       !activeProjectId ||
       (activeExecutionStatus !== "pending" &&
         activeExecutionStatus !== "running" &&
@@ -114,9 +124,10 @@ export function useRealtimeLogs({
     }
 
     const cursor =
-      useExecutionStore.getState().executions[activeWorkflowRunId]?.lastEventId;
+      useExecutionStore.getState().executions[resolvedWorkflowRunId]
+        ?.lastEventId;
     const source = new EventSource(
-      buildWorkflowEventsUrl(activeWorkflowRunId, activeProjectId, cursor),
+      buildWorkflowEventsUrl(resolvedWorkflowRunId, activeProjectId, cursor),
     );
     source.onopen = () => {
       setRunnerConnected(true);
@@ -166,7 +177,7 @@ export function useRealtimeLogs({
       }
     });
     return () => source.close();
-  }, [activeExecutionStatus, activeProjectId, activeWorkflowRunId]);
+  }, [activeExecutionStatus, activeProjectId, enabled, resolvedWorkflowRunId]);
 
   useEffect(() => {
     if (!latestLogData || latestLogData.topic !== "workflowlog") {
@@ -196,6 +207,9 @@ export function useRealtimeLogs({
     }
 
     appendLog(workflowRunId, message);
+    if (latestLogData.data.stage || latestLogData.data.kind) {
+      setActivities((current) => [...current, latestLogData.data].slice(-500));
+    }
 
     if (scenarioId) {
       const scenarioRun = Object.values(scenarioRuns).find(
@@ -208,6 +222,7 @@ export function useRealtimeLogs({
           backendSessionId,
           status: resolveScenarioLogStatus(scenarioRun.status, status),
           error: error ?? scenarioRun.error,
+          phase: latestLogData.data.stage ?? scenarioRun.phase,
         });
       }
     }
@@ -387,5 +402,6 @@ export function useRealtimeLogs({
   return {
     isConnected: runnerConnected,
     lastActivityAt,
+    activities,
   };
 }

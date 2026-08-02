@@ -72,6 +72,8 @@ function deserializeScenarioRun(data: SessionData): ScenarioRun {
     status: data.status as ScenarioRun["status"],
     result: parseJSON<unknown>(data.result, data.result),
     error: data.error || undefined,
+    phase: data.phase,
+    checkpointIndex: data.checkpoint_index,
     logs: parseJSON<string[]>(data.logs, []),
     startedAt: timeValue(data.started_at, data.created_at),
     finishedAt: data.completed_at
@@ -103,6 +105,10 @@ function deserializeTestResult(
     testType: data.test_type,
     status: data.status as TestResult["status"],
     resultData: parseJSON<unknown>(data.result_data, null),
+    containerLogs: parseJSON<Record<string, string> | undefined>(
+      data.container_logs,
+      undefined,
+    ),
     durationMs: data.duration_ms,
     executedAt: data.executed_at,
     version: 1,

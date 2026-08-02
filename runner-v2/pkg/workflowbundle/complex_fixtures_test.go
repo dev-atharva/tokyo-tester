@@ -95,6 +95,9 @@ func TestPaymentResilienceBundleHasIntentionalFailureTopology(t *testing.T) {
 	if len(bundle.Scenarios) != 3 {
 		t.Fatalf("expected three resilience scenarios, got %d", len(bundle.Scenarios))
 	}
+	if len(bundle.Scenarios[0].Tests) != 3 || bundle.Scenarios[0].Tests[2].Name != "transient-eof-recovers" {
+		t.Fatal("healthy resilience scenario must include the deterministic transient recovery")
+	}
 	if bundle.Scenarios[1].TestOrder[1] != "after-failure" {
 		t.Fatal("continuation test must run after the intentional failure")
 	}

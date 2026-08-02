@@ -35,6 +35,8 @@ import type {
   ServiceNodeData,
   ServiceType,
 } from "../types/react-flow-cots";
+import { ContextHelp } from "./BuilderHelp";
+import { MockServerExpectationEditor } from "./MockServerExpectationEditor";
 
 interface ServiceConfigFormProps {
   serviceData: ServiceNodeData;
@@ -296,6 +298,10 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
               script: s.script ?? "",
               description: s.description,
             })),
+          mockServer:
+            value.serviceType === "mockserver"
+              ? (serviceData.service.mockServer ?? { expectations: [] })
+              : undefined,
         },
       });
     });
@@ -410,6 +416,8 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
                         <SelectItem value="kafka">Kafka</SelectItem>
                         <SelectItem value="rabbitmq">RabbitMQ</SelectItem>
                         <SelectItem value="mongodb">MongoDB</SelectItem>
+                        <SelectItem value="nginx">Nginx</SelectItem>
+                        <SelectItem value="mockserver">MockServer</SelectItem>
                       </SelectGroup>
                     </SelectContent>
                   </Select>
@@ -417,12 +425,19 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
               />
             </FormItem>
             <FormItem>
-              <FormLabel
-                htmlFor="service-container-image"
-                className="text-xs font-semibold text-muted-foreground uppercase tracking-wide"
-              >
-                Docker Image
-              </FormLabel>
+              <div className="flex items-center gap-1">
+                <FormLabel
+                  htmlFor="service-container-image"
+                  className="text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+                >
+                  Docker Image
+                </FormLabel>
+                <ContextHelp label="Docker image">
+                  This is the exact container image started for the workflow.
+                  Application services require one; managed providers start with
+                  a tested default.
+                </ContextHelp>
+              </div>
               <Input
                 id="service-container-image"
                 {...register("image")}
@@ -449,6 +464,22 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
             </FormItem>
           </div>
         </section>
+
+        {currentServiceType === "mockserver" ? (
+          <MockServerExpectationEditor
+            expectations={serviceData.service.mockServer?.expectations ?? []}
+            onChange={(expectations) =>
+              onChange({
+                ...serviceData,
+                service: {
+                  ...serviceData.service,
+                  type: "mockserver",
+                  mockServer: { expectations },
+                },
+              })
+            }
+          />
+        ) : null}
 
         <Collapsible>
           <CollapsibleTrigger
@@ -513,11 +544,16 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
 
             {/* ENV VARS */}
             <section className="space-y-3">
-              <div className="flex justify-between items-center">
+              <div className="flex items-center gap-1">
                 <h3 className="text-sm font-semibold tracking-tight text-foreground/90 uppercase">
                   Environment Variables
                 </h3>
-                <div className="flex gap-2">
+                <ContextHelp label="service references">
+                  Reference another service by its workflow name so Tokyo Tester
+                  can resolve its internal host, port, or environment value when
+                  the run starts.
+                </ContextHelp>
+                <div className="ml-auto flex gap-2">
                   {currentServiceType !== "generic" && (
                     <Button
                       type="button"
@@ -606,9 +642,16 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
             {/* PORTS */}
             <section className="space-y-3">
               <div className="flex justify-between items-center">
-                <h3 className="text-sm font-semibold tracking-tight text-foreground/90 uppercase">
-                  Port Mappings
-                </h3>
+                <div className="flex items-center gap-1">
+                  <h3 className="text-sm font-semibold tracking-tight text-foreground/90 uppercase">
+                    Port Mappings
+                  </h3>
+                  <ContextHelp label="container and host ports">
+                    Container ports are used between workflow services. Host
+                    ports are only needed when something outside the isolated
+                    network must connect.
+                  </ContextHelp>
+                </div>
                 <Button
                   type="button"
                   size="sm"
@@ -683,9 +726,15 @@ export const ServiceConfigForm: React.FC<ServiceConfigFormProps> = ({
                     )}
                   />
                   <div>
-                    <Label className="text-sm font-semibold">
-                      Enable Wait Strategy
-                    </Label>
+                    <div className="flex items-center gap-1">
+                      <Label className="text-sm font-semibold">
+                        Enable Wait Strategy
+                      </Label>
+                      <ContextHelp label="wait strategy">
+                        A wait strategy proves the container is ready before a
+                        dependent service or scenario tries to use it.
+                      </ContextHelp>
+                    </div>
                     <FormDescription className="text-xs mt-0.5">
                       Wait for the service to be ready before starting dependent
                       services

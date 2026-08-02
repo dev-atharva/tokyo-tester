@@ -1,12 +1,29 @@
 "use client";
 
 import { ReactFlowProvider } from "@xyflow/react";
+import { useRouter } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "@xyflow/react/dist/style.css";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useProjectContext } from "@/modules/projects/project-context";
 import { useSyncContext } from "@/modules/sync/SyncProvider";
+import {
+  translateWorkflowGraphToServiceGraph,
+  validateScenario,
+} from "@/modules/utils/scenario-translator";
+import { useBuilderExperience } from "../../hooks/useBuilderExperience";
 import {
   getShortcutDescription,
   useKeyboardShortcuts,
@@ -15,13 +32,19 @@ import { useRealtimeTestResults } from "../../hooks/useRealTimeTestReults";
 import { useRealtimeLogs } from "../../hooks/useRealtimeLogs";
 import { useWorkflowExecution } from "../../hooks/useWorkflowExecution";
 import { useWorkflowGraph } from "../../hooks/useWorkflowGraph";
-import { shouldPollExecutionFallback } from "../../lib/realtime-events";
+import { deriveGuidedChecklist } from "../../lib/builder-experience";
+import {
+  isWorkflowRunActive,
+  shouldPollExecutionFallback,
+} from "../../lib/realtime-events";
 import { cancelWorkflowRun } from "../../lib/runner-client";
 import { createDefaultServiceNode } from "../../lib/workflow-defaults";
+import { getServiceRemovalImpact } from "../../lib/workflow-presentation";
 import { useExecutionStore } from "../../stores/execution.store.sync";
 import { useScenarioStore } from "../../stores/scenario.store.sync";
 import { useUIStore } from "../../stores/ui.store";
 import { useWorkflowStore } from "../../stores/workflow.store.sync";
+import type { FlowNode, ServiceType } from "../../types/react-flow-cots";
 import { EdgeConfigDialog } from "../EdgeConfigDialog";
 import { ExecutionHistory } from "../ExecutionHistory";
 import {
@@ -53,6 +76,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   onWorkComplete,
   onError,
 }) => {
+  const router = useRouter();
   const nodeTypes = useMemo(() => ({ serviceNode: ServiceNode }), []);
 
   // Stores
@@ -69,6 +93,15 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
       activeWorkflowRunId ? (executions[activeWorkflowRunId] ?? null) : null,
     [activeWorkflowRunId, executions],
   );
+  const liveExecution = isWorkflowRunActive(activeExecution?.status)
+    ? activeExecution
+    : null;
+  const openActiveRun = useCallback(() => {
+    if (!liveExecution) return;
+    router.push(
+      `/workflow/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(liveExecution.workflowRunId)}?projectId=${encodeURIComponent(liveExecution.projectId)}`,
+    );
+  }, [liveExecution, router, workflowId]);
   const cancelActiveExecution = useCallback(async () => {
     if (!activeExecution) return;
     try {
@@ -102,7 +135,6 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
     closeNodeConfig,
     openScenarios,
     closeScenarios,
-    openLogs,
     closeLogs,
     openShortcuts,
     closeShortcuts,
@@ -119,11 +151,18 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   >(null);
   const autoLayoutWorkflowRef = useRef<string | null>(null);
   const [isRunDialogOpen, setIsRunDialogOpen] = useState(false);
-  const [authoringMode, setAuthoringMode] = useState<"guided" | "expert">(
-    "guided",
-  );
   const [guidedStage, setGuidedStage] = useState<GuidedStage>("services");
-  const { activeProject } = useProjectContext();
+  const [servicePendingRemoval, setServicePendingRemoval] =
+    useState<FlowNode | null>(null);
+  const { activeProject, userId } = useProjectContext();
+  const {
+    mode: authoringMode,
+    setMode: setAuthoringMode,
+    checklistDismissed,
+    dismissChecklist,
+    restoreChecklist,
+    isReady: isBuilderExperienceReady,
+  } = useBuilderExperience(userId);
   const { queueSize } = useSyncContext();
   const canEdit = activeProject?.allowedActions.includes("edit") ?? false;
   const canRun = activeProject?.allowedActions.includes("run") ?? false;
@@ -198,6 +237,95 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
         .sort((left, right) => right.updated_at.localeCompare(left.updated_at)),
     [scenariosMap, workflowId],
   );
+  const serviceRemovalImpact = useMemo(
+    () =>
+      servicePendingRemoval
+        ? getServiceRemovalImpact(
+            servicePendingRemoval,
+            edges,
+            runnableScenarios,
+          )
+        : null,
+    [edges, runnableScenarios, servicePendingRemoval],
+  );
+  const guidedValidationErrors = useMemo(() => {
+    const serviceGraph = translateWorkflowGraphToServiceGraph(nodes, edges);
+    const errors = runnableScenarios.flatMap(
+      (scenario) => validateScenario(serviceGraph, scenario).errors,
+    );
+    return Array.from(
+      new Map(errors.map((error) => [error.message, error])).values(),
+    );
+  }, [edges, nodes, runnableScenarios]);
+  const displayedValidationErrors = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          [...guidedValidationErrors, ...(validationResult?.errors ?? [])].map(
+            (error) => [error.message, error],
+          ),
+        ).values(),
+      ),
+    [guidedValidationErrors, validationResult?.errors],
+  );
+  const guidedChecklist = useMemo(
+    () =>
+      deriveGuidedChecklist({
+        serviceCount: nodes.length,
+        edges,
+        scenarios: runnableScenarios,
+        validationErrorCount: displayedValidationErrors.length,
+      }),
+    [displayedValidationErrors.length, edges, nodes.length, runnableScenarios],
+  );
+  const hasRunnableTest = runnableScenarios.some(
+    (scenario) => scenario.tests.length > 0,
+  );
+  const canLaunchWorkflow =
+    canRun &&
+    canExecute &&
+    hasRunnableTest &&
+    displayedValidationErrors.length === 0 &&
+    queueSize === 0;
+  const runDisabledReason = useMemo(() => {
+    if (isExecuting) return "A workflow run is already starting.";
+    if (!canRun) return "Your project role does not allow workflow runs.";
+    if (queueSize > 0) {
+      return "Wait for pending workflow changes to finish syncing.";
+    }
+    if (nodes.length === 0) return "Add at least one service before running.";
+    if (runnableScenarios.length === 0) {
+      return "Create at least one scenario before running.";
+    }
+    if (!hasRunnableTest) {
+      return "Add at least one test step to a scenario before running.";
+    }
+    if (displayedValidationErrors.length > 0) {
+      return `Resolve ${displayedValidationErrors.length} validation issue${displayedValidationErrors.length === 1 ? "" : "s"} before running.`;
+    }
+    return undefined;
+  }, [
+    canRun,
+    displayedValidationErrors.length,
+    hasRunnableTest,
+    isExecuting,
+    nodes.length,
+    queueSize,
+    runnableScenarios.length,
+  ]);
+  const showGuidedChecklist = useCallback(() => {
+    restoreChecklist();
+    setAuthoringMode("guided");
+  }, [restoreChecklist, setAuthoringMode]);
+
+  const confirmServiceRemoval = useCallback(() => {
+    if (!servicePendingRemoval || !serviceRemovalImpact) return;
+    deleteNode(servicePendingRemoval.id);
+    setServicePendingRemoval(null);
+    toast.success(`${servicePendingRemoval.data.label} removed`, {
+      description: `${serviceRemovalImpact.connectedEdges} connection${serviceRemovalImpact.connectedEdges === 1 ? "" : "s"} removed. ${serviceRemovalImpact.referencedTests} scenario step${serviceRemovalImpact.referencedTests === 1 ? "" : "s"} preserved for repair.`,
+    });
+  }, [deleteNode, servicePendingRemoval, serviceRemovalImpact]);
 
   // Realtime logs
   const {
@@ -341,17 +469,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   }, [workflow?.id, deleteNode, setNodes, workflow, canEdit]);
 
   // Add service node helper
-  const handleAddNode = (
-    type:
-      | "postgres"
-      | "redis"
-      | "mysql"
-      | "mariadb"
-      | "generic"
-      | "kafka"
-      | "rabbitmq"
-      | "mongodb",
-  ) => {
+  const handleAddNode = (type: ServiceType) => {
     const id = `${type}-${Date.now()}`;
     const position = {
       x: Math.random() * 400 + 100,
@@ -374,8 +492,8 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
       openLogs: {
         shortcut: { key: "l", ctrl: true },
         handler: () => {
-          if (activeExecution) {
-            openLogs();
+          if (liveExecution) {
+            openActiveRun();
           }
         },
       },
@@ -424,14 +542,25 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   );
 
   // Show loading state while hydrating
-  if (!hydrated) {
+  if (!hydrated || !isBuilderExperienceReady) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-center space-y-2">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
-          <p className="text-sm text-muted-foreground">Loading workflow...</p>
+      <output
+        className="flex h-screen flex-col gap-4 p-4 sm:p-6"
+        aria-label="Loading workflow builder"
+      >
+        <div className="flex items-center justify-between border-b pb-4">
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-9" />
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-4 w-48" />
+              <Skeleton className="h-3 w-28" />
+            </div>
+          </div>
+          <Skeleton className="h-8 w-56" />
         </div>
-      </div>
+        <Skeleton className="h-14 w-full" />
+        <Skeleton className="min-h-0 flex-1" />
+      </output>
     );
   }
 
@@ -458,18 +587,27 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
             nodes={nodes}
             edges={edges}
             canEdit={canEdit}
-            canRun={canRun && canExecute && queueSize === 0}
+            canRun={canLaunchWorkflow}
+            runDisabledReason={runDisabledReason}
             isExecuting={isExecuting}
             onAddService={openDrawer}
             onEditService={openNodeConfig}
+            onRemoveService={setServicePendingRemoval}
+            scenarios={runnableScenarios}
             onRun={() => setIsRunDialogOpen(true)}
-            onOpenExpert={() => setAuthoringMode("expert")}
+            onViewActiveRun={liveExecution ? openActiveRun : undefined}
+            authoringMode={authoringMode}
+            onAuthoringModeChange={setAuthoringMode}
+            checklist={guidedChecklist}
+            showChecklist={!checklistDismissed}
+            onDismissChecklist={dismissChecklist}
+            onShowChecklist={showGuidedChecklist}
             activeStage={guidedStage}
             onStageChange={setGuidedStage}
             onSaveConnection={saveGuidedEdge}
             onConfirmConnection={updateEdge}
             onDeleteConnection={deleteEdge}
-            validationErrors={validationResult?.errors}
+            validationErrors={displayedValidationErrors}
           />
         ) : (
           <FlowCanvas
@@ -484,15 +622,18 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
             onExecute={() => setIsRunDialogOpen(true)}
             onOpenDrawer={openDrawer}
             onOpenScenarios={openScenarios}
-            onOpenLogs={openLogs}
+            onOpenLogs={openActiveRun}
             onOpenShortcuts={openShortcuts}
             onOpenHistory={() => setIsHistoryOpen(true)}
             onOpenVersions={() => setIsVersionsOpen(true)}
-            onOpenGuided={() => setAuthoringMode("guided")}
+            authoringMode={authoringMode}
+            onAuthoringModeChange={setAuthoringMode}
+            onShowChecklist={showGuidedChecklist}
             isExecuting={isExecuting}
-            canExecute={canRun && canExecute && queueSize === 0}
+            canExecute={canLaunchWorkflow}
+            runDisabledReason={runDisabledReason}
             canEdit={canEdit}
-            hasActiveExecution={!!activeExecution}
+            hasActiveExecution={!!liveExecution}
             reviewEdgeCount={reviewEdgeCount}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
@@ -504,6 +645,43 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
             workflowStats={workflowStats}
           />
         )}
+
+        <AlertDialog
+          open={Boolean(servicePendingRemoval)}
+          onOpenChange={(open) => {
+            if (!open) setServicePendingRemoval(null);
+          }}
+        >
+          <AlertDialogContent size="sm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Remove {servicePendingRemoval?.data.label}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                The service and its {serviceRemovalImpact?.connectedEdges ?? 0}{" "}
+                attached connection
+                {(serviceRemovalImpact?.connectedEdges ?? 0) === 1 ? "" : "s"}{" "}
+                will be removed. {serviceRemovalImpact?.referencedTests ?? 0}{" "}
+                scenario step
+                {(serviceRemovalImpact?.referencedTests ?? 0) === 1 ? "" : "s"}{" "}
+                across {serviceRemovalImpact?.referencedScenarios ?? 0} scenario
+                {(serviceRemovalImpact?.referencedScenarios ?? 0) === 1
+                  ? ""
+                  : "s"}{" "}
+                will stay in place and be flagged for repair.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={confirmServiceRemoval}
+              >
+                Remove service
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {canEdit ? (
           <EdgeConfigDialog
@@ -561,7 +739,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
           nodes={nodes}
           scenarios={runnableScenarios}
           isExecuting={isExecuting}
-          validationErrors={validationResult?.errors}
+          validationErrors={displayedValidationErrors}
           onRun={execute}
         />
 

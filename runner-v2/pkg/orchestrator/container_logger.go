@@ -84,6 +84,10 @@ type EnhancedError struct {
 	AllServiceLogs map[string]string
 }
 
+func (e *EnhancedError) Unwrap() error {
+	return e.BaseError
+}
+
 func (e *EnhancedError) Error() string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Error: %v\n", e.BaseError)

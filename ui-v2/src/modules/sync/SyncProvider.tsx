@@ -342,7 +342,11 @@ export function useSyncContext(): SyncContextValue {
   return context;
 }
 
-export function SyncStatusIndicator() {
+export function SyncStatusIndicator({
+  compact = false,
+}: {
+  compact?: boolean;
+}) {
   const { syncStatus, queueSize, forceSync } = useSyncContext();
 
   const getStatusColor = () => {
@@ -362,20 +366,23 @@ export function SyncStatusIndicator() {
   const getStatusTextColor = () => {
     switch (syncStatus) {
       case "healthy":
-        return "text-green-700";
+        return "text-green-700 dark:text-green-400";
       case "degraded":
-        return "text-amber-700";
+        return "text-amber-700 dark:text-amber-400";
       case "down":
       case "error":
-        return "text-red-700";
+        return "text-red-700 dark:text-red-400";
       default:
-        return "text-slate-600";
+        return "text-slate-600 dark:text-slate-300";
     }
   };
 
   return (
     <div
-      className="flex items-center gap-2 p-2 border rounded-lg bg-white"
+      className={cn(
+        "flex items-center border bg-background",
+        compact ? "gap-1.5 px-2 py-1" : "gap-2 rounded-lg p-2",
+      )}
       data-testid="sync-status"
       data-status={syncStatus}
       data-queue-size={queueSize}
@@ -390,7 +397,13 @@ export function SyncStatusIndicator() {
       />
 
       {/* Status text */}
-      <span className={cn("font-semibold text-sm", getStatusTextColor())}>
+      <span
+        className={cn(
+          "font-semibold",
+          compact ? "text-xs" : "text-sm",
+          getStatusTextColor(),
+        )}
+      >
         {syncStatus.charAt(0).toUpperCase() + syncStatus.slice(1)}
       </span>
 
@@ -405,8 +418,8 @@ export function SyncStatusIndicator() {
       <Button
         onClick={forceSync}
         variant="outline"
-        size="sm"
-        className="ml-auto"
+        size={compact ? "xs" : "sm"}
+        className={compact ? "ml-1" : "ml-auto"}
       >
         Sync Now
       </Button>

@@ -26,11 +26,13 @@ import {
   FieldSet,
   FieldTitle,
 } from "@/components/ui/field";
+import { GUIDED_DOCUMENTATION } from "../lib/builder-experience";
 import type {
   FlowNode,
   Scenario,
   TranslationError,
 } from "../types/react-flow-cots";
+import { ContextHelp, DocumentationLink } from "./BuilderHelp";
 
 interface RunWorkflowDialogProps {
   open: boolean;
@@ -39,7 +41,7 @@ interface RunWorkflowDialogProps {
   scenarios: Scenario[];
   validationErrors?: TranslationError[];
   isExecuting: boolean;
-  onRun: (scenarioIds: string[]) => Promise<void>;
+  onRun: (scenarioIds: string[]) => Promise<boolean>;
 }
 
 export function RunWorkflowDialog({
@@ -59,13 +61,24 @@ export function RunWorkflowDialog({
 
   const selectedCount = selectedIds.size;
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!isExecuting) onOpenChange(nextOpen);
+      }}
+    >
+      <DialogContent
+        data-testid="run-workflow-dialog"
+        className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-xl"
+      >
+        <DialogHeader className="shrink-0">
           <DialogTitle>Review and run in Docker</DialogTitle>
           <DialogDescription>
             Select the scenarios for this isolated workflow run.
           </DialogDescription>
+          <DocumentationLink href={GUIDED_DOCUMENTATION.lifecycle.href}>
+            Understand provisioning and cleanup
+          </DocumentationLink>
         </DialogHeader>
         <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-2">
           <div className="flex items-start gap-2">
@@ -84,7 +97,13 @@ export function RunWorkflowDialog({
           <div className="flex items-start gap-2">
             <IconShieldCheck className="mt-0.5 size-4 text-muted-foreground" />
             <div>
-              <p className="text-sm font-medium">Automatic cleanup</p>
+              <div className="flex items-center gap-1">
+                <p className="text-sm font-medium">Automatic cleanup</p>
+                <ContextHelp label="automatic cleanup">
+                  Tokyo Tester removes the containers and private Docker network
+                  after the run, whether the scenarios pass or fail.
+                </ContextHelp>
+              </div>
               <p className="text-xs text-muted-foreground">
                 Managed containers and the isolated network are removed after
                 the run.
@@ -108,7 +127,7 @@ export function RunWorkflowDialog({
             </div>
           </div>
         ) : null}
-        <FieldSet className="max-h-[55vh] overflow-y-auto pr-1">
+        <FieldSet className="min-h-0 flex-1 overflow-y-auto pr-1">
           <FieldGroup data-slot="checkbox-group">
             {scenarios.map((scenario) => {
               const checked = selectedIds.has(scenario.id);
@@ -140,8 +159,12 @@ export function RunWorkflowDialog({
             })}
           </FieldGroup>
         </FieldSet>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+        <DialogFooter className="shrink-0">
+          <Button
+            variant="outline"
+            disabled={isExecuting}
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
           <Button
@@ -150,8 +173,8 @@ export function RunWorkflowDialog({
               selectedCount === 0 || isExecuting || validationErrors.length > 0
             }
             onClick={async () => {
-              await onRun([...selectedIds]);
-              onOpenChange(false);
+              const accepted = await onRun([...selectedIds]);
+              if (accepted) onOpenChange(false);
             }}
           >
             {isExecuting
