@@ -20,6 +20,7 @@ import (
 	mysqldb "github.com/dev-atharva/cots/pkg/db/mysql"
 	"github.com/dev-atharva/cots/pkg/dto"
 	"github.com/dev-atharva/cots/pkg/provider"
+	"github.com/dev-atharva/cots/pkg/runsecret"
 	"github.com/dev-atharva/cots/pkg/workflowbundle"
 	"github.com/dev-atharva/cots/pkg/workflowrun"
 )
@@ -164,6 +165,174 @@ func TestWorkflowRunSubmissionIsIdempotent(t *testing.T) {
 	router.ServeHTTP(wrongProject, httptest.NewRequest(http.MethodGet, "/api/v1/workflow-runs/run-contract-1?projectId=another-project", nil))
 	if wrongProject.Code != http.StatusNotFound {
 		t.Fatalf("cross-project snapshot should be hidden, got status=%d body=%s", wrongProject.Code, wrongProject.Body.String())
+	}
+}
+
+func TestWorkflowRunSecretAuthorizationBlocksInvalidSetsAndPersistsOnlyCiphertext(t *testing.T) {
+	handler, service, client, payload := newWorkflowAPIHarness(t)
+	var request workflowrun.Request
+	if err := json.Unmarshal(payload, &request); err != nil {
+		t.Fatal(err)
+	}
+	request.WorkflowRunID = "run-secret-contract"
+	request.Scenarios = request.Scenarios[:1]
+	request.Scenarios[0].ExecutionModel = workflowbundle.ExecutionModelJourney
+	request.Scenarios[0].Tests = nil
+	request.Scenarios[0].TestOrder = nil
+	request.Scenarios[0].Environment = &workflowbundle.JourneyEnvironment{Driver: "browser", Browser: workflowbundle.BrowserEnvironment{TargetService: workflowbundle.SanitizeName(request.Nodes[0].Data.Label), TargetPort: request.Nodes[0].Data.Service.Ports[0].ContainerPort}}
+	request.Scenarios[0].Steps = []workflowbundle.ScenarioStep{{ID: "password", Name: "Password", Kind: "action", Action: &workflowbundle.StepAction{Operation: "fill", Locator: &workflowbundle.BrowserLocator{Strategy: "label", Value: "Password"}, Value: &workflowbundle.StepValue{Source: "run-secret", SecretRef: "PASSWORD"}}}}
+	request.Scenarios[0].StepOrder = []string{"password"}
+	persistedWorkflow, err := client.GetWorkflow(context.Background(), request.WorkflowID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes, _ := json.Marshal(request.Nodes)
+	edges, _ := json.Marshal(request.Edges)
+	persistedWorkflow.NodesConfig, persistedWorkflow.EdgesConfig = string(nodes), string(edges)
+	if err := client.UpsertWorkflow(context.Background(), persistedWorkflow); err != nil {
+		t.Fatal(err)
+	}
+	persistedScenario, err := client.GetScenario(context.Background(), request.Scenarios[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment, _ := json.Marshal(request.Scenarios[0].Environment)
+	steps, _ := json.Marshal(request.Scenarios[0].Steps)
+	stepOrder, _ := json.Marshal(request.Scenarios[0].StepOrder)
+	persistedScenario.ExecutionModel = workflowbundle.ExecutionModelJourney
+	persistedScenario.TestsConfig, persistedScenario.TestOrder = "[]", "[]"
+	persistedScenario.EnvironmentConfig, persistedScenario.StepsConfig, persistedScenario.StepOrder = string(environment), string(steps), string(stepOrder)
+	if err := client.UpsertScenario(context.Background(), persistedScenario); err != nil {
+		t.Fatal(err)
+	}
+	requestPayload, _ := json.Marshal(&request)
+	router := NewRouter(handler, nil, false)
+
+	direct := httptest.NewRecorder()
+	router.ServeHTTP(direct, httptest.NewRequest(http.MethodPost, "/api/v1/workflow-runs", bytes.NewReader(requestPayload)))
+	if direct.Code != http.StatusBadRequest || !strings.Contains(direct.Body.String(), runsecret.CodeRequired) || !strings.Contains(direct.Body.String(), "PASSWORD") {
+		t.Fatalf("direct secret-bearing submission was not blocked: status=%d body=%s", direct.Code, direct.Body.String())
+	}
+
+	authorize := func(values any) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]any{"request": request, "runSecrets": values})
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/workflow-runs/authorize", bytes.NewReader(body)))
+		return recorder
+	}
+	missing := authorize([]any{})
+	if missing.Code != http.StatusBadRequest || !strings.Contains(missing.Body.String(), runsecret.CodeMissing) {
+		t.Fatalf("missing secret was not blocked: status=%d body=%s", missing.Code, missing.Body.String())
+	}
+	tampered := request
+	tampered.Scenarios = append([]workflowrun.Scenario(nil), request.Scenarios...)
+	tampered.Scenarios[0].Steps, tampered.Scenarios[0].StepOrder = nil, nil
+	tamperedBody, _ := json.Marshal(map[string]any{"request": tampered, "runSecrets": []any{}})
+	tamperedResponse := httptest.NewRecorder()
+	router.ServeHTTP(tamperedResponse, httptest.NewRequest(http.MethodPost, "/api/v1/workflow-runs/authorize", bytes.NewReader(tamperedBody)))
+	if tamperedResponse.Code != http.StatusBadRequest || !strings.Contains(tamperedResponse.Body.String(), "PASSWORD") {
+		t.Fatalf("tampered requirements bypassed persisted preflight: status=%d body=%s", tamperedResponse.Code, tamperedResponse.Body.String())
+	}
+	extra := authorize([]any{map[string]string{"secretRef": "PASSWORD", "value": "sentinel"}, map[string]string{"secretRef": "EXTRA", "value": "other"}})
+	if extra.Code != http.StatusBadRequest || !strings.Contains(extra.Body.String(), runsecret.CodeExtra) {
+		t.Fatalf("extra secret was not blocked: status=%d body=%s", extra.Code, extra.Body.String())
+	}
+	var browserRequest map[string]any
+	if err := json.Unmarshal(requestPayload, &browserRequest); err != nil {
+		t.Fatal(err)
+	}
+	uiNodes := browserRequest["nodes"].([]any)
+	uiNodes[0].(map[string]any)["position"] = map[string]any{"x": 40, "y": 80}
+	uiNodes[0].(map[string]any)["type"] = "custom"
+	acceptedBody, _ := json.Marshal(map[string]any{
+		"request":    browserRequest,
+		"runSecrets": []any{map[string]string{"secretRef": "PASSWORD", "value": "sentinel"}},
+	})
+	accepted := httptest.NewRecorder()
+	router.ServeHTTP(accepted, httptest.NewRequest(http.MethodPost, "/api/v1/workflow-runs/authorize", bytes.NewReader(acceptedBody)))
+	if accepted.Code != http.StatusAccepted || !strings.Contains(accepted.Body.String(), `"created":true`) {
+		t.Fatalf("authorized run with UI-only node metadata was not accepted: status=%d body=%s", accepted.Code, accepted.Body.String())
+	}
+
+	job, err := client.GetWorkflowJob(context.Background(), request.WorkflowRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(job.PayloadCiphertext, []byte("sentinel")) || len(job.PayloadCiphertext) == 0 || len(job.PayloadNonce) == 0 {
+		t.Fatalf("job did not retain only authenticated ciphertext: %+v", job)
+	}
+	plaintext, err := service.cipher.Decrypt(job.PayloadCiphertext, job.PayloadNonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runsecret.Clear(plaintext)
+	decodedRequest, decodedSecrets, err := runsecret.DecodeJobPayload(plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer decodedSecrets.Destroy()
+	encodedRequest, _ := json.Marshal(decodedRequest)
+	if bytes.Contains(encodedRequest, []byte("sentinel")) || !decodedSecrets.Present() {
+		t.Fatalf("public request or secret set had the wrong lifetime: request=%s names=%v", encodedRequest, decodedSecrets.Names())
+	}
+	revisions, err := client.ListWorkflowRevisions(context.Background(), request.ProjectID, request.WorkflowID)
+	if err != nil || len(revisions) != 1 || strings.Contains(revisions[0].Snapshot, "sentinel") {
+		t.Fatalf("execution revision exposed a run-secret value: revisions=%+v err=%v", revisions, err)
+	}
+	cancelled := httptest.NewRecorder()
+	router.ServeHTTP(cancelled, httptest.NewRequest(http.MethodDelete, "/api/v1/workflow-runs/"+request.WorkflowRunID+"?projectId="+request.ProjectID, nil))
+	if cancelled.Code != http.StatusAccepted {
+		t.Fatalf("secret-bearing run cancellation failed: status=%d body=%s", cancelled.Code, cancelled.Body.String())
+	}
+	terminalJob, err := client.GetWorkflowJob(context.Background(), request.WorkflowRunID)
+	if err != nil || len(terminalJob.PayloadCiphertext) != 0 || len(terminalJob.PayloadNonce) != 0 {
+		t.Fatalf("terminal job retained encrypted secret payload: job=%+v err=%v", terminalJob, err)
+	}
+}
+
+func TestNormalizeScenarioExecutionFieldsRemovesInactiveEmptyCollections(t *testing.T) {
+	journey := &workflowrun.Scenario{
+		ExecutionModel: workflowbundle.ExecutionModelJourney,
+		Tests:          []workflowbundle.ScenarioTestDefinition{},
+		TestOrder:      []string{},
+	}
+	normalizeScenarioExecutionFields(journey)
+	if journey.Tests != nil || journey.TestOrder != nil {
+		t.Fatalf("journey retained inactive legacy fields: %+v", journey)
+	}
+
+	legacy := &workflowrun.Scenario{
+		ExecutionModel: workflowbundle.ExecutionModelLegacyTests,
+		Environment:    &workflowbundle.JourneyEnvironment{},
+		Steps:          []workflowbundle.ScenarioStep{},
+		StepOrder:      []string{},
+	}
+	normalizeScenarioExecutionFields(legacy)
+	if legacy.Environment != nil || legacy.Steps != nil || legacy.StepOrder != nil {
+		t.Fatalf("legacy scenario retained inactive journey fields: %+v", legacy)
+	}
+}
+
+func TestWorkflowRunOutputRedactionAppliesBeforePersistenceEncoding(t *testing.T) {
+	secrets, err := runsecret.New([]string{"PASSWORD"}, []runsecret.SuppliedValue{{SecretRef: "PASSWORD", Value: []byte("sentinel-value")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secrets.Destroy()
+	ctx := runsecret.WithContext(context.Background(), secrets)
+	encoded, err := marshalRunOutput(ctx, map[string]any{
+		"message": "failure contained sentinel-value",
+		"nested":  map[string]string{"detail": base64.StdEncoding.EncodeToString([]byte("sentinel-value"))},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte("sentinel-value")) || bytes.Contains(encoded, []byte(base64.StdEncoding.EncodeToString([]byte("sentinel-value")))) || !bytes.Contains(encoded, []byte(runsecret.Redacted)) {
+		t.Fatalf("persisted output was not redacted: %s", encoded)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatalf("redaction broke structured JSON: %v (%s)", err, encoded)
 	}
 }
 

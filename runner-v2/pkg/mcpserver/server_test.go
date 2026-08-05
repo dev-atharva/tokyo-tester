@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -127,7 +128,9 @@ func TestMCPToolAnnotationsAndSchemaDescriptions(t *testing.T) {
 	validate := byName["tokyo_validate_workflow"]["inputSchema"].(map[string]any)
 	bundle := validate["properties"].(map[string]any)["bundle"].(map[string]any)
 	scenarios := bundle["properties"].(map[string]any)["scenarios"].(map[string]any)
-	testSchema := scenarios["items"].(map[string]any)["properties"].(map[string]any)["tests"].(map[string]any)["items"].(map[string]any)
+	scenarioModels := scenarios["items"].(map[string]any)["oneOf"].([]any)
+	legacyScenario := scenarioModels[0].(map[string]any)
+	testSchema := legacyScenario["properties"].(map[string]any)["tests"].(map[string]any)["items"].(map[string]any)
 	httpConfig := testSchema["properties"].(map[string]any)["httpConfig"].(map[string]any)
 	if httpConfig["additionalProperties"] != false || !containsString(httpConfig["required"], "method") || !containsString(httpConfig["required"], "path") {
 		t.Fatalf("HTTP tool config is not strict: %+v", httpConfig)
@@ -136,6 +139,17 @@ func TestMCPToolAnnotationsAndSchemaDescriptions(t *testing.T) {
 	operation := queueConfig["properties"].(map[string]any)["operation"].(map[string]any)
 	if !containsString(operation["enum"], "produce_and_consume") {
 		t.Fatalf("queue tool config is missing supported operations: %+v", operation)
+	}
+	journeyScenario := scenarioModels[1].(map[string]any)
+	steps := journeyScenario["properties"].(map[string]any)["steps"].(map[string]any)
+	stepModels := steps["items"].(map[string]any)["oneOf"].([]any)
+	actionStep := stepModels[0].(map[string]any)
+	actions := actionStep["properties"].(map[string]any)["action"].(map[string]any)["oneOf"].([]any)
+	fill := actions[1].(map[string]any)
+	values := fill["properties"].(map[string]any)["value"].(map[string]any)["oneOf"].([]any)
+	runSecret := values[1].(map[string]any)
+	if runSecret["additionalProperties"] != false || !containsString(runSecret["required"], "secretRef") {
+		t.Fatalf("journey run-secret schema is not strict: %+v", runSecret)
 	}
 }
 
@@ -193,6 +207,81 @@ func TestMCPRunsSelectedExistingScenarios(t *testing.T) {
 	server.Handler().ServeHTTP(recorder, request)
 	if !strings.Contains(recorder.Body.String(), `"isError":false`) {
 		t.Fatalf("unexpected response: %s", recorder.Body.String())
+	}
+}
+
+func TestMCPSecretBearingRunReturnsAndPollsHumanIntentWithoutValues(t *testing.T) {
+	server := newTestServer(t)
+	server.client.Transport = authenticatedTransport(t, func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/api/v1/agent/workflows/workflow-1/runs":
+			body, _ := io.ReadAll(r.Body)
+			if strings.Contains(strings.ToLower(string(body)), "secretvalue") || strings.Contains(string(body), `"value"`) {
+				t.Fatalf("MCP run request crossed the human secret boundary: %s", body)
+			}
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"kind":"human_input_required","runIntentId":"intent-1","status":"awaiting-human","handoffUrl":"https://tokyo.example/run-intents/intent-1","requiredSecretRefs":["LOGIN_PASSWORD"],"expiresAt":"2026-08-03T10:15:00Z"}`))}, nil
+		case "/api/v1/agent/run-intents/intent-1":
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"kind":"human_input_required","runIntentId":"intent-1","status":"submitted","requiredSecretRefs":["LOGIN_PASSWORD"],"workflowRunId":"run-1"}`))}, nil
+		default:
+			t.Fatalf("unexpected application path: %s", r.URL.Path)
+			return nil, nil
+		}
+	})
+
+	call := func(id int, name, arguments string) string {
+		t.Helper()
+		request := newMCPRequest(http.MethodPost, "/mcp", bytes.NewBufferString(fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":%q,"arguments":%s}}`, id, name, arguments)))
+		request.Header.Set("Authorization", "Bearer tt_pat_test")
+		recorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s returned %d: %s", name, recorder.Code, recorder.Body.String())
+		}
+		return recorder.Body.String()
+	}
+	run := call(31, "tokyo_run_existing_workflow", `{"workflowId":"workflow-1","scenarioIds":["scenario-1"],"idempotencyKey":"intent-key-1"}`)
+	if !strings.Contains(run, `"human_input_required"`) || !strings.Contains(run, `"isError":false`) {
+		t.Fatalf("unexpected run-intent response: %s", run)
+	}
+	status := call(32, "tokyo_get_run_intent", `{"runIntentId":"intent-1"}`)
+	if !strings.Contains(status, `"submitted"`) || !strings.Contains(status, `"workflowRunId":"run-1"`) {
+		t.Fatalf("unexpected run-intent status: %s", status)
+	}
+	for _, response := range []string{run, status} {
+		if strings.Contains(strings.ToLower(response), "secretvalue") || strings.Contains(response, `"value"`) || strings.Contains(response, "Available this session") {
+			t.Fatalf("secret value or vault availability crossed MCP: %s", response)
+		}
+	}
+}
+
+func TestMCPReturnsOnlyExplicitlyRequestedPNGScreenshotAsImageContent(t *testing.T) {
+	server := newTestServer(t)
+	png := []byte{'\x89', 'P', 'N', 'G', '\r', '\n', '\x1a', '\n'}
+	server.client.Transport = authenticatedTransport(t, func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/api/v1/agent/runs/run-1/artifacts/artifact-1" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"image/png"}}, Body: io.NopCloser(bytes.NewReader(png))}, nil
+	})
+	request := newMCPRequest(http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":33,"method":"tools/call","params":{"name":"tokyo_get_run_screenshot","arguments":{"workflowRunId":"run-1","artifactId":"artifact-1"}}}`))
+	request.Header.Set("Authorization", "Bearer tt_pat_test")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"type":"image"`) || !strings.Contains(recorder.Body.String(), `"mimeType":"image/png"`) {
+		t.Fatalf("unexpected image response: %d %s", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "structuredContent") {
+		t.Fatalf("image response must not be shadowed by structured content: %s", recorder.Body.String())
+	}
+	byName := map[string]map[string]any{}
+	for _, candidate := range tools() {
+		byName[candidate["name"].(string)] = candidate
+	}
+	if _, exists := byName["tokyo_get_run_screenshot"]["outputSchema"]; exists {
+		t.Fatal("image tool must not advertise a structured output schema")
+	}
+	if _, exists := byName["tokyo_get_run_trace"]; exists {
+		t.Fatal("Playwright traces must remain UI-only")
 	}
 }
 

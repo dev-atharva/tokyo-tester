@@ -1,6 +1,6 @@
 ---
 name: tokyo-tester
-description: Inspect one or more application repositories, model their services and infrastructure as a Tokyo Tester workflow, design detailed scenarios, validate or import through the Tokyo Tester MCP server, run scenarios, and repair failures from diagnostics. Use when integrating a project with Tokyo Tester or creating HTTP, database, document, cache, queue, shell, or delay tests.
+description: Inspect one or more application repositories, model their services and infrastructure as a Tokyo Tester workflow, design detailed scenarios, validate or import through the Tokyo Tester MCP server, run scenarios, and repair failures from diagnostics. Use when integrating a project with Tokyo Tester or creating browser journeys, HTTP, database, document, cache, queue, shell, or delay tests.
 ---
 
 # Tokyo Tester
@@ -26,14 +26,19 @@ Before starting, confirm the Tokyo Tester MCP server is connected and read [refe
 6. Before authoring or importing complex workflows, call `tokyo_review_workflow_plan` with compact summaries: repositories, service inventory, dependency map, scenario matrix, evidence notes, and open questions. Treat warnings as repair guidance.
 7. Present the workflow and scenario selection to the user. Obtain explicit approval before any import or execution.
 8. Editors may call `tokyo_import_workflow` or `tokyo_run_workflow` with the exact normalized bundle and its unexpired `validationReceipt`. Any bundle edit invalidates the receipt, so validate again before asking for renewed approval. Runners call `tokyo_run_existing_workflow`, passing selected scenario IDs; omit `scenarioIds` only when the user approves running all scenarios.
+   - A secret-free run starts immediately. A secret-bearing selection returns `human_input_required` with reference names, a 15-minute handoff URL, and `runIntentId`; present the link to the human and poll `tokyo_get_run_intent`. Never ask which values are cached or ask the human to send a value in chat.
+   - Once intent status is `submitted`, continue with its `workflowRunId`. `expired` or `cancelled` requires a newly approved run call and a new idempotency key.
 9. Use a stable idempotency key for retries of the same import or run. Use a new key only when intentionally creating a new workflow or execution.
-10. Poll `tokyo_get_run` until terminal. On failure, call `tokyo_get_run_diagnostics`; editors may revise the smallest relevant part, validate, and request approval before rerunning.
+10. Poll `tokyo_get_run` until terminal. On failure, call `tokyo_get_run_diagnostics`; editors may revise the smallest relevant part, validate, and request approval before rerunning. If diagnostics advertise an available screenshot, call `tokyo_get_run_screenshot` only when visual evidence is useful and explicitly requested; Playwright traces remain UI-only.
 
 If a tool returns `401`, stop and ask the user to reconnect or renew authorization. For `403`, explain the missing scope or project role; do not retry with broader operations. For validation and execution errors, use the returned structured diagnostics rather than guessing.
 
 ## Guardrails
 
 - Keep passwords, registry tokens, authorization headers, cookies, and private keys out of workflow JSON. Use deployment-side secret configuration.
+- Browser journeys may name a human-configured runtime secret with `{"source":"run-secret","secretRef":"NAME"}`. AI clients may author or repair the reference name, but must never request, receive, submit, log, or infer its value.
+- Run-intent status may expose required reference names but never a human session vault's availability. Do not infer availability from timing or state transitions.
+- MCP may read only an explicitly requested, non-secret PNG screenshot by opaque artifact ID. It never receives traces, suppressed artifacts, filesystem paths, permanent URLs, DOM, cookies, storage, headers, or bodies.
 - Do not send source files, raw manifests, logs, or large schemas to MCP. Summarize evidence and cite local file paths in your own response when useful.
 - Use container ports, not host-published ports, for service-to-service tests.
 - Set readiness according to startup requirements; relation describes architecture and does not by itself create a startup dependency.

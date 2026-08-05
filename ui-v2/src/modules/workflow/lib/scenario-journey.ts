@@ -1,5 +1,7 @@
 import type {
+  FlowNode,
   Scenario,
+  ScenarioStep,
   ScenarioTestDefinition,
 } from "../types/react-flow-cots";
 import { friendlyName } from "./architecture-view";
@@ -26,6 +28,185 @@ export function orderedScenarioTests(
     .filter((test): test is ScenarioTestDefinition => Boolean(test));
   const seen = new Set(ordered.map((test) => test.id));
   return [...ordered, ...scenario.tests.filter((test) => !seen.has(test.id))];
+}
+
+export const JOURNEY_OPERATION_LABELS = {
+  navigate: "Navigate",
+  fill: "Fill field",
+  click: "Click element",
+  url: "Match URL",
+  visible: "Element is visible",
+  delay: "Wait",
+} as const;
+
+export type JourneyOperation = keyof typeof JOURNEY_OPERATION_LABELS;
+
+export interface BrowserTargetOption {
+  service: string;
+  label: string;
+  ports: string[];
+}
+
+export interface JourneyValidationIssue {
+  field: string;
+  message: string;
+  stepId?: string;
+}
+
+export interface JourneyValidation {
+  valid: boolean;
+  issues: JourneyValidationIssue[];
+  byField: Record<string, string>;
+}
+
+export function orderedScenarioSteps(
+  scenario: Pick<Scenario, "steps" | "stepOrder">,
+): ScenarioStep[] {
+  const byId = new Map(scenario.steps.map((step) => [step.id, step]));
+  const ordered = scenario.stepOrder
+    .map((id) => byId.get(id))
+    .filter((step): step is ScenarioStep => Boolean(step));
+  const seen = new Set(ordered.map((step) => step.id));
+  return [...ordered, ...scenario.steps.filter((step) => !seen.has(step.id))];
+}
+
+export function journeyStepOperation(step: ScenarioStep): JourneyOperation {
+  if (step.kind === "action") return step.action.operation;
+  if (step.kind === "assertion") return step.assertion.operation;
+  return step.control.operation;
+}
+
+export function browserTargetOptions(nodes: FlowNode[]): BrowserTargetOption[] {
+  return nodes
+    .map((node) => ({
+      service: node.data.label
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_|_$/g, ""),
+      label: friendlyName(node.data.label),
+      ports: Array.from(
+        new Set(
+          (node.data.service.ports || [])
+            .map((port) => port.containerPort.trim())
+            .filter(Boolean),
+        ),
+      ),
+    }))
+    .filter((option) => option.service && option.ports.length > 0);
+}
+
+export function validateBrowserJourney(
+  scenario: Pick<
+    Scenario,
+    "name" | "executionModel" | "environment" | "steps" | "stepOrder"
+  >,
+  nodes: FlowNode[],
+): JourneyValidation {
+  const issues: JourneyValidationIssue[] = [];
+  const add = (field: string, message: string, stepId?: string) =>
+    issues.push({ field, message, stepId });
+  const targets = browserTargetOptions(nodes);
+  const environment = scenario.environment;
+
+  if (scenario.executionModel !== "journey") {
+    return { valid: true, issues: [], byField: {} };
+  }
+  if (!scenario.name.trim()) add("name", "Give this journey a name.");
+  if (!environment?.browser.targetService.trim()) {
+    add("environment.targetService", "Choose the service the browser opens.");
+  } else {
+    const target = targets.find(
+      (option) => option.service === environment.browser.targetService,
+    );
+    if (!target) {
+      add(
+        "environment.targetService",
+        "Choose a workflow service that exposes a container port.",
+      );
+    } else if (!target.ports.includes(environment.browser.targetPort)) {
+      add(
+        "environment.targetPort",
+        "Choose one of the target service's exposed container ports.",
+      );
+    }
+  }
+  if (!environment?.browser.targetPort.trim()) {
+    add("environment.targetPort", "Choose the container port to open.");
+  }
+
+  const ordered = orderedScenarioSteps(scenario);
+  if (ordered.length === 0) {
+    add("steps", "Add at least one browser step.");
+  }
+  if (
+    scenario.stepOrder.length !== scenario.steps.length ||
+    new Set(scenario.stepOrder).size !== scenario.steps.length ||
+    scenario.stepOrder.some(
+      (id) => !scenario.steps.some((step) => step.id === id),
+    )
+  ) {
+    add("steps", "Every step must appear exactly once in the journey order.");
+  }
+
+  for (const step of ordered) {
+    const field = (suffix: string) => `steps.${step.id}.${suffix}`;
+    if (!step.name.trim())
+      add(field("name"), "Give this step a name.", step.id);
+    if (step.timeoutMs !== undefined && step.timeoutMs < 0) {
+      add(field("timeoutMs"), "Timeout cannot be negative.", step.id);
+    }
+    const config =
+      step.kind === "action"
+        ? step.action
+        : step.kind === "assertion"
+          ? step.assertion
+          : step.control;
+    if ("path" in config && !config.path.startsWith("/")) {
+      add(
+        field("path"),
+        "Use an origin-relative path beginning with /.",
+        step.id,
+      );
+    }
+    if ("locator" in config) {
+      const locator = config.locator;
+      if (locator.strategy === "role") {
+        if (!locator.role.trim()) {
+          add(field("locator.role"), "Choose an accessible role.", step.id);
+        }
+        if (!locator.name.trim()) {
+          add(
+            field("locator.name"),
+            "Enter the element's accessible name.",
+            step.id,
+          );
+        }
+      } else if (!locator.value.trim()) {
+        add(field("locator.value"), "Enter a locator value.", step.id);
+      }
+    }
+    if (step.kind === "action" && step.action.operation === "fill") {
+      const value = step.action.value;
+      if (value.source === "run-secret" && !value.secretRef.trim()) {
+        add(field("value.secretRef"), "Enter a run-secret reference.", step.id);
+      }
+    }
+    if (
+      step.kind === "control" &&
+      (!Number.isFinite(step.control.durationMs) || step.control.durationMs < 0)
+    ) {
+      add(field("durationMs"), "Wait duration cannot be negative.", step.id);
+    }
+  }
+
+  return {
+    valid: issues.length === 0,
+    issues,
+    byField: Object.fromEntries(
+      issues.map((issue) => [issue.field, issue.message]),
+    ),
+  };
 }
 
 export function scenarioServiceNames(

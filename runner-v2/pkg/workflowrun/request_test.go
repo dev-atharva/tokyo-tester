@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/dev-atharva/cots/pkg/workflowbundle"
 )
 
 func TestWorkflowRunInputContractFixture(t *testing.T) {
@@ -33,5 +35,26 @@ func TestWorkflowRunInputContractFixture(t *testing.T) {
 	}
 	if translated.Services[0].Registry.Username != "contract-user" {
 		t.Fatalf("unexpected registry credentials: %+v", translated.Services[0].Registry)
+	}
+}
+
+func TestJourneyRequestBuildsVersionThreeBundleWithoutLegacyPayload(t *testing.T) {
+	request := Request{
+		WorkflowRunID: "run-1", ProjectID: "project-1", WorkflowID: "workflow-1", WorkflowName: "storefront",
+		Nodes: []workflowbundle.FlowNode{{
+			ID: "web", Data: workflowbundle.FlowNodeData{Label: "web", Service: workflowbundle.ServiceNodeData{Type: "generic", Image: "web:test", Ports: []workflowbundle.PortMapping{{ContainerPort: "3000"}}}},
+		}},
+		Scenarios: []Scenario{{
+			ID: "scenario-1", ScenarioRunID: "scenario-run-1", ProjectID: "project-1", Name: "sign in", ExecutionModel: workflowbundle.ExecutionModelJourney,
+			Environment: &workflowbundle.JourneyEnvironment{Driver: "browser", Browser: workflowbundle.BrowserEnvironment{TargetService: "web", TargetPort: "3000"}},
+			Steps:       []workflowbundle.ScenarioStep{{ID: "open", Name: "open", Kind: "action", Action: &workflowbundle.StepAction{Operation: "navigate", Path: "/login"}}}, StepOrder: []string{"open"},
+		}},
+	}
+	bundle, err := request.Bundle()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundle.SchemaVersion != workflowbundle.SchemaVersionV3 || bundle.Scenarios[0].Tests != nil || bundle.Scenarios[0].ExecutionModel != workflowbundle.ExecutionModelJourney {
+		t.Fatalf("unexpected journey bundle: %+v", bundle.Scenarios[0])
 	}
 }

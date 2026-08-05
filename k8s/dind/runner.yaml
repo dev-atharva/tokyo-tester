@@ -101,6 +101,20 @@ spec:
                 configMapKeyRef:
                   name: tokyo-config
                   key: workflow-event-retention-days
+            - name: BROWSER_EXECUTOR_IMAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: tokyo-config
+                  key: browser-executor-image
+            - name: BROWSER_CHROMIUM_SANDBOX
+              value: "true"
+            - name: BROWSER_ARTIFACT_DIR
+              value: /var/lib/tokyo-tester/artifacts
+            - name: BROWSER_ARTIFACT_RETENTION_DAYS
+              valueFrom:
+                configMapKeyRef:
+                  name: tokyo-config
+                  key: browser-artifact-retention-days
             - name: WORKFLOW_JOB_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
@@ -122,6 +136,8 @@ spec:
           volumeMounts:
             - name: docker-run
               mountPath: /var/run
+            - name: browser-artifacts
+              mountPath: /var/lib/tokyo-tester/artifacts
           resources:
             requests:
               cpu: 250m
@@ -154,3 +170,18 @@ spec:
           emptyDir: {}
         - name: docker-graph
           emptyDir: {}
+        - name: browser-artifacts
+          persistentVolumeClaim:
+            claimName: tokyo-browser-artifacts
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tokyo-browser-artifacts
+  namespace: tokyo-tester
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

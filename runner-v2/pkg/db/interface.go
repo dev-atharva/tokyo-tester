@@ -194,20 +194,24 @@ type Workflow struct {
 }
 
 type Scenario struct {
-	ID          string    `json:"id"`
-	ProjectID   string    `json:"project_id"`
-	WorkflowID  string    `json:"workflow_id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	TestsConfig string    `json:"tests_config"`
-	TestOrder   string    `json:"test_order"`
-	Metadata    string    `json:"metadata,omitempty"`
-	Version     int       `json:"version"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	ClientID    string    `json:"client_id"`
-	UserID      string    `json:"user_id"`
-	IsDeleted   bool      `json:"is_deleted"`
+	ID                string    `json:"id"`
+	ProjectID         string    `json:"project_id"`
+	WorkflowID        string    `json:"workflow_id"`
+	Name              string    `json:"name"`
+	Description       string    `json:"description,omitempty"`
+	ExecutionModel    string    `json:"execution_model"`
+	TestsConfig       string    `json:"tests_config"`
+	TestOrder         string    `json:"test_order"`
+	EnvironmentConfig string    `json:"environment_config,omitempty"`
+	StepsConfig       string    `json:"steps_config"`
+	StepOrder         string    `json:"step_order"`
+	Metadata          string    `json:"metadata,omitempty"`
+	Version           int       `json:"version"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	ClientID          string    `json:"client_id"`
+	UserID            string    `json:"user_id"`
+	IsDeleted         bool      `json:"is_deleted"`
 }
 
 type WorkflowRun struct {

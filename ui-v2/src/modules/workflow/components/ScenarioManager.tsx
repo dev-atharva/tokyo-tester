@@ -20,12 +20,14 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  IconBrowser,
   IconChevronDown,
   IconChevronRight,
   IconGripVertical,
   IconListDetails,
   IconPlus,
   IconSparkles,
+  IconTestPipe,
   IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
@@ -40,6 +42,8 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { browserTargetOptions } from "../lib/scenario-journey";
 import {
   createScenarioRecipe,
   recipeAvailability,
@@ -51,6 +55,7 @@ import type {
   FlowNode,
   ScenarioTestDefinition,
 } from "../types/react-flow-cots";
+import { BrowserJourneyEditor } from "./BrowserJourneyEditor";
 import { ContextHelp } from "./BuilderHelp";
 import { TestConfigForm } from "./TestConfigForm";
 
@@ -371,7 +376,9 @@ export function ScenarioManager({
                           {scenario.name}
                         </span>
                         <span className="shrink-0 border bg-muted/30 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                          {scenario.tests.length}
+                          {scenario.executionModel === "journey"
+                            ? scenario.steps.length
+                            : scenario.tests.length}
                         </span>
                       </div>
                     </button>
@@ -459,152 +466,215 @@ export function ScenarioManager({
 
                 <Separator className="bg-border/60" />
 
-                <div className="flex flex-col gap-2">
-                  <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-foreground/70">
-                    <IconSparkles className="size-3.5" />
-                    Start with a recipe
-                    <ContextHelp label="scenario recipes">
-                      Recipes insert a sensible ordered set of test steps for
-                      the services already in this workflow. Every generated
-                      step remains editable.
-                    </ContextHelp>
-                  </h4>
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    {SCENARIO_RECIPES.map((recipe) => {
-                      const availability = recipeAvailability(recipe, nodes);
-                      return (
-                        <Button
-                          key={recipe.kind}
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={!availability.available}
-                          title={availability.reason ?? recipe.description}
-                          className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left"
-                          onClick={() => {
-                            const recipeTests = createScenarioRecipe(
-                              recipe.kind,
-                              nodes,
-                            );
-                            const updated = [
-                              ...activeScenario.tests,
-                              ...recipeTests,
-                            ];
-                            updateScenario(activeScenario.id, {
-                              tests: updated,
-                              testOrder: updated.map((test) => test.id),
-                            });
-                            setExpandedTests(new Set());
-                          }}
-                        >
-                          {recipe.label}
-                        </Button>
-                      );
-                    })}
+                <div className="grid gap-2">
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
+                      Execution model
+                    </h4>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Choose ordered infrastructure tests or one shared browser
+                      journey for this scenario.
+                    </p>
                   </div>
+                  <ToggleGroup
+                    variant="outline"
+                    size="sm"
+                    value={[activeScenario.executionModel]}
+                    onValueChange={(values) => {
+                      const value = values.at(-1);
+                      if (value === "legacy-tests") {
+                        updateScenario(activeScenario.id, {
+                          executionModel: value,
+                        });
+                      } else if (value === "journey") {
+                        const firstTarget = browserTargetOptions(nodes)[0];
+                        updateScenario(activeScenario.id, {
+                          executionModel: value,
+                          environment: activeScenario.environment ?? {
+                            driver: "browser",
+                            browser: {
+                              targetService: firstTarget?.service ?? "",
+                              targetPort: firstTarget?.ports[0] ?? "",
+                            },
+                          },
+                        });
+                      }
+                    }}
+                  >
+                    <ToggleGroupItem value="legacy-tests">
+                      <IconTestPipe data-icon="inline-start" /> Infrastructure
+                      tests
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="journey">
+                      <IconBrowser data-icon="inline-start" /> Browser journey
+                    </ToggleGroupItem>
+                  </ToggleGroup>
                 </div>
 
                 <Separator className="bg-border/60" />
 
-                {/* Tests section */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-foreground/70">
-                      Test steps
-                      <span className="ml-2 border bg-muted/30 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                        {activeScenario.tests.length}
-                      </span>
-                      <ContextHelp label="ordered test steps">
-                        Steps run in the displayed order unless an explicit test
-                        dependency requires another step first. Drag a step to
-                        change its order.
-                      </ContextHelp>
-                    </h4>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2.5 text-xs"
-                      onClick={() => {
-                        const newTest = createDefaultTest("http", nodes);
-                        const updated = [...activeScenario.tests, newTest];
-                        updateScenario(activeScenario.id, {
-                          tests: updated,
-                          testOrder: updated.map((t) => t.id),
-                        });
-                        setExpandedTests((prev) =>
-                          new Set(prev).add(newTest.id),
-                        );
-                      }}
-                    >
-                      <IconPlus className="mr-1 size-3" />
-                      Add test
-                    </Button>
-                  </div>
-
-                  {activeScenario.tests.length === 0 ? (
-                    <div className="flex items-center justify-center border border-dashed border-border/60 py-8">
-                      <p className="text-xs italic text-muted-foreground">
-                        No tests yet — add one above
-                      </p>
-                    </div>
-                  ) : (
-                    <DndContext
-                      sensors={sensors}
-                      collisionDetection={closestCenter}
-                      onDragStart={handleDragStart}
-                      onDragEnd={handleDragEnd}
-                    >
-                      <SortableContext
-                        items={activeScenario.tests.map((t) => t.id)}
-                        strategy={verticalListSortingStrategy}
-                      >
-                        <div className="flex flex-col gap-2">
-                          {activeScenario.tests.map((test, index) => (
-                            <SortableTestRow
-                              key={test.id}
-                              test={test}
-                              index={index}
-                              isOpen={expandedTests.has(test.id)}
-                              onToggle={() => toggleTest(test.id)}
-                              onDelete={() => {
-                                const updated = activeScenario.tests.filter(
-                                  (t) => t.id !== test.id,
+                {activeScenario.executionModel === "journey" ? (
+                  <BrowserJourneyEditor
+                    scenario={activeScenario}
+                    nodes={nodes}
+                    onUpdate={(updates) =>
+                      updateScenario(activeScenario.id, updates)
+                    }
+                  />
+                ) : (
+                  <>
+                    <div className="flex flex-col gap-2">
+                      <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-foreground/70">
+                        <IconSparkles className="size-3.5" />
+                        Start with a recipe
+                        <ContextHelp label="scenario recipes">
+                          Recipes insert a sensible ordered set of test steps
+                          for the services already in this workflow. Every
+                          generated step remains editable.
+                        </ContextHelp>
+                      </h4>
+                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        {SCENARIO_RECIPES.map((recipe) => {
+                          const availability = recipeAvailability(
+                            recipe,
+                            nodes,
+                          );
+                          return (
+                            <Button
+                              key={recipe.kind}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={!availability.available}
+                              title={availability.reason ?? recipe.description}
+                              className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left"
+                              onClick={() => {
+                                const recipeTests = createScenarioRecipe(
+                                  recipe.kind,
+                                  nodes,
                                 );
+                                const updated = [
+                                  ...activeScenario.tests,
+                                  ...recipeTests,
+                                ];
                                 updateScenario(activeScenario.id, {
                                   tests: updated,
-                                  testOrder: updated.map((t) => t.id),
+                                  testOrder: updated.map((test) => test.id),
                                 });
+                                setExpandedTests(new Set());
                               }}
-                              onUpdate={(updated) => {
-                                const updatedTests = activeScenario.tests.map(
-                                  (t) => (t.id === test.id ? updated : t),
-                                );
-                                updateScenario(activeScenario.id, {
-                                  tests: updatedTests,
-                                  testOrder: updatedTests.map((t) => t.id),
-                                });
-                              }}
-                              availableServices={availableServices}
-                              serviceNodes={nodes}
-                              authoringMode={authoringMode}
-                            />
-                          ))}
-                        </div>
-                      </SortableContext>
+                            >
+                              {recipe.label}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
 
-                      <DragOverlay
-                        dropAnimation={{ duration: 150, easing: "ease" }}
-                      >
-                        {draggingTest ? (
-                          <DragOverlayRow
-                            test={draggingTest}
-                            index={draggingIndex}
-                          />
-                        ) : null}
-                      </DragOverlay>
-                    </DndContext>
-                  )}
-                </div>
+                    <Separator className="bg-border/60" />
+
+                    {/* Tests section */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-foreground/70">
+                          Test steps
+                          <span className="ml-2 border bg-muted/30 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                            {activeScenario.tests.length}
+                          </span>
+                          <ContextHelp label="ordered test steps">
+                            Steps run in the displayed order unless an explicit
+                            test dependency requires another step first. Drag a
+                            step to change its order.
+                          </ContextHelp>
+                        </h4>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2.5 text-xs"
+                          onClick={() => {
+                            const newTest = createDefaultTest("http", nodes);
+                            const updated = [...activeScenario.tests, newTest];
+                            updateScenario(activeScenario.id, {
+                              tests: updated,
+                              testOrder: updated.map((t) => t.id),
+                            });
+                            setExpandedTests((prev) =>
+                              new Set(prev).add(newTest.id),
+                            );
+                          }}
+                        >
+                          <IconPlus className="mr-1 size-3" />
+                          Add test
+                        </Button>
+                      </div>
+
+                      {activeScenario.tests.length === 0 ? (
+                        <div className="flex items-center justify-center border border-dashed border-border/60 py-8">
+                          <p className="text-xs italic text-muted-foreground">
+                            No tests yet — add one above
+                          </p>
+                        </div>
+                      ) : (
+                        <DndContext
+                          sensors={sensors}
+                          collisionDetection={closestCenter}
+                          onDragStart={handleDragStart}
+                          onDragEnd={handleDragEnd}
+                        >
+                          <SortableContext
+                            items={activeScenario.tests.map((t) => t.id)}
+                            strategy={verticalListSortingStrategy}
+                          >
+                            <div className="flex flex-col gap-2">
+                              {activeScenario.tests.map((test, index) => (
+                                <SortableTestRow
+                                  key={test.id}
+                                  test={test}
+                                  index={index}
+                                  isOpen={expandedTests.has(test.id)}
+                                  onToggle={() => toggleTest(test.id)}
+                                  onDelete={() => {
+                                    const updated = activeScenario.tests.filter(
+                                      (t) => t.id !== test.id,
+                                    );
+                                    updateScenario(activeScenario.id, {
+                                      tests: updated,
+                                      testOrder: updated.map((t) => t.id),
+                                    });
+                                  }}
+                                  onUpdate={(updated) => {
+                                    const updatedTests =
+                                      activeScenario.tests.map((t) =>
+                                        t.id === test.id ? updated : t,
+                                      );
+                                    updateScenario(activeScenario.id, {
+                                      tests: updatedTests,
+                                      testOrder: updatedTests.map((t) => t.id),
+                                    });
+                                  }}
+                                  availableServices={availableServices}
+                                  serviceNodes={nodes}
+                                  authoringMode={authoringMode}
+                                />
+                              ))}
+                            </div>
+                          </SortableContext>
+
+                          <DragOverlay
+                            dropAnimation={{ duration: 150, easing: "ease" }}
+                          >
+                            {draggingTest ? (
+                              <DragOverlayRow
+                                test={draggingTest}
+                                index={draggingIndex}
+                              />
+                            ) : null}
+                          </DragOverlay>
+                        </DndContext>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             </ScrollArea>
           )}

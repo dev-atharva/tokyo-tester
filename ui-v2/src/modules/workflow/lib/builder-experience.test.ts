@@ -127,6 +127,7 @@ function scenarioWithTests(): Scenario {
     projectId: "project-1",
     workflowId: "workflow-1",
     name: "Scenario",
+    executionModel: "legacy-tests",
     tests: [
       {
         id: "test-1",
@@ -136,6 +137,8 @@ function scenarioWithTests(): Scenario {
       },
     ],
     testOrder: ["test-1"],
+    steps: [],
+    stepOrder: [],
     version: 1,
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",

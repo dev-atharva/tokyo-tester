@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { WorkflowRunInput } from "../types/react-flow-cots";
 import {
+  authorizeWorkflowRun,
+  browserJourneyArtifactUrl,
   cancelWorkflowRun,
   fetchWorkflowRunEventsSince,
   fetchWorkflowRunLogs,
@@ -19,6 +21,32 @@ const input = {
 } satisfies WorkflowRunInput;
 
 describe("runner client", () => {
+  test("builds an authorized same-origin artifact URL", () => {
+    expect(browserJourneyArtifactUrl("run/1", "shot one", "project 1")).toBe(
+      "/api/v1/workflow-runs/run%2F1/artifacts/shot%20one?projectId=project+1",
+    );
+  });
+
+  test("authorizes a run through the human-only endpoint", async () => {
+    let body: unknown;
+    await authorizeWorkflowRun(
+      input,
+      [{ secretRef: "PASSWORD", value: "sentinel" }],
+      async (request, init) => {
+        expect(String(request)).toBe("/api/v1/workflow-runs/authorize");
+        body = JSON.parse(String(init?.body));
+        return Response.json(
+          { workflowRunId: "run-1", status: "pending", created: true },
+          { status: 202 },
+        );
+      },
+    );
+    expect(body).toEqual({
+      request: input,
+      runSecrets: [{ secretRef: "PASSWORD", value: "sentinel" }],
+    });
+  });
+
   test("submits the workflow to the same-origin runner proxy", async () => {
     let url = "";
     let init: RequestInit | undefined;

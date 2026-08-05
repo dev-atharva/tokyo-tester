@@ -134,8 +134,13 @@ export function SyncProvider({
       );
       store.updateScenario(id, {
         description: String(local.description ?? ""),
+        executionModel:
+          local.execution_model === "journey" ? "journey" : "legacy-tests",
         tests: (local.tests_config as never[]) ?? [],
         testOrder: (local.test_order as string[]) ?? [],
+        environment: local.environment_config as never,
+        steps: (local.steps_config as never[]) ?? [],
+        stepOrder: (local.step_order as string[]) ?? [],
       });
     }
     acceptServerVersion();

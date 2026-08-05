@@ -82,8 +82,12 @@ export interface ScenarioData {
   workflow_id: string;
   name: string;
   description?: string;
+  execution_model?: "legacy-tests" | "journey";
   tests_config: JsonValue;
   test_order: string[];
+  environment_config?: JsonValue | null;
+  steps_config?: JsonValue;
+  step_order?: string[];
   metadata?: Record<string, JsonValue>;
   version: number;
   created_at: string;

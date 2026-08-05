@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { copyJSONResponse, withAgent } from "@/modules/agent/server/http";
-import { getRun, redactSensitive } from "@/modules/agent/server/service";
+import { compactRunDiagnostics, getRun } from "@/modules/agent/server/service";
 
 export const dynamic = "force-dynamic";
 export async function GET(
@@ -11,7 +11,7 @@ export async function GET(
     const { workflowRunId } = await context.params;
     return copyJSONResponse(
       await getRun(identity, workflowRunId),
-      redactSensitive,
+      compactRunDiagnostics,
     );
   });
 }

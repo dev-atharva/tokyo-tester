@@ -17,6 +17,7 @@ Include:
 - negative or validation paths when the repo exposes stable behavior
 - async completion checks for queues/workers
 - direct database/document/cache/queue assertions for important side effects
+- browser journeys for user-visible UI entrypoints when repository evidence identifies a provisioned UI service and stable accessible locators
 
 ## Test patterns
 
@@ -28,3 +29,5 @@ Include:
 ## Ordering
 
 Put every test id exactly once in `testOrder`. Use `dependsOnTestIds` for true data/control dependencies, not just visual grouping.
+
+For a browser journey, put every step id exactly once in `stepOrder`. Keep actions and assertions sequential. Assert navigation with URL/path when the outcome is a page transition; assert a visible accessible locator when the outcome stays on the current page.

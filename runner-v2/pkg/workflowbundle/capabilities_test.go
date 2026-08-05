@@ -9,6 +9,15 @@ import (
 
 func TestAgentCapabilitiesIncludeCompactAuthoringGuidance(t *testing.T) {
 	capabilities := AgentCapabilities()
+	if !slices.Equal(capabilities.AcceptedSchemaVersions, []int{2, 3}) || capabilities.PreferredSchemaVersion != 3 {
+		t.Fatalf("unexpected schema version capabilities: %+v", capabilities)
+	}
+	if !slices.Contains(capabilities.ScenarioExecutionModels, ExecutionModelLegacyTests) || !slices.Contains(capabilities.ScenarioExecutionModels, ExecutionModelJourney) {
+		t.Fatalf("missing v3 execution models: %+v", capabilities.ScenarioExecutionModels)
+	}
+	if capabilities.Journey == nil || !slices.Contains(capabilities.Journey.Drivers, "browser") || !slices.Contains(capabilities.Journey.BrowserActions, "navigate") {
+		t.Fatalf("missing browser journey capabilities: %+v", capabilities.Journey)
+	}
 	if !slices.Contains(capabilities.ResourceURIs, "tokyo://quality-rubric") {
 		t.Fatalf("expected optional quality rubric resource: %+v", capabilities.ResourceURIs)
 	}
@@ -30,7 +39,7 @@ func TestAgentCapabilitiesIncludeCompactAuthoringGuidance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(payload) > 2600 {
+	if len(payload) > 4200 {
 		t.Fatalf("capabilities response is too large: %d bytes", len(payload))
 	}
 	if strings.Contains(string(payload), "workflow-bundle-v2.schema.json") {

@@ -13,7 +13,10 @@ ENV_LOADER = set -a; \
 	if [ -f ./.env ]; then . ./.env; fi; \
 	set +a;
 
-.PHONY: help package-skill ensure-docker-socket doctor dev dev-docker dev-mysql dev-host-runner dev-local dev-support runner-dev ui-dev agent-dev prod prod-check prod-observe-user prod-observe prod-verify prod-backup prod-capture e2e e2e-install e2e-docker e2e-docker-leak down reset test test-mysql-up test-mysql-down test-go test-ui test-test-api test-api-build test-complex-e2e test-soak check compose-check
+.PHONY: help package-skill ensure-docker-socket browser-executor-build doctor dev dev-docker dev-mysql dev-host-runner dev-local dev-support runner-dev ui-dev agent-dev prod prod-browser-demo prod-check prod-observe-user prod-observe prod-verify prod-backup prod-capture e2e e2e-install e2e-docker e2e-browser-linux e2e-browser-kubernetes e2e-docker-leak down reset test test-mysql-up test-mysql-down test-go test-ui test-test-api test-api-build test-complex-e2e test-soak check compose-check
+
+browser-executor-build: ensure-docker-socket ## Build the pinned managed Chromium executor image
+	@$(ENV_LOADER) docker build -t "$${BROWSER_EXECUTOR_IMAGE:-tokyo-tester-browser-executor:1.61.0}" -f runner-v2/browser-executor/Dockerfile runner-v2
 
 package-skill: ## Package the installable Tokyo Tester skill for local UI downloads
 	@bash ./scripts/package-skill.sh
@@ -41,7 +44,7 @@ dev: package-skill doctor ## Run the dev stack; auto-falls back to a host runner
 		$(MAKE) dev-host-runner; \
 	fi
 
-dev-docker: ensure-docker-socket
+dev-docker: browser-executor-build
 	@$(ENV_LOADER) $(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) up --build
 
 dev-mysql: ensure-docker-socket ## Start the development MySQL server and wait for readiness
@@ -54,7 +57,7 @@ dev-support: ensure-docker-socket
 		COTS_API_BASE_URL="$${HOST_RUNNER_API_URL:-http://host.docker.internal:8080}" \
 		$(DEV_SECRETS) $(COMPOSE) $(DEV_COMPOSE_FILES) up --build -d --force-recreate --no-deps ui
 
-runner-dev: dev-mysql ## Run the Go runner on the host against the detected Docker socket
+runner-dev: dev-mysql browser-executor-build ## Run the Go runner on the host against the detected Docker socket
 	@$(ENV_LOADER) \
 		cd runner-v2 && \
 		unset TESTCONTAINERS_HOST_OVERRIDE TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE RUNNER_DOCKER_HOST CONTAINER_DOCKER_SOCKET_PATH; \
@@ -68,6 +71,8 @@ runner-dev: dev-mysql ## Run the Go runner on the host against the detected Dock
 		TESTCONTAINERS_RYUK_DISABLED=true \
 		WORKFLOW_WORKER_ENABLED="$${WORKFLOW_WORKER_ENABLED:-true}" \
 		WORKFLOW_JOB_ENCRYPTION_KEY="$${WORKFLOW_JOB_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}" \
+		BROWSER_ARTIFACT_DIR="$${BROWSER_ARTIFACT_DIR:-$${PWD}/.artifacts}" \
+		BROWSER_CHROMIUM_SANDBOX="$${BROWSER_CHROMIUM_SANDBOX:-false}" \
 		go run ./cmd/main.go -migrate
 
 dev-host-runner: dev-support ## Run the UI in Docker and the runner on the host
@@ -114,8 +119,12 @@ agent-dev: ensure-docker-socket ## Expose the local MCP server on http://localho
 prod-check: ensure-docker-socket ## Validate the dedicated Docker production host
 	@$(ENV_LOADER) bash ./scripts/prod-check.sh
 
-prod: prod-check ## Build, migrate, and start the supported production stack
+prod: prod-check browser-executor-build ## Build, migrate, and start the supported production stack
 	@$(ENV_LOADER) $(COMPOSE) $(COMPOSE_FILES) $(PROD_PROFILES) up --build -d --wait --wait-timeout "$${PROD_WAIT_TIMEOUT:-180}"
+
+prod-browser-demo: ## Build the local browser fixture, then start the production stack
+	@$(MAKE) test-api-build
+	@$(MAKE) prod
 
 prod-observe-user: ## Create or replace the authenticated log-viewer administrator
 	@$(ENV_LOADER) bash ./scripts/prod-observe-user.sh
@@ -170,6 +179,12 @@ e2e: e2e-docker ## Run the supported whole-product Docker journey
 
 e2e-docker: ensure-docker-socket ## Run the guided Docker production-image journey
 	@$(ENV_LOADER) cd e2e && bun run test:docker
+
+e2e-browser-linux: ensure-docker-socket ## Prove sandboxed browser execution through runner-in-Compose on dedicated Linux
+	@$(ENV_LOADER) bash ./e2e/scripts/browser-release-gate.sh compose-linux
+
+e2e-browser-kubernetes: ## Prove sandboxed browser execution against the current production Kubernetes context
+	@bash ./e2e/scripts/browser-release-gate.sh kubernetes
 
 e2e-docker-leak: ensure-docker-socket ## Repeat the Docker cleanup journey 20 times and assert cleanup after every run
 	@$(ENV_LOADER) cd e2e && \

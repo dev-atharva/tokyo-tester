@@ -4,7 +4,7 @@
 **/node_modules
 **/.next
 **/coverage
-**/artifacts
+e2e/artifacts
 **/.auth
 **/.runtime
 **/.DS_Store

@@ -48,6 +48,7 @@ import { useProjectContext } from "@/modules/projects/project-context";
 import { sanitizeName } from "@/modules/utils/scenario-translator";
 import { useBuilderExperience } from "../hooks/useBuilderExperience";
 import { useRealtimeLogs } from "../hooks/useRealtimeLogs";
+import { parseBrowserJourneyResult } from "../lib/browser-journey-results";
 import { isWorkflowRunActive } from "../lib/realtime-events";
 import {
   cancelWorkflowRun,
@@ -80,6 +81,10 @@ import type {
   WorkflowRunStatus,
 } from "../types/react-flow-cots";
 import { AuthoringModeControl } from "./AuthoringModeControl";
+import {
+  BrowserJourneyResultCard,
+  WorkflowJourneySummary,
+} from "./BrowserJourneyResultCard";
 import { ExecutionServiceMap } from "./ExecutionServiceMap";
 
 const POLL_INTERVAL_MS = 15_000;
@@ -265,6 +270,7 @@ function diagnosticsFromValue(value: unknown): ExecutionDiagnostic[] {
     ...diagnosticsFromValue(record.diagnostic),
     ...diagnosticsFromValue(record.diagnostics),
     ...diagnosticsFromValue(record.scenarioResults),
+    ...diagnosticsFromValue(record.journey),
     ...diagnosticsFromValue(record.testResults),
     ...diagnosticsFromValue(record.results),
   ];
@@ -276,6 +282,8 @@ function diagnosticKey(diagnostic: ExecutionDiagnostic) {
     diagnostic.scenarioId,
     diagnostic.testId,
     diagnostic.testName,
+    diagnostic.stepId,
+    diagnostic.stepName,
     diagnostic.serviceNames?.join(","),
     diagnostic.summary,
   ].join(":");
@@ -426,6 +434,7 @@ export function WorkflowRunPage({
   const [now, setNow] = useState(() => Date.now());
   const reconciliationInFlight = useRef<Promise<void> | null>(null);
   const terminalReconciledRun = useRef<string | null>(null);
+  const diagnosticSelectionInitializedRun = useRef<string | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   const execution = useExecutionStore(
@@ -672,10 +681,15 @@ export function WorkflowRunPage({
   }, [definition?.scenarios, diagnostics, selectedScenarioId]);
 
   useEffect(() => {
-    if (!selectedDiagnosticKey && diagnostics.length > 0) {
-      setSelectedDiagnosticKey(diagnosticKey(diagnostics[0]));
+    if (
+      diagnostics.length === 0 ||
+      diagnosticSelectionInitializedRun.current === workflowRunId
+    ) {
+      return;
     }
-  }, [diagnostics, selectedDiagnosticKey]);
+    diagnosticSelectionInitializedRun.current = workflowRunId;
+    setSelectedDiagnosticKey(diagnosticKey(diagnostics[0]));
+  }, [diagnostics, workflowRunId]);
 
   const selectedDiagnostic = diagnostics.find(
     (item) => diagnosticKey(item) === selectedDiagnosticKey,
@@ -685,6 +699,14 @@ export function WorkflowRunPage({
   );
   const selectedScenarioRun = scenarioRuns.find(
     (run) => run.scenarioId === selectedScenarioId,
+  );
+  const selectedJourneyResult = useMemo(
+    () =>
+      parseBrowserJourneyResult(
+        selectedScenarioRun?.result ?? execution?.result,
+        selectedScenarioId ?? undefined,
+      ),
+    [execution?.result, selectedScenarioId, selectedScenarioRun?.result],
   );
   const selectedScenarioEvents = allEvents.filter(
     (event) => !event.scenarioId || event.scenarioId === selectedScenarioId,
@@ -1032,6 +1054,8 @@ export function WorkflowRunPage({
           </Alert>
         )}
 
+        <WorkflowJourneySummary value={execution?.result} />
+
         <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_460px]">
           <div className="grid min-w-0 gap-4">
             <Card>
@@ -1081,23 +1105,33 @@ export function WorkflowRunPage({
               </CardContent>
             </Card>
 
-            <TestOrder
-              tests={selectedScenario?.tests || []}
-              events={selectedScenarioEvents}
-              scenarioStatus={selectedScenarioRun?.status}
-              workflowStatus={execution?.status}
-              testResults={testResults.filter(
-                (result) => result.scenarioId === selectedScenarioId,
-              )}
-              diagnostics={diagnostics}
-              mode={mode}
-              onSelect={(diagnostic, services) => {
-                if (diagnostic)
-                  setSelectedDiagnosticKey(diagnosticKey(diagnostic));
-                setSelectedService(services[0]);
-                setRawOpen(Boolean(diagnostic));
-              }}
-            />
+            {selectedScenario?.executionModel === "journey" ? (
+              <BrowserJourneyResultCard
+                parsed={selectedJourneyResult}
+                scenarioName={selectedScenario.name}
+                scenarioStatus={selectedScenarioRun?.status}
+                workflowRunId={workflowRunId}
+                projectId={projectId}
+              />
+            ) : (
+              <TestOrder
+                tests={selectedScenario?.tests || []}
+                events={selectedScenarioEvents}
+                scenarioStatus={selectedScenarioRun?.status}
+                workflowStatus={execution?.status}
+                testResults={testResults.filter(
+                  (result) => result.scenarioId === selectedScenarioId,
+                )}
+                diagnostics={diagnostics}
+                mode={mode}
+                onSelect={(diagnostic, services) => {
+                  if (diagnostic)
+                    setSelectedDiagnosticKey(diagnosticKey(diagnostic));
+                  setSelectedService(services[0]);
+                  setRawOpen(Boolean(diagnostic));
+                }}
+              />
+            )}
 
             <RawLogPanel
               open={rawOpen}
@@ -1253,7 +1287,9 @@ function ScenarioSwimlanes({
                   ) : null}
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {scenario.tests.length} ordered tests
+                  {scenario.executionModel === "journey"
+                    ? `${scenario.steps?.length || 0} browser steps`
+                    : `${scenario.tests?.length || 0} ordered tests`}
                 </p>
               </div>
               <div className="grid grid-cols-5">

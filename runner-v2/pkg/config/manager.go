@@ -18,25 +18,29 @@ func NewConfigManager() (*ConfigManager, error) {
 	cm := &ConfigManager{}
 
 	cm.App = AppConfig{
-		Environment:              getEnvOrDefault("APP_ENV", "development"),
-		Port:                     getEnvOrDefault("PORT", "8080"),
-		LogLevel:                 getEnvOrDefault("LOG_LEVEL", "info"),
-		CORSOrigin:               getEnvOrDefault("CORS_ORIGIN", "http://localhost:3000"),
-		ReadHeaderTimeoutSec:     getEnvIntOrDefault("READ_HEADER_TIMEOUT_SEC", 10),
-		ReadTimeoutSec:           getEnvIntOrDefault("READ_TIMEOUT_SEC", 30),
-		WriteTimeoutSec:          getEnvIntOrDefault("WRITE_TIMEOUT_SEC", 2100),
-		IdleTimeoutSec:           getEnvIntOrDefault("IDLE_TIMEOUT_SEC", 120),
-		ProvisionTimeoutSec:      getEnvIntOrDefault("PROVISION_TIMEOUT_SEC", 900),
-		TestRunTimeoutSec:        getEnvIntOrDefault("TEST_RUN_TIMEOUT_SEC", 0),
-		CleanupTimeoutSec:        getEnvIntOrDefault("CLEANUP_TIMEOUT_SEC", 180),
-		OperationQueueTimeoutSec: getEnvIntOrDefault("OPERATION_QUEUE_TIMEOUT_SEC", 30),
-		MaxConcurrentProvision:   getEnvIntOrDefault("MAX_CONCURRENT_PROVISION", 2),
-		MaxConcurrentTestRuns:    getEnvIntOrDefault("MAX_CONCURRENT_TEST_RUNS", 4),
-		MaxConcurrentCleanup:     getEnvIntOrDefault("MAX_CONCURRENT_CLEANUP", 4),
-		ContainerMemoryMB:        getEnvIntOrDefault("WORKFLOW_CONTAINER_MEMORY_MB", 1024),
-		ContainerCPUMilli:        getEnvIntOrDefault("WORKFLOW_CONTAINER_CPU_MILLI", 1000),
-		ContainerPIDs:            getEnvIntOrDefault("WORKFLOW_CONTAINER_PIDS", 256),
-		DisableTestRetries:       getEnvBoolOrDefault("DISABLE_TEST_RETRIES", false),
+		Environment:                  getEnvOrDefault("APP_ENV", "development"),
+		Port:                         getEnvOrDefault("PORT", "8080"),
+		LogLevel:                     getEnvOrDefault("LOG_LEVEL", "info"),
+		CORSOrigin:                   getEnvOrDefault("CORS_ORIGIN", "http://localhost:3000"),
+		ReadHeaderTimeoutSec:         getEnvIntOrDefault("READ_HEADER_TIMEOUT_SEC", 10),
+		ReadTimeoutSec:               getEnvIntOrDefault("READ_TIMEOUT_SEC", 30),
+		WriteTimeoutSec:              getEnvIntOrDefault("WRITE_TIMEOUT_SEC", 2100),
+		IdleTimeoutSec:               getEnvIntOrDefault("IDLE_TIMEOUT_SEC", 120),
+		ProvisionTimeoutSec:          getEnvIntOrDefault("PROVISION_TIMEOUT_SEC", 900),
+		TestRunTimeoutSec:            getEnvIntOrDefault("TEST_RUN_TIMEOUT_SEC", 0),
+		CleanupTimeoutSec:            getEnvIntOrDefault("CLEANUP_TIMEOUT_SEC", 180),
+		OperationQueueTimeoutSec:     getEnvIntOrDefault("OPERATION_QUEUE_TIMEOUT_SEC", 30),
+		MaxConcurrentProvision:       getEnvIntOrDefault("MAX_CONCURRENT_PROVISION", 2),
+		MaxConcurrentTestRuns:        getEnvIntOrDefault("MAX_CONCURRENT_TEST_RUNS", 4),
+		MaxConcurrentCleanup:         getEnvIntOrDefault("MAX_CONCURRENT_CLEANUP", 4),
+		ContainerMemoryMB:            getEnvIntOrDefault("WORKFLOW_CONTAINER_MEMORY_MB", 1024),
+		ContainerCPUMilli:            getEnvIntOrDefault("WORKFLOW_CONTAINER_CPU_MILLI", 1000),
+		ContainerPIDs:                getEnvIntOrDefault("WORKFLOW_CONTAINER_PIDS", 256),
+		DisableTestRetries:           getEnvBoolOrDefault("DISABLE_TEST_RETRIES", false),
+		BrowserExecutorImage:         getEnvOrDefault("BROWSER_EXECUTOR_IMAGE", "tokyo-tester-browser-executor:1.61.0"),
+		BrowserChromiumSandbox:       getEnvBoolOrDefault("BROWSER_CHROMIUM_SANDBOX", true),
+		BrowserArtifactDir:           getEnvOrDefault("BROWSER_ARTIFACT_DIR", "/var/lib/tokyo-tester/artifacts"),
+		BrowserArtifactRetentionDays: getEnvIntOrDefault("BROWSER_ARTIFACT_RETENTION_DAYS", 30),
 	}
 
 	cm.Database = *LoadDatabaseConfig()
@@ -107,6 +111,12 @@ func (cm *ConfigManager) Validate() error {
 	}
 	if cm.App.ContainerMemoryMB < 128 || cm.App.ContainerCPUMilli < 100 || cm.App.ContainerPIDs < 32 {
 		return fmt.Errorf("workflow container limits are below the supported minimum")
+	}
+	if cm.App.BrowserExecutorImage == "" || cm.App.BrowserArtifactDir == "" || cm.App.BrowserArtifactRetentionDays <= 0 {
+		return fmt.Errorf("browser executor image, artifact directory, and retention must be configured")
+	}
+	if cm.App.IsProduction() && !cm.App.BrowserChromiumSandbox {
+		return fmt.Errorf("BROWSER_CHROMIUM_SANDBOX cannot be disabled in production")
 	}
 	if cm.Janitor.Enabled {
 		if cm.Janitor.IntervalSec <= 0 || cm.Janitor.OrphanTTLSec <= 0 {

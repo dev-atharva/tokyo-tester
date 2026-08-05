@@ -22,14 +22,18 @@ export class GuidedWorkflowPage {
     await this.page.getByRole("button", { name: "Edit", exact: true }).click();
     await this.page.getByPlaceholder("Enter the workflow name").fill(name);
     await this.page.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(this.page.getByPlaceholder("Enter the workflow name")).toHaveValue(name);
+    await expect(
+      this.page.getByPlaceholder("Enter the workflow name"),
+    ).toHaveValue(name);
   }
 
   async addRedisService() {
     await this.ensureServiceDrawer();
     await this.page.getByRole("button", { name: /^Redis/ }).click();
     await this.page.keyboard.press("Escape");
-    await expect(this.page.getByText("Redis", { exact: true }).first()).toBeVisible();
+    await expect(
+      this.page.getByText("Redis", { exact: true }).first(),
+    ).toBeVisible();
   }
 
   async addApplicationService(image: string, label: string) {
@@ -57,6 +61,40 @@ export class GuidedWorkflowPage {
     await expect(this.page.getByText(label, { exact: true })).toBeVisible();
   }
 
+  async addBrowserJourneyScenario(name: string) {
+    await this.settleBrowserEditor();
+    await this.openStage("Scenarios");
+    await this.page.getByRole("button", { name: "New Scenario" }).click();
+    await this.page.getByLabel("Scenario Name").fill(name);
+    await this.page
+      .getByRole("button", { name: "Browser journey", exact: true })
+      .click();
+    await expect(this.page.getByTestId("browser-journey-editor")).toBeVisible();
+  }
+
+  async addBrowserStep(operation: string) {
+    await this.settleBrowserEditor();
+    await this.page.getByRole("button", { name: "Add step" }).click();
+    await this.page.getByLabel("Operation").click();
+    await this.page
+      .getByRole("option", { name: operation, exact: true })
+      .click();
+    await expect(this.page.getByLabel("Operation")).toContainText(operation);
+  }
+
+  private async settleBrowserEditor() {
+    const editor = this.page.getByTestId("browser-journey-editor");
+    if (await editor.isVisible().catch(() => false)) {
+      await expect(editor.locator('[data-invalid="true"]')).toHaveCount(0);
+    }
+    await this.page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }),
+    );
+  }
+
   async configureCustomRegistry(
     serviceLabel: string,
     registryHost: string,
@@ -70,7 +108,9 @@ export class GuidedWorkflowPage {
     await this.page.getByLabel("Registry host").fill(registryHost);
     await this.page.getByLabel("Username").fill(username);
     await this.page.getByLabel("Password or pull token").fill(password);
-    await expect(this.page.getByText(expectedResolvedImage, { exact: true })).toBeVisible();
+    await expect(
+      this.page.getByText(expectedResolvedImage, { exact: true }),
+    ).toBeVisible();
     await this.page.getByRole("button", { name: "Save changes" }).click();
   }
 
@@ -81,7 +121,9 @@ export class GuidedWorkflowPage {
     await this.page
       .getByRole("button", { name: "Redis round trip", exact: true })
       .click();
-    await expect(this.page.getByText("Store a run-scoped Redis value")).toBeVisible();
+    await expect(
+      this.page.getByText("Store a run-scoped Redis value"),
+    ).toBeVisible();
     await expect(this.page.getByText("Read the Redis value")).toBeVisible();
   }
 
@@ -152,7 +194,9 @@ export class GuidedWorkflowPage {
   }
 
   private async ensureServiceDrawer() {
-    const workflowSetup = this.page.getByRole("heading", { name: "Workflow Setup" });
+    const workflowSetup = this.page.getByRole("heading", {
+      name: "Workflow Setup",
+    });
     if (!(await workflowSetup.isVisible().catch(() => false))) {
       await this.openStage("Services");
       await this.page.getByRole("button", { name: "Add service" }).click();

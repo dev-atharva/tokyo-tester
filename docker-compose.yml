@@ -41,9 +41,14 @@ services:
       WORKFLOW_JOB_HEARTBEAT_SECONDS: ${WORKFLOW_JOB_HEARTBEAT_SECONDS:-15}
       WORKFLOW_JOB_MAX_RECOVERIES: ${WORKFLOW_JOB_MAX_RECOVERIES:-3}
       WORKFLOW_EVENT_RETENTION_DAYS: ${WORKFLOW_EVENT_RETENTION_DAYS:-30}
+      BROWSER_EXECUTOR_IMAGE: ${BROWSER_EXECUTOR_IMAGE:-tokyo-tester-browser-executor:1.61.0}
+      BROWSER_CHROMIUM_SANDBOX: ${BROWSER_CHROMIUM_SANDBOX:-true}
+      BROWSER_ARTIFACT_DIR: /var/lib/tokyo-tester/artifacts
+      BROWSER_ARTIFACT_RETENTION_DAYS: ${BROWSER_ARTIFACT_RETENTION_DAYS:-30}
       WORKFLOW_JOB_ENCRYPTION_KEY: ${WORKFLOW_JOB_ENCRYPTION_KEY:?WORKFLOW_JOB_ENCRYPTION_KEY must be set}
     volumes:
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:${CONTAINER_DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+      - browser_artifacts:/var/lib/tokyo-tester/artifacts
     networks:
       - tokyo-tester
     command: ["-migrate"]
@@ -171,3 +176,4 @@ volumes:
   caddy_data:
   caddy_config:
   dozzle_data:
+  browser_artifacts:

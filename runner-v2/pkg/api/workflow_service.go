@@ -15,6 +15,8 @@ import (
 	apperrors "github.com/dev-atharva/cots/pkg/errors"
 	"github.com/dev-atharva/cots/pkg/executionevent"
 	"github.com/dev-atharva/cots/pkg/logger"
+	"github.com/dev-atharva/cots/pkg/runsecret"
+	"github.com/dev-atharva/cots/pkg/workflowbundle"
 	"github.com/dev-atharva/cots/pkg/workflowrun"
 	"github.com/google/uuid"
 )
@@ -52,29 +54,130 @@ func (s *WorkflowService) Start(ctx context.Context) {
 func (s *WorkflowService) Wait() { s.wg.Wait() }
 
 func (s *WorkflowService) Submit(ctx context.Context, request *workflowrun.Request) (*db.WorkflowJob, bool, error) {
+	if err := runsecret.RequireHumanAuthorization(request); err != nil {
+		return nil, false, err
+	}
+	secrets, err := runsecret.Authorize(request, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	defer secrets.Destroy()
+	return s.SubmitAuthorized(ctx, request, secrets)
+}
+
+func (s *WorkflowService) AuthorizeAndSubmit(ctx context.Context, request *workflowrun.Request, supplied []runsecret.SuppliedValue) (*db.WorkflowJob, bool, error) {
+	if err := s.reloadAuthorizedSelection(ctx, request); err != nil {
+		return nil, false, err
+	}
+	secrets, err := runsecret.Authorize(request, supplied)
+	if err != nil {
+		return nil, false, err
+	}
+	defer secrets.Destroy()
+	return s.SubmitAuthorized(ctx, request, secrets)
+}
+
+func (s *WorkflowService) reloadAuthorizedSelection(ctx context.Context, request *workflowrun.Request) error {
+	if request == nil || strings.TrimSpace(request.ProjectID) == "" || strings.TrimSpace(request.WorkflowID) == "" || len(request.Scenarios) == 0 {
+		return errors.New("projectId, workflowId, and at least one selected scenario are required")
+	}
+	workflow, err := s.db.GetWorkflow(ctx, request.WorkflowID)
+	if err != nil || workflow.ProjectID != request.ProjectID || workflow.IsDeleted {
+		return errors.New("workflow was not found in the authorized project")
+	}
+	var nodes []workflowbundle.FlowNode
+	var edges []workflowbundle.FlowEdge
+	if err := json.Unmarshal([]byte(workflow.NodesConfig), &nodes); err != nil {
+		return fmt.Errorf("decode synchronized workflow nodes: %w", err)
+	}
+	if err := json.Unmarshal([]byte(workflow.EdgesConfig), &edges); err != nil {
+		return fmt.Errorf("decode synchronized workflow edges: %w", err)
+	}
+	request.WorkflowName, request.Nodes, request.Edges = workflow.Name, nodes, edges
+	for index := range request.Scenarios {
+		selected := &request.Scenarios[index]
+		persisted, err := s.db.GetScenario(ctx, selected.ID)
+		if err != nil || persisted.ProjectID != request.ProjectID || persisted.WorkflowID != request.WorkflowID || persisted.IsDeleted {
+			return fmt.Errorf("selected scenario %q is stale or outside the authorized workflow", selected.ID)
+		}
+		var tests []workflowbundle.ScenarioTestDefinition
+		var testOrder []string
+		var environment *workflowbundle.JourneyEnvironment
+		var steps []workflowbundle.ScenarioStep
+		var stepOrder []string
+		if err := decodeStoredJSON(persisted.TestsConfig, &tests); err != nil {
+			return fmt.Errorf("decode synchronized scenario tests: %w", err)
+		}
+		if err := decodeStoredJSON(persisted.TestOrder, &testOrder); err != nil {
+			return fmt.Errorf("decode synchronized scenario test order: %w", err)
+		}
+		if err := decodeStoredJSON(persisted.EnvironmentConfig, &environment); err != nil {
+			return fmt.Errorf("decode synchronized journey environment: %w", err)
+		}
+		if err := decodeStoredJSON(persisted.StepsConfig, &steps); err != nil {
+			return fmt.Errorf("decode synchronized journey steps: %w", err)
+		}
+		if err := decodeStoredJSON(persisted.StepOrder, &stepOrder); err != nil {
+			return fmt.Errorf("decode synchronized journey step order: %w", err)
+		}
+		selected.ProjectID = request.ProjectID
+		selected.Name, selected.Description = persisted.Name, persisted.Description
+		selected.ExecutionModel = persisted.ExecutionModel
+		selected.Tests, selected.TestOrder = tests, testOrder
+		selected.Environment, selected.Steps, selected.StepOrder = environment, steps, stepOrder
+		normalizeScenarioExecutionFields(selected)
+	}
+	return request.Validate()
+}
+
+func normalizeScenarioExecutionFields(scenario *workflowrun.Scenario) {
+	if scenario.ExecutionModel == workflowbundle.ExecutionModelJourney {
+		scenario.Tests, scenario.TestOrder = nil, nil
+		return
+	}
+	scenario.Environment, scenario.Steps, scenario.StepOrder = nil, nil, nil
+}
+
+func decodeStoredJSON(value string, destination any) error {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return json.Unmarshal([]byte(value), destination)
+}
+
+func (s *WorkflowService) SubmitAuthorized(ctx context.Context, request *workflowrun.Request, secrets *runsecret.RunSecrets) (*db.WorkflowJob, bool, error) {
 	if err := request.Validate(); err != nil {
 		return nil, false, err
 	}
+	if err := secrets.ValidateFor(request); err != nil {
+		return nil, false, err
+	}
+	candidateHash, err := workflowRequestFingerprint(request)
+	if err != nil {
+		return nil, false, err
+	}
 	if existing, err := s.store.GetWorkflowJob(ctx, request.WorkflowRunID); err == nil && existing != nil {
+		if existing.RequestHash == candidateHash {
+			return existing, false, nil
+		}
+		if len(existing.PayloadCiphertext) == 0 || len(existing.PayloadNonce) == 0 {
+			return nil, false, fmt.Errorf("workflow run id already exists with a different payload")
+		}
 		payload, decryptErr := s.cipher.Decrypt(existing.PayloadCiphertext, existing.PayloadNonce)
 		if decryptErr != nil {
 			return nil, false, decryptErr
 		}
 		defer clear(payload)
-		var submitted workflowrun.Request
-		if err := json.Unmarshal(payload, &submitted); err != nil {
+		submitted, submittedSecrets, err := runsecret.DecodeJobPayload(payload)
+		if err != nil {
 			return nil, false, err
 		}
-		revisionID := submitted.WorkflowRevisionID
-		submitted.WorkflowRevisionID = ""
-		candidate := *request
-		candidate.WorkflowRevisionID = ""
-		existingPayload, _ := json.Marshal(&submitted)
-		candidatePayload, _ := json.Marshal(&candidate)
-		if workflowrun.HashPayload(existingPayload) != workflowrun.HashPayload(candidatePayload) {
+		defer submittedSecrets.Destroy()
+		submittedHash, err := workflowRequestFingerprint(submitted)
+		if err != nil || submittedHash != candidateHash {
 			return nil, false, fmt.Errorf("workflow run id already exists with a different payload")
 		}
-		request.WorkflowRevisionID = revisionID
+		request.WorkflowRevisionID = submitted.WorkflowRevisionID
 		return existing, false, nil
 	}
 	workflow, persistedScenarios, err := s.ensureWorkflowGraphForRun(ctx, request)
@@ -91,8 +194,17 @@ func (s *WorkflowService) Submit(ctx context.Context, request *workflowrun.Reque
 			persisted := persistedScenarios[scenario.ID]
 			tests, _ := json.Marshal(scenario.Tests)
 			order, _ := json.Marshal(scenario.TestOrder)
+			environment, _ := json.Marshal(scenario.Environment)
+			steps, _ := json.Marshal(scenario.Steps)
+			stepOrder, _ := json.Marshal(scenario.StepOrder)
+			executionModel := scenario.ExecutionModel
+			if executionModel == "" {
+				executionModel = workflowbundle.ExecutionModelLegacyTests
+			}
 			copy := *persisted
-			copy.Name, copy.Description, copy.TestsConfig, copy.TestOrder = scenario.Name, scenario.Description, string(tests), string(order)
+			copy.Name, copy.Description, copy.ExecutionModel = scenario.Name, scenario.Description, executionModel
+			copy.TestsConfig, copy.TestOrder = string(tests), string(order)
+			copy.EnvironmentConfig, copy.StepsConfig, copy.StepOrder = string(environment), string(steps), string(stepOrder)
 			executedScenarios = append(executedScenarios, &copy)
 		}
 		snapshot, err := json.Marshal(db.WorkflowSnapshot{Workflow: &executedWorkflow, Scenarios: executedScenarios})
@@ -109,7 +221,7 @@ func (s *WorkflowService) Submit(ctx context.Context, request *workflowrun.Reque
 		}
 		request.WorkflowRevisionID = revision.ID
 	}
-	payload, err := json.Marshal(request)
+	payload, err := runsecret.EncodeJobPayload(request, secrets)
 	if err != nil {
 		return nil, false, err
 	}
@@ -122,7 +234,7 @@ func (s *WorkflowService) Submit(ctx context.Context, request *workflowrun.Reque
 	job := &db.WorkflowJob{
 		ID: uuid.NewString(), WorkflowRunID: request.WorkflowRunID,
 		ProjectID: request.ProjectID, UserID: firstNonEmpty(request.UserID, "demo-user"),
-		RequestHash:       workflowrun.HashPayload(payload),
+		RequestHash:       candidateHash,
 		PayloadCiphertext: ciphertext, PayloadNonce: nonce,
 		Status: "pending", EstimatedCost: estimateWorkflowCost(request), CreatedAt: now, UpdatedAt: now,
 	}
@@ -157,6 +269,18 @@ func (s *WorkflowService) Submit(ctx context.Context, request *workflowrun.Reque
 	return job, true, nil
 }
 
+func workflowRequestFingerprint(request *workflowrun.Request) (string, error) {
+	copy := *request
+	copy.WorkflowRevisionID = ""
+	copy.RegistrySecrets = nil
+	payload, err := json.Marshal(&copy)
+	if err != nil {
+		return "", err
+	}
+	defer clear(payload)
+	return workflowrun.HashPayload(payload), nil
+}
+
 func (s *WorkflowService) ensureWorkflowGraphForRun(ctx context.Context, request *workflowrun.Request) (*db.Workflow, map[string]*db.Scenario, error) {
 	now := time.Now().UTC()
 	workflow, err := s.db.GetWorkflow(ctx, request.WorkflowID)
@@ -182,9 +306,17 @@ func (s *WorkflowService) ensureWorkflowGraphForRun(ctx context.Context, request
 		if err != nil {
 			tests, _ := json.Marshal(scenario.Tests)
 			order, _ := json.Marshal(scenario.TestOrder)
+			environment, _ := json.Marshal(scenario.Environment)
+			steps, _ := json.Marshal(scenario.Steps)
+			stepOrder, _ := json.Marshal(scenario.StepOrder)
+			executionModel := scenario.ExecutionModel
+			if executionModel == "" {
+				executionModel = workflowbundle.ExecutionModelLegacyTests
+			}
 			persisted = &db.Scenario{
 				ID: scenario.ID, ProjectID: firstNonEmpty(scenario.ProjectID, request.ProjectID), WorkflowID: request.WorkflowID,
-				Name: scenario.Name, Description: scenario.Description, TestsConfig: string(tests), TestOrder: string(order), Metadata: `{}`,
+				Name: scenario.Name, Description: scenario.Description, ExecutionModel: executionModel,
+				TestsConfig: string(tests), TestOrder: string(order), EnvironmentConfig: string(environment), StepsConfig: string(steps), StepOrder: string(stepOrder), Metadata: `{}`,
 				Version: 1, CreatedAt: now, UpdatedAt: now,
 				ClientID: firstNonEmpty(scenario.ClientID, request.ClientID), UserID: firstNonEmpty(scenario.UserID, request.UserID, "demo-user"),
 			}
@@ -315,22 +447,24 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 		return
 	}
 	defer clear(payload)
-	var request workflowrun.Request
-	if err := json.Unmarshal(payload, &request); err != nil {
+	request, secrets, err := runsecret.DecodeJobPayload(payload)
+	if err != nil {
 		s.failJob(ctx, owner, job, err)
 		return
 	}
+	defer secrets.Destroy()
+	ctx = runsecret.WithContext(ctx, secrets)
 	bundle, err := request.Bundle()
 	if err != nil {
 		s.failJob(ctx, owner, job, err)
 		return
 	}
 
-	if err := s.updateRun(ctx, &request, "running", nil, nil, ""); err != nil {
+	if err := s.updateRun(ctx, request, "running", nil, nil, ""); err != nil {
 		s.failJob(ctx, owner, job, fmt.Errorf("persist running workflow state: %w", err))
 		return
 	}
-	s.emitLog(ctx, &request, "Starting workflow run: "+request.WorkflowName, "running", nil, nil)
+	s.emitLog(ctx, request, "Starting workflow run: "+request.WorkflowName, "running", nil, nil)
 
 	results := make([]dto.WorkflowBundleScenarioResponse, len(bundle.Scenarios))
 	sem := make(chan struct{}, s.config.ScenarioConcurrency)
@@ -347,30 +481,36 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 			}
 			defer func() { <-sem }()
 			scenario := request.Scenarios[index]
+			scenarioSecrets, secretErr := secrets.ForScenario(scenario)
+			if secretErr != nil {
+				results[index] = dto.WorkflowBundleScenarioResponse{ScenarioName: scenario.Name, Success: false, Error: runsecret.RedactContext(ctx, secretErr.Error())}
+				return
+			}
+			defer scenarioSecrets.Destroy()
 			if checkpoint, ok := s.completedScenario(ctx, scenario); ok {
 				results[index] = checkpoint
-				s.emitLog(ctx, &request, fmt.Sprintf("Restored completed scenario %q from its checkpoint", scenario.Name), mapScenarioStatusValue(checkpoint.Success), &scenario, errorValue(checkpoint.Error))
+				s.emitLog(ctx, request, fmt.Sprintf("Restored completed scenario %q from its checkpoint", scenario.Name), mapScenarioStatusValue(checkpoint.Success), &scenario, errorValue(checkpoint.Error))
 				return
 			}
 			if err := s.updateScenario(ctx, scenario, "running", "", "", nil); err != nil {
 				results[index] = dto.WorkflowBundleScenarioResponse{ScenarioName: scenario.Name, Success: false, Error: "failed to persist running scenario state: " + err.Error(), Summary: dto.TestSummary{Total: len(scenario.Tests)}}
 				return
 			}
-			s.emitLog(ctx, &request, fmt.Sprintf("Running scenario %q", scenario.Name), "running", &scenario, nil)
+			s.emitLog(ctx, request, fmt.Sprintf("Running scenario %q", scenario.Name), "running", &scenario, nil)
 			scenarioCtx := withWorkflowProgressReporter(ctx, func(activity executionevent.Activity) {
 				if activity.Diagnostic != nil && activity.Diagnostic.ScenarioID == "" {
 					copy := *activity.Diagnostic
 					copy.ScenarioID = scenario.ID
 					activity.Diagnostic = &copy
 				}
-				s.emitActivity(ctx, &request, scenario, activity)
+				s.emitActivity(ctx, request, scenario, activity)
 			})
 			result := s.handler.runWorkflowBundleScenarioForRun(scenarioCtx, bundle, bundle.Scenarios[index], &dto.ExecutionContextDTO{
 				SessionID: scenario.ScenarioRunID, ProjectID: firstNonEmpty(scenario.ProjectID, request.ProjectID),
 				UserID: firstNonEmpty(scenario.UserID, request.UserID, "demo-user"), ClientID: firstNonEmpty(scenario.ClientID, request.ClientID),
 				WorkflowID: request.WorkflowID, WorkflowRunID: request.WorkflowRunID,
 				ScenarioID: scenario.ID, ScenarioName: scenario.Name,
-			})
+			}, scenarioSecrets)
 			attachScenarioToDiagnostics(&result, scenario.ID)
 			results[index] = result
 			if ctx.Err() != nil {
@@ -390,8 +530,9 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 				result.Error += "failed to persist scenario state: " + err.Error()
 				results[index] = result
 			}
-			s.emitTestResults(ctx, &request, scenario, result)
-			s.emitLog(ctx, &request, fmt.Sprintf("Scenario %q %s", scenario.Name, status), mapScenarioStatus(status), &scenario, errorValue(result.Error))
+			s.emitTestResults(ctx, request, scenario, result)
+			s.emitJourneyResult(ctx, request, scenario, result)
+			s.emitLog(ctx, request, fmt.Sprintf("Scenario %q %s", scenario.Name, status), mapScenarioStatus(status), &scenario, errorValue(result.Error))
 		}()
 	}
 	wg.Wait()
@@ -416,6 +557,7 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 		summary.PassedTests += result.Summary.Passed
 		summary.FailedTests += result.Summary.Failed
 		summary.RetriedTests += result.Summary.Retried
+		accumulateJourneySummary(&summary, result.Journey)
 		if result.Success {
 			summary.PassedScenarios++
 		} else {
@@ -437,16 +579,20 @@ func (s *WorkflowService) executeJob(parent context.Context, owner string, job *
 		"totalScenarios": summary.TotalScenarios, "passedScenarios": summary.PassedScenarios,
 		"failedScenarios": summary.FailedScenarios, "totalTests": summary.TotalTests,
 		"passedTests": summary.PassedTests, "failedTests": summary.FailedTests,
-		"retriedTests":    summary.RetriedTests,
+		"retriedTests":  summary.RetriedTests,
+		"totalJourneys": summary.TotalJourneys, "passedJourneys": summary.PassedJourneys,
+		"failedJourneys": summary.FailedJourneys, "interruptedJourneys": summary.InterruptedJourneys,
+		"totalSteps": summary.TotalSteps, "passedSteps": summary.PassedSteps, "failedSteps": summary.FailedSteps,
+		"skippedSteps": summary.SkippedSteps, "interruptedSteps": summary.InterruptedSteps,
 		"scenarioResults": scenarioSnapshots(request.Scenarios, results),
 		"diagnostics":     workflowDiagnostics(results),
 	}
 	logs := []string{fmt.Sprintf("Workflow run complete: %d/%d scenarios passed", summary.PassedScenarios, summary.TotalScenarios)}
-	if err := s.updateRun(ctx, &request, status, nil, resultPayload, workflowErrors(request.Scenarios, results)); err != nil {
+	if err := s.updateRun(ctx, request, status, nil, resultPayload, workflowErrors(request.Scenarios, results)); err != nil {
 		s.failJob(ctx, owner, job, fmt.Errorf("persist terminal workflow state: %w", err))
 		return
 	}
-	s.emitLog(ctx, &request, logs[len(logs)-1], mapWorkflowStatus(status), nil, resultPayload)
+	s.emitLog(ctx, request, logs[len(logs)-1], mapWorkflowStatus(status), nil, resultPayload)
 	if err := s.store.CompleteWorkflowJob(ctx, job.ID, owner, time.Now().UTC()); err != nil {
 		logger.ErrorContext(ctx, "failed to complete workflow job", "error", err)
 	}
@@ -466,6 +612,11 @@ func (s *WorkflowService) completedScenario(ctx context.Context, scenario workfl
 		var stored dto.WorkflowBundleScenarioResponse
 		if json.Unmarshal([]byte(persisted.Result), &stored) == nil {
 			response.Diagnostics = stored.Diagnostics
+			response.Journey = stored.Journey
+			if stored.Journey != nil {
+				response.Success, response.Error, response.CleanupFailed = stored.Success, stored.Error, stored.CleanupFailed
+				return response, true
+			}
 		}
 	}
 	rows, err := s.db.ListTestResults(ctx, scenario.ScenarioRunID)
@@ -526,17 +677,18 @@ func (s *WorkflowService) heartbeat(ctx context.Context, owner, jobID string, ca
 
 func (s *WorkflowService) failJob(ctx context.Context, owner string, job *db.WorkflowJob, err error) {
 	now := time.Now().UTC()
-	_ = s.store.FailWorkflowJob(ctx, job.ID, owner, err.Error(), now)
+	safeError := runsecret.RedactContext(ctx, err.Error())
+	_ = s.store.FailWorkflowJob(ctx, job.ID, owner, safeError, now)
 	run, getErr := s.db.GetWorkflowRun(ctx, job.WorkflowRunID)
 	if getErr == nil {
-		run.Status, run.Error, run.UpdatedAt, run.CompletedAt, run.Version = "failed", err.Error(), now, &now, run.Version+1
+		run.Status, run.Error, run.UpdatedAt, run.CompletedAt, run.Version = "failed", safeError, now, &now, run.Version+1
 		_ = s.db.UpsertWorkflowRun(ctx, run)
 	}
 	diagnostic := buildExecutionDiagnostic(executionevent.StageAggregation, apperrors.Wrap(err, apperrors.ErrInternal, "workflow worker failed"), "Tokyo Tester could not continue this workflow run.", "", "", "", nil)
-	s.appendLogEvent(ctx, job.WorkflowRunID, job.ProjectID, "Workflow run failed: "+err.Error(), map[string]any{
+	s.appendLogEvent(ctx, job.WorkflowRunID, job.ProjectID, "Workflow run failed: "+safeError, map[string]any{
 		"workflowRunId": job.WorkflowRunID, "projectId": job.ProjectID,
-		"message": "Workflow run failed: " + err.Error(), "status": "failed",
-		"error": err.Error(), "timestamp": now.UnixMilli(), "sequence": now.UnixNano(),
+		"message": "Workflow run failed: " + safeError, "status": "failed",
+		"error": safeError, "timestamp": now.UnixMilli(), "sequence": now.UnixNano(),
 		"stage": executionevent.StageAggregation, "kind": "diagnostic", "activityStatus": "failed", "diagnostic": diagnostic,
 	})
 }
@@ -580,18 +732,18 @@ func (s *WorkflowService) updateRun(ctx context.Context, request *workflowrun.Re
 	now := time.Now().UTC()
 	run.Status, run.UpdatedAt, run.Version = status, now, run.Version+1
 	if logs != nil {
-		encodedLogs, err := json.Marshal(logs)
+		encodedLogs, err := marshalRunOutput(ctx, logs)
 		if err != nil {
 			return err
 		}
 		run.Logs = string(encodedLogs)
 	}
 	if result != nil {
-		encoded, _ := json.Marshal(result)
+		encoded, _ := marshalRunOutput(ctx, result)
 		run.Summary = string(encoded)
 	}
 	if message != "" {
-		run.Error = message
+		run.Error = runsecret.RedactContext(ctx, message)
 	}
 	if status != "pending" && status != "running" {
 		run.CompletedAt = &now
@@ -616,10 +768,10 @@ func (s *WorkflowService) updateScenario(ctx context.Context, scenario workflowr
 		run.BackendSessionID = backendID
 	}
 	if message != "" {
-		run.Error = message
+		run.Error = runsecret.RedactContext(ctx, message)
 	}
 	if result != nil {
-		encoded, _ := json.Marshal(result)
+		encoded, _ := marshalRunOutput(ctx, result)
 		run.Result = string(encoded)
 	}
 	if run.StartedAt == nil {
@@ -642,7 +794,7 @@ func (s *WorkflowService) updateScenario(ctx context.Context, scenario workflowr
 }
 
 func (s *WorkflowService) emitLog(ctx context.Context, request *workflowrun.Request, message, status string, scenario *workflowrun.Scenario, result any) {
-	message = boundedWorkflowLogMessage(message)
+	message = boundedWorkflowLogMessage(runsecret.RedactContext(ctx, message))
 	now := time.Now().UTC()
 	payload := map[string]any{"workflowRunId": request.WorkflowRunID, "projectId": request.ProjectID, "workflowId": request.WorkflowID, "message": message, "status": status, "timestamp": now.UnixMilli(), "sequence": now.UnixNano()}
 	scenarioRunID := ""
@@ -657,7 +809,7 @@ func (s *WorkflowService) emitLog(ctx context.Context, request *workflowrun.Requ
 			payload["result"] = result
 		}
 	}
-	encoded, err := json.Marshal(payload)
+	encoded, err := marshalRunOutput(ctx, payload)
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to encode workflow log event", "error", err)
 		return
@@ -668,7 +820,7 @@ func (s *WorkflowService) emitLog(ctx context.Context, request *workflowrun.Requ
 }
 
 func (s *WorkflowService) emitActivity(ctx context.Context, request *workflowrun.Request, scenario workflowrun.Scenario, activity executionevent.Activity) {
-	message := boundedWorkflowLogMessage(activity.Message)
+	message := boundedWorkflowLogMessage(runsecret.RedactContext(ctx, activity.Message))
 	now := time.Now().UTC()
 	payload := map[string]any{
 		"workflowRunId": request.WorkflowRunID, "projectId": request.ProjectID,
@@ -692,6 +844,19 @@ func (s *WorkflowService) emitActivity(ctx context.Context, request *workflowrun
 	if activity.TestName != "" {
 		payload["testName"] = activity.TestName
 	}
+	if activity.StepID != "" {
+		payload["stepId"] = activity.StepID
+		payload["stepSequence"] = activity.Sequence
+	}
+	if activity.StepName != "" {
+		payload["stepName"] = activity.StepName
+	}
+	if activity.StepKind != "" {
+		payload["stepKind"] = activity.StepKind
+	}
+	if activity.Operation != "" {
+		payload["operation"] = activity.Operation
+	}
 	if activity.Attempt > 0 {
 		payload["attempt"] = activity.Attempt
 	}
@@ -704,7 +869,7 @@ func (s *WorkflowService) emitActivity(ctx context.Context, request *workflowrun
 	if activity.Diagnostic != nil {
 		payload["diagnostic"] = activity.Diagnostic
 	}
-	encoded, err := json.Marshal(payload)
+	encoded, err := marshalRunOutput(ctx, payload)
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to encode workflow activity event", "error", err)
 		return
@@ -735,8 +900,15 @@ func (s *WorkflowService) emitTestResults(ctx context.Context, request *workflow
 	s.appendEvent(ctx, request.WorkflowRunID, "testresult", map[string]any{"workflowRunId": request.WorkflowRunID, "projectId": request.ProjectID, "workflowId": request.WorkflowID, "scenarioId": scenario.ID, "scenarioName": scenario.Name, "backendSessionId": response.SessionID, "bulkId": uuid.NewString(), "timestamp": now.UnixMilli(), "results": results})
 }
 
+func (s *WorkflowService) emitJourneyResult(ctx context.Context, request *workflowrun.Request, scenario workflowrun.Scenario, response dto.WorkflowBundleScenarioResponse) {
+	if response.Journey == nil {
+		return
+	}
+	s.appendEvent(ctx, request.WorkflowRunID, "journeyresult", map[string]any{"workflowRunId": request.WorkflowRunID, "projectId": request.ProjectID, "workflowId": request.WorkflowID, "scenarioId": scenario.ID, "scenarioName": scenario.Name, "backendSessionId": response.SessionID, "timestamp": time.Now().UTC().UnixMilli(), "journey": response.Journey})
+}
+
 func (s *WorkflowService) appendEvent(ctx context.Context, runID, eventType string, payload any) {
-	encoded, err := json.Marshal(payload)
+	encoded, err := marshalRunOutput(ctx, payload)
 	if err != nil {
 		return
 	}
@@ -746,7 +918,8 @@ func (s *WorkflowService) appendEvent(ctx context.Context, runID, eventType stri
 }
 
 func (s *WorkflowService) appendLogEvent(ctx context.Context, runID, projectID, message string, payload any) {
-	encoded, err := json.Marshal(payload)
+	message = boundedWorkflowLogMessage(runsecret.RedactContext(ctx, message))
+	encoded, err := marshalRunOutput(ctx, payload)
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to encode workflow log event", "workflow_run_id", runID, "error", err)
 		return
@@ -756,11 +929,29 @@ func (s *WorkflowService) appendLogEvent(ctx context.Context, runID, projectID, 
 	}
 }
 
+func marshalRunOutput(ctx context.Context, value any) ([]byte, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	redacted := runsecret.RedactContext(ctx, string(encoded))
+	if redacted == string(encoded) {
+		return encoded, nil
+	}
+	clear(encoded)
+	return []byte(redacted), nil
+}
+
 func (s *WorkflowService) pruneEvents(ctx context.Context) {
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
 	for {
 		_ = s.store.DeleteWorkflowRunEventsBefore(ctx, time.Now().UTC().AddDate(0, 0, -s.config.EventRetentionDays))
+		if s.handler.browserArtifacts != nil {
+			if err := s.handler.browserArtifacts.PruneExpired(ctx, time.Now().UTC()); err != nil {
+				logger.ErrorContext(ctx, "failed to prune expired browser artifacts", "error", err)
+			}
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -776,7 +967,7 @@ func scenarioSnapshots(scenarios []workflowrun.Scenario, results []dto.WorkflowB
 		if results[i].CleanupFailed {
 			status = "cleanup_failed"
 		}
-		values[i] = map[string]any{"scenarioId": scenarios[i].ID, "scenarioName": scenarios[i].Name, "backendSessionId": results[i].SessionID, "success": results[i].Success, "status": status, "error": results[i].Error, "diagnostics": results[i].Diagnostics}
+		values[i] = map[string]any{"scenarioId": scenarios[i].ID, "scenarioName": scenarios[i].Name, "backendSessionId": results[i].SessionID, "success": results[i].Success, "status": status, "error": results[i].Error, "diagnostics": results[i].Diagnostics, "journey": results[i].Journey}
 	}
 	return values
 }

@@ -28,6 +28,8 @@ export class SyncService {
   private intervalId: NodeJS.Timeout | null = null;
   private enabled: boolean = true;
   private flushCount: number = 0;
+  private activeFlush: Promise<SyncBatchResponse | null> | null = null;
+  private serverVersions = new Map<string, number>();
 
   constructor(baseUrl: string = DEFAULT_SYNC_BASE_URL) {
     this._baseUrl = baseUrl;
@@ -125,7 +127,8 @@ export class SyncService {
       client_version:
         change.change_type === "insert"
           ? 0
-          : Math.max(0, serializedVersion - 1),
+          : (this.serverVersions.get(entityKey(change)) ??
+            Math.max(0, serializedVersion - 1)),
     };
 
     if (this.coalesceQueuedChange(fullChange)) {
@@ -168,19 +171,48 @@ export class SyncService {
       return true;
     }
 
+    if (
+      existing.change_type === "update" &&
+      incoming.change_type === "update"
+    ) {
+      current[index] = {
+        ...incoming,
+        client_version: existing.client_version,
+      };
+      this.replaceQueue(current);
+      this.persistQueue();
+      return true;
+    }
+
     return false;
   }
 
   async flush(): Promise<SyncBatchResponse | null> {
-    if (!this.enabled || this.syncQueue.isEmpty()) {
-      return null;
-    }
+    return this.runSerializedFlush(() =>
+      this.syncQueue.dequeueMany(this._maxBatchSize),
+    );
+  }
 
-    const batch = this.syncQueue.dequeueMany(this._maxBatchSize);
+  private async runSerializedFlush(
+    takeBatch: () => SyncChange[],
+  ): Promise<SyncBatchResponse | null> {
+    while (this.activeFlush) {
+      await this.activeFlush;
+    }
+    if (!this.enabled) return null;
+
+    const batch = takeBatch();
     this.persistQueue();
     if (batch.length === 0) return null;
 
-    return this.commitBatch(batch);
+    const request = this.commitBatch(batch);
+    const trackedRequest = request.finally(() => {
+      if (this.activeFlush === trackedRequest) {
+        this.activeFlush = null;
+      }
+    });
+    this.activeFlush = trackedRequest;
+    return trackedRequest;
   }
 
   private async commitBatch(
@@ -220,6 +252,7 @@ export class SyncService {
           );
           return null;
         }
+        this.recordServerVersions(repairedBatch, retryResponse);
         this.dispatchConflicts(retryResponse, repairedBatch);
         return retryResponse;
       }
@@ -240,6 +273,7 @@ export class SyncService {
         return null;
       }
 
+      this.recordServerVersions(batch, response);
       this.dispatchConflicts(response, batch);
       return response;
     } catch (error) {
@@ -276,6 +310,51 @@ export class SyncService {
         })),
       }),
     );
+  }
+
+  private recordServerVersions(
+    batch: SyncChange[],
+    response: SyncBatchResponse,
+  ): void {
+    const conflicts = new Map(
+      (response.conflicts ?? []).map((conflict) => [
+        `${conflict.entity_type}:${conflict.entity_id}`,
+        conflict.current_version,
+      ]),
+    );
+    for (const [key, version] of conflicts) {
+      this.serverVersions.set(key, version);
+    }
+    for (const change of batch) {
+      const key = entityKey(change);
+      if (conflicts.has(key)) continue;
+      if (change.change_type === "delete") {
+        this.serverVersions.delete(key);
+        continue;
+      }
+      this.serverVersions.set(
+        key,
+        change.change_type === "insert" ? 1 : change.client_version + 1,
+      );
+    }
+    this.rebaseQueuedChanges();
+  }
+
+  private rebaseQueuedChanges(): void {
+    const queued = this.syncQueue.toArray();
+    let changed = false;
+    const rebased = queued.map((change) => {
+      if (change.change_type === "insert") return change;
+      const version = this.serverVersions.get(entityKey(change));
+      if (version === undefined || version === change.client_version) {
+        return change;
+      }
+      changed = true;
+      return { ...change, client_version: version };
+    });
+    if (!changed) return;
+    this.replaceQueue(rebased);
+    this.persistQueue();
   }
 
   private repairMissingEntityUpdates(
@@ -344,12 +423,11 @@ export class SyncService {
     let attempts = 0;
     while (this.hasPendingPreRunChanges() && attempts < maxAttempts) {
       attempts += 1;
-      const batch = this.dequeueMatching((change) =>
-        PRE_RUN_SYNC_ENTITIES.has(change.entity_type),
+      const result = await this.runSerializedFlush(() =>
+        this.dequeueMatching((change) =>
+          PRE_RUN_SYNC_ENTITIES.has(change.entity_type),
+        ),
       );
-      if (batch.length === 0) return;
-
-      const result = await this.commitBatch(batch);
       if (result === null) return;
     }
   }
@@ -602,6 +680,12 @@ const SYNC_ENTITY_ORDER: Record<EntityType, number> = {
   scenario_run: 3,
   test_result: 4,
 };
+
+function entityKey(
+  change: Pick<SyncChange, "entity_type" | "entity_id">,
+): string {
+  return `${change.entity_type}:${change.entity_id}`;
+}
 
 function orderSyncChanges(changes: SyncChange[]): SyncChange[] {
   return changes

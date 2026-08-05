@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
+	"github.com/dev-atharva/cots/pkg/browserjourney"
 	"github.com/dev-atharva/cots/pkg/db"
 	_ "github.com/lib/pq"
 )
@@ -12,6 +14,34 @@ import (
 type Client struct {
 	conn *db.LoggedDB
 	dsn  string
+}
+
+func (c *Client) CreateJourneyArtifact(ctx context.Context, record browserjourney.ArtifactRecord) error {
+	_, err := c.conn.ExecContext(ctx, `INSERT INTO browser_journey_artifacts (id, project_id, workflow_run_id, scenario_run_id, kind, content_type, size_bytes, sha256, storage_key, created_at, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, record.ArtifactID, record.ProjectID, record.WorkflowRunID, record.ScenarioRunID, record.Kind, record.ContentType, record.SizeBytes, record.SHA256, record.StorageKey, record.CreatedAt, record.ExpiresAt)
+	return err
+}
+
+func (c *Client) GetJourneyArtifact(ctx context.Context, id, projectID, workflowRunID string) (browserjourney.ArtifactRecord, error) {
+	var record browserjourney.ArtifactRecord
+	err := c.conn.QueryRowContext(ctx, `SELECT id, project_id, workflow_run_id, scenario_run_id, kind, content_type, size_bytes, sha256, storage_key, created_at, expires_at FROM browser_journey_artifacts WHERE id = $1 AND project_id = $2 AND workflow_run_id = $3`, id, projectID, workflowRunID).Scan(&record.ArtifactID, &record.ProjectID, &record.WorkflowRunID, &record.ScenarioRunID, &record.Kind, &record.ContentType, &record.SizeBytes, &record.SHA256, &record.StorageKey, &record.CreatedAt, &record.ExpiresAt)
+	return record, err
+}
+
+func (c *Client) DeleteExpiredJourneyArtifacts(ctx context.Context, cutoff time.Time) ([]browserjourney.ArtifactRecord, error) {
+	rows, err := c.conn.QueryContext(ctx, `DELETE FROM browser_journey_artifacts WHERE expires_at <= $1 RETURNING id, project_id, workflow_run_id, scenario_run_id, kind, content_type, size_bytes, sha256, storage_key, created_at, expires_at`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	records := []browserjourney.ArtifactRecord{}
+	for rows.Next() {
+		var record browserjourney.ArtifactRecord
+		if err := rows.Scan(&record.ArtifactID, &record.ProjectID, &record.WorkflowRunID, &record.ScenarioRunID, &record.Kind, &record.ContentType, &record.SizeBytes, &record.SHA256, &record.StorageKey, &record.CreatedAt, &record.ExpiresAt); err != nil {
+			return nil, err
+		}
+		records = append(records, record)
+	}
+	return records, rows.Err()
 }
 
 func NewClient(dsn string) (*Client, error) {
@@ -142,17 +172,21 @@ func (c *Client) ListWorkflows(ctx context.Context, projectID string) ([]*db.Wor
 func (c *Client) UpsertScenario(ctx context.Context, scenario *db.Scenario) error {
 	query := `
 		INSERT INTO scenarios (
-			id, project_id, workflow_id, name, description, tests_config, test_order,
-			metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+			id, project_id, workflow_id, name, description, execution_model, tests_config, test_order,
+			environment_config, steps_config, step_order, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		ON CONFLICT (id) DO UPDATE SET
 			project_id = EXCLUDED.project_id,
 			workflow_id = EXCLUDED.workflow_id,
 			name = EXCLUDED.name,
 			description = EXCLUDED.description,
+			execution_model = EXCLUDED.execution_model,
 			tests_config = EXCLUDED.tests_config,
 			test_order = EXCLUDED.test_order,
+			environment_config = EXCLUDED.environment_config,
+			steps_config = EXCLUDED.steps_config,
+			step_order = EXCLUDED.step_order,
 			metadata = EXCLUDED.metadata,
 			version = EXCLUDED.version,
 			updated_at = EXCLUDED.updated_at,
@@ -162,7 +196,7 @@ func (c *Client) UpsertScenario(ctx context.Context, scenario *db.Scenario) erro
 	`
 	_, err := c.conn.ExecContext(ctx, query,
 		scenario.ID, scenario.ProjectID, scenario.WorkflowID, scenario.Name, scenario.Description,
-		scenario.TestsConfig, scenario.TestOrder, scenario.Metadata, scenario.Version,
+		scenario.ExecutionModel, scenario.TestsConfig, scenario.TestOrder, scenario.EnvironmentConfig, scenario.StepsConfig, scenario.StepOrder, scenario.Metadata, scenario.Version,
 		scenario.CreatedAt, scenario.UpdatedAt, scenario.ClientID, scenario.UserID, scenario.IsDeleted,
 	)
 	return err
@@ -170,14 +204,14 @@ func (c *Client) UpsertScenario(ctx context.Context, scenario *db.Scenario) erro
 
 func (c *Client) GetScenario(ctx context.Context, id string) (*db.Scenario, error) {
 	query := `
-		SELECT id, project_id, workflow_id, name, description, tests_config, test_order,
-		       metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+		SELECT id, project_id, workflow_id, name, description, execution_model, tests_config, test_order,
+		       environment_config, steps_config, step_order, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
 		FROM scenarios
 		WHERE id = $1 AND is_deleted = FALSE
 	`
 	var sc db.Scenario
 	err := c.conn.QueryRowContext(ctx, query, id).Scan(
-		&sc.ID, &sc.ProjectID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
+		&sc.ID, &sc.ProjectID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.ExecutionModel, &sc.TestsConfig, &sc.TestOrder, &sc.EnvironmentConfig, &sc.StepsConfig, &sc.StepOrder,
 		&sc.Metadata, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt, &sc.ClientID, &sc.UserID, &sc.IsDeleted,
 	)
 	if err == sql.ErrNoRows {
@@ -197,8 +231,8 @@ func (c *Client) DeleteScenario(ctx context.Context, id string) error {
 
 func (c *Client) ListScenariosByWorkflow(ctx context.Context, workflowID string) ([]*db.Scenario, error) {
 	rows, err := c.conn.QueryContext(ctx, `
-		SELECT id, project_id, workflow_id, name, description, tests_config, test_order,
-		       metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+		SELECT id, project_id, workflow_id, name, description, execution_model, tests_config, test_order,
+		       environment_config, steps_config, step_order, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
 		FROM scenarios
 		WHERE workflow_id = $1 AND is_deleted = FALSE
 		ORDER BY updated_at DESC
@@ -212,7 +246,7 @@ func (c *Client) ListScenariosByWorkflow(ctx context.Context, workflowID string)
 	for rows.Next() {
 		var sc db.Scenario
 		if err := rows.Scan(
-			&sc.ID, &sc.ProjectID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
+			&sc.ID, &sc.ProjectID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.ExecutionModel, &sc.TestsConfig, &sc.TestOrder, &sc.EnvironmentConfig, &sc.StepsConfig, &sc.StepOrder,
 			&sc.Metadata, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt, &sc.ClientID, &sc.UserID, &sc.IsDeleted,
 		); err != nil {
 			return nil, err
@@ -224,8 +258,8 @@ func (c *Client) ListScenariosByWorkflow(ctx context.Context, workflowID string)
 
 func (c *Client) ListScenariosByProjectID(ctx context.Context, projectID string) ([]*db.Scenario, error) {
 	rows, err := c.conn.QueryContext(ctx, `
-		SELECT id, project_id, workflow_id, name, description, tests_config, test_order,
-		       metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+		SELECT id, project_id, workflow_id, name, description, execution_model, tests_config, test_order,
+		       environment_config, steps_config, step_order, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
 		FROM scenarios
 		WHERE project_id = $1 AND is_deleted = FALSE
 		ORDER BY updated_at DESC
@@ -239,7 +273,7 @@ func (c *Client) ListScenariosByProjectID(ctx context.Context, projectID string)
 	for rows.Next() {
 		var sc db.Scenario
 		if err := rows.Scan(
-			&sc.ID, &sc.ProjectID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
+			&sc.ID, &sc.ProjectID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.ExecutionModel, &sc.TestsConfig, &sc.TestOrder, &sc.EnvironmentConfig, &sc.StepsConfig, &sc.StepOrder,
 			&sc.Metadata, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt, &sc.ClientID, &sc.UserID, &sc.IsDeleted,
 		); err != nil {
 			return nil, err
@@ -900,17 +934,21 @@ func (t *PostgresTx) DeleteWorkflowIfVersion(ctx context.Context, id string, bas
 func (t *PostgresTx) UpsertScenario(ctx context.Context, scenario *db.Scenario) error {
 	query := `
 		INSERT INTO scenarios (
-			id, project_id, workflow_id, name, description, tests_config, test_order,
-			metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+			id, project_id, workflow_id, name, description, execution_model, tests_config, test_order,
+			environment_config, steps_config, step_order, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		ON CONFLICT (id) DO UPDATE SET
 			project_id = EXCLUDED.project_id,
 			workflow_id = EXCLUDED.workflow_id,
 			name = EXCLUDED.name,
 			description = EXCLUDED.description,
+			execution_model = EXCLUDED.execution_model,
 			tests_config = EXCLUDED.tests_config,
 			test_order = EXCLUDED.test_order,
+			environment_config = EXCLUDED.environment_config,
+			steps_config = EXCLUDED.steps_config,
+			step_order = EXCLUDED.step_order,
 			metadata = EXCLUDED.metadata,
 			version = EXCLUDED.version,
 			updated_at = EXCLUDED.updated_at,
@@ -920,7 +958,7 @@ func (t *PostgresTx) UpsertScenario(ctx context.Context, scenario *db.Scenario) 
 	`
 	_, err := t.tx.ExecContext(ctx, query,
 		scenario.ID, scenario.ProjectID, scenario.WorkflowID, scenario.Name, scenario.Description,
-		scenario.TestsConfig, scenario.TestOrder, scenario.Metadata, scenario.Version,
+		scenario.ExecutionModel, scenario.TestsConfig, scenario.TestOrder, scenario.EnvironmentConfig, scenario.StepsConfig, scenario.StepOrder, scenario.Metadata, scenario.Version,
 		scenario.CreatedAt, scenario.UpdatedAt, scenario.ClientID, scenario.UserID, scenario.IsDeleted,
 	)
 	return err
@@ -928,11 +966,11 @@ func (t *PostgresTx) UpsertScenario(ctx context.Context, scenario *db.Scenario) 
 
 func (t *PostgresTx) UpdateScenarioIfVersion(ctx context.Context, scenario *db.Scenario, baseVersion int) (bool, error) {
 	result, err := t.tx.ExecContext(ctx, `
-		UPDATE scenarios SET project_id=$1, workflow_id=$2, name=$3, description=$4, tests_config=$5,
-			test_order=$6, metadata=$7, version=$8, updated_at=$9, client_id=$10, user_id=$11, is_deleted=$12
-		WHERE id=$13 AND version=$14 AND is_deleted=FALSE
-	`, scenario.ProjectID, scenario.WorkflowID, scenario.Name, scenario.Description, scenario.TestsConfig,
-		scenario.TestOrder, scenario.Metadata, scenario.Version, scenario.UpdatedAt, scenario.ClientID,
+		UPDATE scenarios SET project_id=$1, workflow_id=$2, name=$3, description=$4, execution_model=$5, tests_config=$6,
+			test_order=$7, environment_config=$8, steps_config=$9, step_order=$10, metadata=$11, version=$12, updated_at=$13, client_id=$14, user_id=$15, is_deleted=$16
+		WHERE id=$17 AND version=$18 AND is_deleted=FALSE
+	`, scenario.ProjectID, scenario.WorkflowID, scenario.Name, scenario.Description, scenario.ExecutionModel, scenario.TestsConfig,
+		scenario.TestOrder, scenario.EnvironmentConfig, scenario.StepsConfig, scenario.StepOrder, scenario.Metadata, scenario.Version, scenario.UpdatedAt, scenario.ClientID,
 		scenario.UserID, scenario.IsDeleted, scenario.ID, baseVersion)
 	if err != nil {
 		return false, err
@@ -943,14 +981,14 @@ func (t *PostgresTx) UpdateScenarioIfVersion(ctx context.Context, scenario *db.S
 
 func (t *PostgresTx) GetScenario(ctx context.Context, id string) (*db.Scenario, error) {
 	query := `
-		SELECT id, project_id, workflow_id, name, description, tests_config, test_order,
-		       metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+		SELECT id, project_id, workflow_id, name, description, execution_model, tests_config, test_order,
+		       environment_config, steps_config, step_order, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
 		FROM scenarios
 		WHERE id = $1 AND is_deleted = FALSE
 	`
 	var sc db.Scenario
 	err := t.tx.QueryRowContext(ctx, query, id).Scan(
-		&sc.ID, &sc.ProjectID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.TestsConfig, &sc.TestOrder,
+		&sc.ID, &sc.ProjectID, &sc.WorkflowID, &sc.Name, &sc.Description, &sc.ExecutionModel, &sc.TestsConfig, &sc.TestOrder, &sc.EnvironmentConfig, &sc.StepsConfig, &sc.StepOrder,
 		&sc.Metadata, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt, &sc.ClientID, &sc.UserID, &sc.IsDeleted,
 	)
 	if err == sql.ErrNoRows {
@@ -961,8 +999,8 @@ func (t *PostgresTx) GetScenario(ctx context.Context, id string) (*db.Scenario, 
 
 func (t *PostgresTx) ListScenariosByWorkflow(ctx context.Context, workflowID string) ([]*db.Scenario, error) {
 	rows, err := t.tx.QueryContext(ctx, `
-		SELECT id, project_id, workflow_id, name, description, tests_config, test_order,
-		       metadata, version, created_at, updated_at, client_id, user_id, is_deleted
+		SELECT id, project_id, workflow_id, name, description, execution_model, tests_config, test_order,
+		       environment_config, steps_config, step_order, metadata, version, created_at, updated_at, client_id, user_id, is_deleted
 		FROM scenarios WHERE workflow_id = $1 AND is_deleted = FALSE ORDER BY updated_at DESC
 	`, workflowID)
 	if err != nil {
@@ -973,7 +1011,7 @@ func (t *PostgresTx) ListScenariosByWorkflow(ctx context.Context, workflowID str
 	for rows.Next() {
 		var scenario db.Scenario
 		if err := rows.Scan(&scenario.ID, &scenario.ProjectID, &scenario.WorkflowID, &scenario.Name, &scenario.Description,
-			&scenario.TestsConfig, &scenario.TestOrder, &scenario.Metadata, &scenario.Version, &scenario.CreatedAt,
+			&scenario.ExecutionModel, &scenario.TestsConfig, &scenario.TestOrder, &scenario.EnvironmentConfig, &scenario.StepsConfig, &scenario.StepOrder, &scenario.Metadata, &scenario.Version, &scenario.CreatedAt,
 			&scenario.UpdatedAt, &scenario.ClientID, &scenario.UserID, &scenario.IsDeleted); err != nil {
 			return nil, err
 		}

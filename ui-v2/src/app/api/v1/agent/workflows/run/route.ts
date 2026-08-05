@@ -4,7 +4,16 @@ import {
   requiredIdempotencyKey,
   withAgent,
 } from "@/modules/agent/server/http";
-import { runBundle, validateBundle } from "@/modules/agent/server/service";
+import {
+  bundleRunIntentDetails,
+  createRunIntent,
+  publicRunIntent,
+} from "@/modules/agent/server/run-intents";
+import {
+  runBundle,
+  stableId,
+  validateBundle,
+} from "@/modules/agent/server/service";
 import type { WorkflowBundle } from "@/modules/workflow/types/react-flow-cots";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +42,41 @@ export async function POST(request: NextRequest) {
     const validated = await validateBundle(body?.bundle);
     if (!validated.ok) return copyJSONResponse(validated);
     const validation = (await validated.json()) as { bundle: WorkflowBundle };
+    try {
+      const workflowId = stableId("wf", identity.projectId, key);
+      const details = bundleRunIntentDetails(
+        validation.bundle,
+        workflowId,
+        body?.scenarioNames,
+      );
+      if (details.requiredSecretRefs.length > 0) {
+        const intent = await createRunIntent({
+          identity,
+          workflowId,
+          idempotencyKey: key,
+          payload: {
+            operation: "bundle",
+            bundle: validation.bundle,
+            ...(body?.scenarioNames
+              ? { scenarioNames: body.scenarioNames }
+              : {}),
+          },
+          requiredSecretRefs: details.requiredSecretRefs,
+          selectionSummary: details.selectionSummary,
+        });
+        return Response.json(publicRunIntent(intent));
+      }
+    } catch (error) {
+      return Response.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Invalid scenario selection.",
+        },
+        { status: 400 },
+      );
+    }
     let run: Awaited<ReturnType<typeof runBundle>>;
     try {
       run = await runBundle(

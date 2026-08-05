@@ -15,12 +15,18 @@ The server publishes `tokyo://capabilities` plus authoring guidance resources su
 | `tokyo_get_capabilities` | Read the compact capability contract |
 | `tokyo_review_workflow_plan` | Review research and scenario coverage |
 | `tokyo_validate_workflow` | Normalize a bundle and issue a receipt |
+| `tokyo_get_run_intent` | Poll a 15-minute human run handoff without exposing values or vault state |
 | `tokyo_get_run` | Poll durable run state and results |
-| `tokyo_get_run_diagnostics` | Retrieve redacted failure context |
+| `tokyo_get_run_diagnostics` | Retrieve compact redacted legacy and browser failure context |
+| `tokyo_get_run_screenshot` | Read one explicitly requested, authorized non-secret PNG failure screenshot |
 
 ## Write and run tools
 
 `tokyo_create_workflow_revision`, `tokyo_restore_workflow_revision`, `tokyo_import_workflow`, `tokyo_run_workflow`, and `tokyo_run_existing_workflow` mutate durable state or start execution. Restore is explicitly destructive. Import and run use stable idempotency keys; bundle mutations require an unexpired validation receipt.
+
+A secret-bearing run returns a successful `human_input_required` result rather than accepting values through MCP. The result contains reference names, a human-facing URL, an opaque polling ID, the exact project/workflow/scenario selection summary, and a 15-minute expiry. Only the authenticated human page accepts values. MCP never reports whether the human session vault has a value. After the intent becomes `submitted`, poll the returned workflow run ID normally.
+
+Browser diagnostics expose sanitized location, ordered step outcomes, diagnostics, and artifact status. Screenshot retrieval requires the opaque available artifact ID and rechecks project/run authorization. Playwright traces, secret-bearing evidence, expired artifacts, and permanent storage paths are never returned through MCP.
 
 ## Authentication and limits
 

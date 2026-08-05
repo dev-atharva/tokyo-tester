@@ -1,6 +1,8 @@
 package workflowbundle
 
 import (
+	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -210,6 +212,37 @@ func TestTranslatePreservesCustomImageForPredefinedService(t *testing.T) {
 
 	if got := translated.Services[0].Image; got != "mysql:8.4" {
 		t.Fatalf("expected custom mysql image to be preserved, got %q", got)
+	}
+}
+
+func TestSchemaVersionTwoMarshalPreservesTheLegacyWireContract(t *testing.T) {
+	bundle, err := Decode(strings.NewReader(`{
+		"schemaVersion": 2,
+		"kind": "cots.workflow-bundle",
+		"workflow": {
+			"name": "Legacy contract",
+			"nodes": [{"id":"api","data":{"label":"API","service":{"type":"generic","image":"api:test"}}}],
+			"edges": []
+		},
+		"scenarios": [{
+			"name": "health",
+			"tests": [{"id":"wait","name":"wait","type":"delay","targetServices":["api"],"delayConfig":{"durationMs":1}}],
+			"testOrder": ["wait"]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+
+	raw, err := json.Marshal(bundle)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if strings.Contains(string(raw), `"executionModel"`) {
+		t.Fatalf("schemaVersion 2 wire contract gained executionModel: %s", raw)
+	}
+	if _, err := Decode(bytes.NewReader(raw)); err != nil {
+		t.Fatalf("normalized schemaVersion 2 bundle cannot be decoded again: %v", err)
 	}
 }
 

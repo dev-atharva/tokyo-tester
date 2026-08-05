@@ -11,6 +11,7 @@ import {
 import { useWorkflowStore } from "./workflow.store.sync";
 import type {
   Scenario,
+  ScenarioStep,
   ScenarioTestDefinition,
 } from "../types/react-flow-cots";
 
@@ -45,7 +46,8 @@ interface ScenarioStore {
   updateScenario: (
     scenarioId: string,
     updates: Partial<
-      Pick<Scenario, "name" | "description" | "tests" | "testOrder">
+      Pick<Scenario, "name" | "description" | "tests" | "testOrder"> &
+        Pick<Scenario, "executionModel" | "environment" | "steps" | "stepOrder">
     >,
   ) => void;
   deleteScenario: (scenarioId: string) => void;
@@ -62,6 +64,15 @@ function deriveOrder(tests: ScenarioTestDefinition[], order?: string[]) {
     order?.filter((id) => tests.some((test) => test.id === id)) ?? [];
   const missing = tests
     .map((test) => test.id)
+    .filter((id) => !existing.includes(id));
+  return [...existing, ...missing];
+}
+
+function deriveStepOrder(steps: ScenarioStep[], order?: string[]) {
+  const existing =
+    order?.filter((id) => steps.some((step) => step.id === id)) ?? [];
+  const missing = steps
+    .map((step) => step.id)
     .filter((id) => !existing.includes(id));
   return [...existing, ...missing];
 }
@@ -85,8 +96,11 @@ export const useScenarioStore = create<ScenarioStore>()(
             workflowId,
             name,
             description: "",
+            executionModel: "legacy-tests",
             tests: [],
             testOrder: [],
+            steps: [],
+            stepOrder: [],
           } satisfies ScenarioInput);
 
           trackSync(store, id, "insert");
@@ -125,6 +139,11 @@ export const useScenarioStore = create<ScenarioStore>()(
               nextTests,
               updates.testOrder ?? current.testOrder,
             );
+            const nextSteps = updates.steps ?? current.steps;
+            const nextStepOrder = deriveStepOrder(
+              nextSteps,
+              updates.stepOrder ?? current.stepOrder,
+            );
 
             return {
               scenarios: {
@@ -134,6 +153,8 @@ export const useScenarioStore = create<ScenarioStore>()(
                   ...updates,
                   tests: nextTests,
                   testOrder: nextOrder,
+                  steps: nextSteps,
+                  stepOrder: nextStepOrder,
                   version: current.version + 1,
                 }),
               },
@@ -249,8 +270,12 @@ export const useScenarioStore = create<ScenarioStore>()(
             workflow_id: scenario.workflowId,
             name: scenario.name,
             description: scenario.description || "",
+            execution_model: scenario.executionModel,
             tests_config: scenario.tests,
             test_order: scenario.testOrder,
+            environment_config: scenario.environment ?? null,
+            steps_config: scenario.steps,
+            step_order: scenario.stepOrder,
             metadata: {},
             version: scenario.version,
             created_at: scenario.created_at,

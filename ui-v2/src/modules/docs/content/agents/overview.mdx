@@ -14,7 +14,9 @@ The agent converts its research into compact service inventory, dependency, and 
 
 ## What MCP can do
 
-Depending on scope, MCP can list and inspect workflows, review a research plan, validate a bundle, import or run it after approval, manage revisions, poll durable run state, and retrieve redacted diagnostics.
+Depending on scope, MCP can list and inspect workflows, review a research plan, validate a bundle, import or run it after approval, manage revisions, poll durable run state, retrieve compact redacted diagnostics, and explicitly read an authorized non-secret failure screenshot.
+
+Run-secret values remain on a separate human-only path. MCP may create and poll a 15-minute run intent containing reference names and a handoff URL, but it never accepts values or observes the human session vault. Playwright traces remain available only through the authenticated UI.
 
 Read operations and mutations are annotated distinctly. Restore, import, and run paths carry explicit approval and idempotency expectations.
 

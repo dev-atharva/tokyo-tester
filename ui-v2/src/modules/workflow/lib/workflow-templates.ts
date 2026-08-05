@@ -1,9 +1,13 @@
-import type { WorkflowBundle } from "../types/react-flow-cots";
+import type {
+  WorkflowBundle,
+  WorkflowBundleScenario,
+} from "../types/react-flow-cots";
 
 export type WorkflowTemplateId =
   | "nginx-smoke"
   | "mock-api-contract"
-  | "postgres-redis-state";
+  | "postgres-redis-state"
+  | "browser-checkout-journey";
 
 export interface WorkflowTemplate {
   id: WorkflowTemplateId;
@@ -295,6 +299,111 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
           ],
           testOrder: ["postgres-users", "redis-set", "redis-get"],
         },
+      ],
+    },
+  },
+  {
+    id: "browser-checkout-journey",
+    name: "Browser checkout journey",
+    description:
+      "Open a real page, enter a run-only secret, and verify the resulting checkout URL.",
+    serviceSummary: "Browser fixture · 3 steps",
+    bundle: {
+      schemaVersion: 3,
+      kind: "cots.workflow-bundle",
+      workflow: {
+        name: "Browser Checkout Journey",
+        description:
+          "A runnable browser journey backed by the repository's local test application image.",
+        nodes: [
+          {
+            id: "browser-fixture",
+            type: "serviceNode",
+            position: { x: 120, y: 100 },
+            data: {
+              label: "Browser fixture",
+              description:
+                "Serves a deterministic checkout form for browser testing.",
+              service: {
+                type: "generic",
+                image: "tokyo-test-api:latest",
+                env: [
+                  {
+                    id: "browser-fixture-role",
+                    key: "APP_ROLE",
+                    value: "fault-lab",
+                  },
+                ],
+                ports: [
+                  {
+                    id: "browser-fixture-http",
+                    hostPort: "",
+                    containerPort: "8080",
+                  },
+                ],
+                waitStratergy: {
+                  enabled: true,
+                  type: "port",
+                  target: "8080",
+                  timeout: 30,
+                },
+              },
+            },
+          },
+        ],
+        edges: [],
+      },
+      scenarios: [
+        {
+          name: "Checkout form succeeds",
+          description:
+            "The password is supplied only when the run starts and is never stored in the workflow.",
+          executionModel: "journey",
+          environment: {
+            driver: "browser",
+            browser: {
+              targetService: "browser_fixture",
+              targetPort: "8080",
+            },
+          },
+          steps: [
+            {
+              id: "open-checkout",
+              name: "Open checkout",
+              kind: "action",
+              action: {
+                operation: "navigate",
+                path: "/browser-journey",
+              },
+            },
+            {
+              id: "enter-password",
+              name: "Enter checkout password",
+              kind: "action",
+              action: {
+                operation: "fill",
+                locator: {
+                  strategy: "label",
+                  value: "Checkout password",
+                },
+                value: {
+                  source: "run-secret",
+                  secretRef: "checkout.password",
+                },
+              },
+            },
+            {
+              id: "confirm-checkout",
+              name: "Confirm checkout URL",
+              kind: "assertion",
+              assertion: {
+                operation: "url",
+                path: "/browser-journey/complete",
+              },
+            },
+          ],
+          stepOrder: ["open-checkout", "enter-password", "confirm-checkout"],
+        } as WorkflowBundleScenario,
       ],
     },
   },

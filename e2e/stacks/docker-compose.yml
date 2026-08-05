@@ -33,7 +33,7 @@ services:
       dockerfile: Dockerfile
       target: runner
     environment:
-      APP_ENV: test
+      APP_ENV: "${E2E_RUNNER_APP_ENV:-test}"
       PORT: 8080
       LOG_LEVEL: debug
       DB_TYPE: mysql
@@ -54,14 +54,19 @@ services:
       WORKFLOW_MAX_RUNNING_PER_PROJECT: "1"
       WORKFLOW_JOB_LEASE_SECONDS: "6"
       WORKFLOW_JOB_HEARTBEAT_SECONDS: "2"
+      BROWSER_EXECUTOR_IMAGE: tokyo-tester-browser-executor:1.61.0
+      BROWSER_CHROMIUM_SANDBOX: "${E2E_BROWSER_CHROMIUM_SANDBOX:-false}"
+      BROWSER_ARTIFACT_DIR: /var/lib/tokyo-tester/artifacts
+      BROWSER_ARTIFACT_RETENTION_DAYS: "1"
       WORKFLOW_CONTAINER_MEMORY_MB: "384"
       WORKFLOW_CONTAINER_CPU_MILLI: "350"
-      WORKFLOW_CONTAINER_PIDS: "64"
+      WORKFLOW_CONTAINER_PIDS: "128"
       WORKFLOW_JOB_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
     extra_hosts:
       - host.docker.internal:host-gateway
     volumes:
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+      - browser-artifacts:/var/lib/tokyo-tester/artifacts
     ports:
       - 3180:8080
     depends_on:
@@ -132,3 +137,4 @@ services:
 
 volumes:
   mysql-data:
+  browser-artifacts:

@@ -1,11 +1,13 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  index,
   integer,
   pgTable,
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { DEFAULT_USER_ROLE } from "@/modules/auth/constants";
 
@@ -83,6 +85,61 @@ export const pgAgentTokens = pgTable("agent_token", {
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const pgRunIntents = pgTable(
+  "workflow_run_intent",
+  {
+    id: text("id").primaryKey(),
+    principalId: text("principalId").notNull(),
+    userId: text("userId")
+      .notNull()
+      .references(() => pgUsers.id, { onDelete: "cascade" }),
+    projectId: text("projectId")
+      .notNull()
+      .references(() => pgProjects.id, { onDelete: "cascade" }),
+    workflowId: text("workflowId").notNull(),
+    operation: text("operation", { enum: ["bundle", "existing"] }).notNull(),
+    state: text("state", {
+      enum: [
+        "awaiting-human",
+        "submitting",
+        "submitted",
+        "cancelled",
+        "expired",
+      ],
+    })
+      .notNull()
+      .default("awaiting-human"),
+    requestHash: text("requestHash").notNull(),
+    idempotencyKey: text("idempotencyKey").notNull(),
+    payload: text("payload").notNull(),
+    requiredSecretRefs: text("requiredSecretRefs").notNull(),
+    selectionSummary: text("selectionSummary").notNull(),
+    workflowRunId: text("workflowRunId"),
+    claimId: text("claimId"),
+    createdAt: timestamp("createdAt", { mode: "date" })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    expiresAt: timestamp("expiresAt", { mode: "date" }).notNull(),
+    updatedAt: timestamp("updatedAt", { mode: "date" })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("workflow_run_intent_request_idx").on(
+      table.principalId,
+      table.projectId,
+      table.operation,
+      table.idempotencyKey,
+    ),
+    index("workflow_run_intent_human_idx").on(
+      table.userId,
+      table.projectId,
+      table.id,
+    ),
+    index("workflow_run_intent_expiry_idx").on(table.state, table.expiresAt),
+  ],
+);
 
 export const pgAccounts = pgTable(
   "account",

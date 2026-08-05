@@ -1,25 +1,29 @@
 package config
 
 type AppConfig struct {
-	Environment              string `envconfig:"APP_ENV" default:"development"`
-	Port                     string `envconfig:"PORT" default:"8080"`
-	LogLevel                 string `envconfig:"LOG_LEVEL" default:"info"`
-	CORSOrigin               string `envconfig:"CORS_ORIGIN" default:"http://localhost:3000"`
-	ReadHeaderTimeoutSec     int    `envconfig:"READ_HEADER_TIMEOUT_SEC" default:"10"`
-	ReadTimeoutSec           int    `envconfig:"READ_TIMEOUT_SEC" default:"30"`
-	WriteTimeoutSec          int    `envconfig:"WRITE_TIMEOUT_SEC" default:"2100"`
-	IdleTimeoutSec           int    `envconfig:"IDLE_TIMEOUT_SEC" default:"120"`
-	ProvisionTimeoutSec      int    `envconfig:"PROVISION_TIMEOUT_SEC" default:"900"`
-	TestRunTimeoutSec        int    `envconfig:"TEST_RUN_TIMEOUT_SEC" default:"0"`
-	CleanupTimeoutSec        int    `envconfig:"CLEANUP_TIMEOUT_SEC" default:"180"`
-	OperationQueueTimeoutSec int    `envconfig:"OPERATION_QUEUE_TIMEOUT_SEC" default:"30"`
-	MaxConcurrentProvision   int    `envconfig:"MAX_CONCURRENT_PROVISION" default:"2"`
-	MaxConcurrentTestRuns    int    `envconfig:"MAX_CONCURRENT_TEST_RUNS" default:"4"`
-	MaxConcurrentCleanup     int    `envconfig:"MAX_CONCURRENT_CLEANUP" default:"4"`
-	ContainerMemoryMB        int    `envconfig:"WORKFLOW_CONTAINER_MEMORY_MB" default:"1024"`
-	ContainerCPUMilli        int    `envconfig:"WORKFLOW_CONTAINER_CPU_MILLI" default:"1000"`
-	ContainerPIDs            int    `envconfig:"WORKFLOW_CONTAINER_PIDS" default:"256"`
-	DisableTestRetries       bool   `envconfig:"DISABLE_TEST_RETRIES" default:"false"`
+	Environment                  string `envconfig:"APP_ENV" default:"development"`
+	Port                         string `envconfig:"PORT" default:"8080"`
+	LogLevel                     string `envconfig:"LOG_LEVEL" default:"info"`
+	CORSOrigin                   string `envconfig:"CORS_ORIGIN" default:"http://localhost:3000"`
+	ReadHeaderTimeoutSec         int    `envconfig:"READ_HEADER_TIMEOUT_SEC" default:"10"`
+	ReadTimeoutSec               int    `envconfig:"READ_TIMEOUT_SEC" default:"30"`
+	WriteTimeoutSec              int    `envconfig:"WRITE_TIMEOUT_SEC" default:"2100"`
+	IdleTimeoutSec               int    `envconfig:"IDLE_TIMEOUT_SEC" default:"120"`
+	ProvisionTimeoutSec          int    `envconfig:"PROVISION_TIMEOUT_SEC" default:"900"`
+	TestRunTimeoutSec            int    `envconfig:"TEST_RUN_TIMEOUT_SEC" default:"0"`
+	CleanupTimeoutSec            int    `envconfig:"CLEANUP_TIMEOUT_SEC" default:"180"`
+	OperationQueueTimeoutSec     int    `envconfig:"OPERATION_QUEUE_TIMEOUT_SEC" default:"30"`
+	MaxConcurrentProvision       int    `envconfig:"MAX_CONCURRENT_PROVISION" default:"2"`
+	MaxConcurrentTestRuns        int    `envconfig:"MAX_CONCURRENT_TEST_RUNS" default:"4"`
+	MaxConcurrentCleanup         int    `envconfig:"MAX_CONCURRENT_CLEANUP" default:"4"`
+	ContainerMemoryMB            int    `envconfig:"WORKFLOW_CONTAINER_MEMORY_MB" default:"1024"`
+	ContainerCPUMilli            int    `envconfig:"WORKFLOW_CONTAINER_CPU_MILLI" default:"1000"`
+	ContainerPIDs                int    `envconfig:"WORKFLOW_CONTAINER_PIDS" default:"256"`
+	DisableTestRetries           bool   `envconfig:"DISABLE_TEST_RETRIES" default:"false"`
+	BrowserExecutorImage         string `envconfig:"BROWSER_EXECUTOR_IMAGE" default:"tokyo-tester-browser-executor:1.61.0"`
+	BrowserChromiumSandbox       bool   `envconfig:"BROWSER_CHROMIUM_SANDBOX" default:"true"`
+	BrowserArtifactDir           string `envconfig:"BROWSER_ARTIFACT_DIR" default:"/var/lib/tokyo-tester/artifacts"`
+	BrowserArtifactRetentionDays int    `envconfig:"BROWSER_ARTIFACT_RETENTION_DAYS" default:"30"`
 }
 
 func (a *AppConfig) ContainerResources() ContainerResourceLimits {

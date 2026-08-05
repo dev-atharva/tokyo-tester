@@ -37,7 +37,9 @@ export async function proxyRunnerRequest(
     signal: request.signal,
   });
   const responseHeaders = new Headers(response.headers);
-  responseHeaders.set("Cache-Control", "no-cache, no-transform");
+  if (!responseHeaders.has("Cache-Control")) {
+    responseHeaders.set("Cache-Control", "no-cache, no-transform");
+  }
   responseHeaders.set("X-Accel-Buffering", "no");
   return new Response(response.body, {
     status: response.status,

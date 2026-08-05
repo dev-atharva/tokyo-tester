@@ -13,23 +13,70 @@ async function output(command: string, args: string[]) {
 }
 
 export async function expectDockerRunCleaned(workflowRunId: string) {
+  const kubernetesNamespace = process.env.E2E_KUBERNETES_NAMESPACE;
   await expect
-    .poll(async () => {
-      const containers = await output("docker", [
-        "ps",
-        "-aq",
-        "--filter",
-        `label=cots.workflow_run_id=${workflowRunId}`,
-      ]);
-      const networks = await output("docker", [
-        "network",
-        "ls",
-        "-q",
-        "--filter",
-        `label=cots.workflow_run_id=${workflowRunId}`,
-      ]);
-      return `${containers}${networks}`;
-    }, { timeout: 60_000 })
+    .poll(
+      async () => {
+        if (kubernetesNamespace) {
+          const pod = await output("kubectl", [
+            "get",
+            "pods",
+            "--namespace",
+            kubernetesNamespace,
+            "--selector",
+            "app.kubernetes.io/name=tokyo-runner",
+            "--output",
+            "jsonpath={.items[0].metadata.name}",
+          ]);
+          if (!pod) return "runner-pod-unavailable";
+          const containers = await output("kubectl", [
+            "exec",
+            "--namespace",
+            kubernetesNamespace,
+            pod,
+            "--container",
+            "dind",
+            "--",
+            "docker",
+            "ps",
+            "-aq",
+            "--filter",
+            `label=cots.workflow_run_id=${workflowRunId}`,
+          ]);
+          const networks = await output("kubectl", [
+            "exec",
+            "--namespace",
+            kubernetesNamespace,
+            pod,
+            "--container",
+            "dind",
+            "--",
+            "docker",
+            "network",
+            "ls",
+            "-q",
+            "--filter",
+            `label=cots.workflow_run_id=${workflowRunId}`,
+          ]);
+          return `${containers}${networks}`;
+        }
+        const containers = await output("docker", [
+          "ps",
+          "-aq",
+          "--filter",
+          `label=cots.workflow_run_id=${workflowRunId}`,
+        ]);
+        const networks = await output("docker", [
+          "network",
+          "ls",
+          "-q",
+          "--filter",
+          `label=cots.workflow_run_id=${workflowRunId}`,
+        ]);
+        return `${containers}${networks}`;
+      },
+      { timeout: 60_000 },
+    )
     .toBe("");
 }
 
@@ -45,15 +92,18 @@ export async function inspectWorkflowContainerLimits(
 ): Promise<WorkflowContainerLimits> {
   let containerId = "";
   await expect
-    .poll(async () => {
-      containerId = await output("docker", [
-        "ps",
-        "-q",
-        "--filter",
-        `label=cots.workflow_run_id=${workflowRunId}`,
-      ]);
-      return containerId;
-    }, { timeout: 60_000 })
+    .poll(
+      async () => {
+        containerId = await output("docker", [
+          "ps",
+          "-q",
+          "--filter",
+          `label=cots.workflow_run_id=${workflowRunId}`,
+        ]);
+        return containerId;
+      },
+      { timeout: 60_000 },
+    )
     .not.toBe("");
 
   const raw = await output("docker", [
@@ -85,16 +135,20 @@ export async function restartDockerRunner() {
     "--filter",
     "label=com.docker.compose.service=runner",
   ]);
-  if (!containerId) throw new Error("Docker E2E runner container was not found.");
+  if (!containerId)
+    throw new Error("Docker E2E runner container was not found.");
   await output("docker", ["restart", containerId.split("\n")[0] ?? ""]);
   await expect
-    .poll(async () => {
-      try {
-        return (await fetch("http://127.0.0.1:3180/health")).status;
-      } catch {
-        return 0;
-      }
-    }, { timeout: 60_000, intervals: [500, 1_000, 2_000] })
+    .poll(
+      async () => {
+        try {
+          return (await fetch("http://127.0.0.1:3180/health")).status;
+        } catch {
+          return 0;
+        }
+      },
+      { timeout: 60_000, intervals: [500, 1_000, 2_000] },
+    )
     .toBe(200);
 }
 

@@ -9,7 +9,7 @@ import type { AgentIdentity } from "./auth";
 
 const RUNNER_BASE_URL = process.env.COTS_API_BASE_URL || "http://runner:8080";
 
-function stableId(prefix: string, ...parts: string[]) {
+export function stableId(prefix: string, ...parts: string[]) {
   const value = createHash("sha256")
     .update(parts.join("\u0000"))
     .digest("hex")
@@ -86,8 +86,12 @@ export async function importBundle(
         workflow_id: workflowId,
         name: scenario.name,
         description: scenario.description ?? "",
-        tests_config: scenario.tests,
-        test_order: scenario.testOrder,
+        execution_model: scenario.executionModel ?? "legacy-tests",
+        tests_config: scenario.tests ?? [],
+        test_order: scenario.testOrder ?? [],
+        environment_config: scenario.environment ?? null,
+        steps_config: scenario.steps ?? [],
+        step_order: scenario.stepOrder ?? [],
         metadata: { importedBy: "agent" },
         version: 1,
         created_at: now,
@@ -116,6 +120,7 @@ export async function runBundle(
   bundle: WorkflowBundle,
   idempotencyKey: string,
   scenarioNames?: string[],
+  runSecrets?: Array<{ secretRef: string; value: string }>,
 ) {
   const imported = await importBundle(identity, bundle, idempotencyKey);
   if (!imported.response.ok)
@@ -155,27 +160,45 @@ export async function runBundle(
     edges: bundle.workflow.edges,
     scenarios: scenarioIndexes.map((index) => {
       const scenario = imported.scenarios[index];
-      return {
+      const common = {
         id: scenario.id,
         scenarioRunId: stableId("scenario-run", workflowRunId, scenario.id),
         projectId: identity.projectId,
         name: scenario.name,
         description: scenario.description ?? "",
-        tests: scenario.tests,
-        testOrder: scenario.testOrder,
+        executionModel: scenario.executionModel ?? "legacy-tests",
         user_id: identity.userId,
         client_id: imported.clientId,
       };
+      return common.executionModel === "journey"
+        ? {
+            ...common,
+            environment: scenario.environment,
+            steps: scenario.steps ?? [],
+            stepOrder: scenario.stepOrder ?? [],
+          }
+        : {
+            ...common,
+            tests: scenario.tests ?? [],
+            testOrder: scenario.testOrder ?? [],
+          };
     }),
     userId: identity.userId,
     clientId: imported.clientId,
     executionOptions: { continueOnFailure: true },
   };
   return {
-    response: await runnerRequest("/api/v1/workflow-runs", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    response: await runnerRequest(
+      runSecrets === undefined
+        ? "/api/v1/workflow-runs"
+        : "/api/v1/workflow-runs/authorize",
+      {
+        method: "POST",
+        body: JSON.stringify(
+          runSecrets === undefined ? body : { request: body, runSecrets },
+        ),
+      },
+    ),
     workflowId: imported.workflowId,
     workflowRunId,
   };
@@ -245,9 +268,22 @@ export async function runExistingWorkflow(
   workflowId: string,
   idempotencyKey: string,
   scenarioIds?: string[],
+  options?: {
+    runSecrets?: Array<{ secretRef: string; value: string }>;
+    expectedWorkflowVersion?: number;
+    expectedScenarioVersions?: Record<string, number>;
+  },
 ) {
   const existing = await getExistingWorkflow(identity, workflowId);
   if (!existing) throw new Error("Workflow not found in this project.");
+  if (
+    options?.expectedWorkflowVersion !== undefined &&
+    existing.workflow.version !== options.expectedWorkflowVersion
+  ) {
+    throw new Error(
+      "The workflow changed after this run intent was created. Create a new run intent.",
+    );
+  }
   let scenarios = existing.scenarios;
   if (scenarioIds !== undefined) {
     if (
@@ -270,6 +306,14 @@ export async function runExistingWorkflow(
   }
   if (scenarios.length === 0)
     throw new Error("Workflow has no scenarios to run.");
+  for (const scenario of scenarios) {
+    const expected = options?.expectedScenarioVersions?.[scenario.id];
+    if (expected !== undefined && scenario.version !== expected) {
+      throw new Error(
+        "A selected scenario changed after this run intent was created. Create a new run intent.",
+      );
+    }
+  }
 
   const workflowRunId = stableId(
     "run",
@@ -278,31 +322,55 @@ export async function runExistingWorkflow(
     idempotencyKey,
   );
   const clientId = `agent:${identity.tokenId}`;
-  const response = await runnerRequest("/api/v1/workflow-runs", {
-    method: "POST",
-    body: JSON.stringify({
-      workflowRunId,
-      projectId: identity.projectId,
-      workflowId,
-      workflowName: existing.workflow.name,
-      nodes: existing.workflow.nodes_config,
-      edges: existing.workflow.edges_config,
-      scenarios: scenarios.map((scenario) => ({
+  const body = {
+    workflowRunId,
+    projectId: identity.projectId,
+    workflowId,
+    workflowName: existing.workflow.name,
+    nodes: existing.workflow.nodes_config,
+    edges: existing.workflow.edges_config,
+    scenarios: scenarios.map((scenario) => {
+      const executionModel = scenario.execution_model ?? "legacy-tests";
+      const common = {
         id: scenario.id,
         scenarioRunId: stableId("scenario-run", workflowRunId, scenario.id),
         projectId: identity.projectId,
         name: scenario.name,
         description: scenario.description ?? "",
-        tests: scenario.tests_config,
-        testOrder: scenario.test_order,
+        executionModel,
         user_id: identity.userId,
         client_id: clientId,
-      })),
-      userId: identity.userId,
-      clientId,
-      executionOptions: { continueOnFailure: true },
+      };
+      return executionModel === "journey"
+        ? {
+            ...common,
+            environment: scenario.environment_config,
+            steps: scenario.steps_config ?? [],
+            stepOrder: scenario.step_order ?? [],
+          }
+        : {
+            ...common,
+            tests: scenario.tests_config,
+            testOrder: scenario.test_order,
+          };
     }),
-  });
+    userId: identity.userId,
+    clientId,
+    executionOptions: { continueOnFailure: true },
+  };
+  const response = await runnerRequest(
+    options?.runSecrets === undefined
+      ? "/api/v1/workflow-runs"
+      : "/api/v1/workflow-runs/authorize",
+    {
+      method: "POST",
+      body: JSON.stringify(
+        options?.runSecrets === undefined
+          ? body
+          : { request: body, runSecrets: options.runSecrets },
+      ),
+    },
+  );
   return {
     response,
     workflowRunId,
@@ -310,11 +378,218 @@ export async function runExistingWorkflow(
   };
 }
 
+export async function selectExistingWorkflowScenarios(
+  identity: AgentIdentity,
+  workflowId: string,
+  scenarioIds?: string[],
+) {
+  const existing = await getExistingWorkflow(identity, workflowId);
+  if (!existing) throw new Error("Workflow not found in this project.");
+  let scenarios = existing.scenarios;
+  if (scenarioIds !== undefined) {
+    if (
+      scenarioIds.length === 0 ||
+      new Set(scenarioIds).size !== scenarioIds.length
+    ) {
+      throw new Error(
+        "scenarioIds must contain at least one unique scenario ID.",
+      );
+    }
+    const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
+    scenarios = scenarioIds.map((id) => {
+      const scenario = byId.get(id);
+      if (!scenario) {
+        throw new Error(
+          `Scenario ${id} is stale or belongs to another workflow.`,
+        );
+      }
+      return scenario;
+    });
+  }
+  if (scenarios.length === 0)
+    throw new Error("Workflow has no scenarios to run.");
+  return { ...existing, scenarios };
+}
+
 export async function getRun(identity: AgentIdentity, workflowRunId: string) {
   const query = new URLSearchParams({ projectId: identity.projectId });
   return runnerRequest(
     `/api/v1/workflow-runs/${encodeURIComponent(workflowRunId)}?${query}`,
   );
+}
+
+export async function getRunArtifact(
+  identity: AgentIdentity,
+  workflowRunId: string,
+  artifactId: string,
+) {
+  const query = new URLSearchParams({ projectId: identity.projectId });
+  return runnerRequest(
+    `/api/v1/workflow-runs/${encodeURIComponent(workflowRunId)}/artifacts/${encodeURIComponent(artifactId)}?${query}`,
+  );
+}
+
+function parseJSONValue(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function compactDiagnostic(value: unknown) {
+  if (!value || typeof value !== "object") return undefined;
+  const item = value as Record<string, unknown>;
+  return {
+    diagnosticId: item.diagnosticId,
+    code: item.code,
+    source: item.source,
+    confidence: item.confidence,
+    stage: item.stage,
+    summary: item.summary,
+    scenarioId: item.scenarioId,
+    stepId: item.stepId,
+    stepName: item.stepName,
+    testId: item.testId,
+    testName: item.testName,
+    serviceNames: item.serviceNames,
+    evidence: Array.isArray(item.evidence)
+      ? item.evidence.slice(0, 4).map((entry) => {
+          const evidence = entry as Record<string, unknown>;
+          return {
+            kind: evidence.kind,
+            serviceName: evidence.serviceName,
+            message: evidence.message,
+          };
+        })
+      : undefined,
+  };
+}
+
+function compactJourneyResult(value: unknown) {
+  const parsed = parseJSONValue(value);
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const item = parsed as Record<string, unknown>;
+  if (item.kind !== "browser-journey") return undefined;
+  const evidence =
+    item.evidence && typeof item.evidence === "object"
+      ? (item.evidence as Record<string, unknown>)
+      : {};
+  const compactSlot = (slot: unknown) => {
+    if (!slot || typeof slot !== "object") return undefined;
+    const record = slot as Record<string, unknown>;
+    const artifact =
+      record.artifact && typeof record.artifact === "object"
+        ? (record.artifact as Record<string, unknown>)
+        : undefined;
+    return {
+      status: record.status,
+      reason: record.reason,
+      ...(artifact
+        ? {
+            artifact: {
+              artifactId: artifact.artifactId,
+              kind: artifact.kind,
+              contentType: artifact.contentType,
+              sizeBytes: artifact.sizeBytes,
+              sha256: artifact.sha256,
+              createdAt: artifact.createdAt,
+              expiresAt: artifact.expiresAt,
+            },
+          }
+        : {}),
+    };
+  };
+  return {
+    schemaVersion: item.schemaVersion,
+    kind: item.kind,
+    scenarioId: item.scenarioId,
+    outcome: item.outcome,
+    startedAt: item.startedAt,
+    completedAt: item.completedAt,
+    durationMs: item.durationMs,
+    finalLocation: item.finalLocation,
+    steps: Array.isArray(item.steps)
+      ? item.steps.map((step) => {
+          const record = step as Record<string, unknown>;
+          return {
+            stepId: record.stepId,
+            sequence: record.sequence,
+            name: record.name,
+            kind: record.kind,
+            operation: record.operation,
+            outcome: record.outcome,
+            durationMs: record.durationMs,
+            diagnosticId: record.diagnosticId,
+            skipReason: record.skipReason,
+          };
+        })
+      : [],
+    diagnostics: Array.isArray(item.diagnostics)
+      ? item.diagnostics.map(compactDiagnostic)
+      : [],
+    evidence: {
+      screenshot: compactSlot(evidence.screenshot),
+      trace: compactSlot(evidence.trace),
+    },
+  };
+}
+
+export function compactRunDiagnostics(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const root = value as Record<string, unknown>;
+  const workflowRun =
+    root.workflowRun && typeof root.workflowRun === "object"
+      ? (root.workflowRun as Record<string, unknown>)
+      : {};
+  const scenarioRuns = Array.isArray(root.scenarioRuns)
+    ? root.scenarioRuns
+    : [];
+  const testResults = Array.isArray(root.testResults) ? root.testResults : [];
+  return redactSensitive({
+    workflowRun: {
+      id: workflowRun.id,
+      status: workflowRun.status,
+      summary: parseJSONValue(workflowRun.summary),
+      error: workflowRun.error,
+      startedAt: workflowRun.started_at,
+      completedAt: workflowRun.completed_at,
+      updatedAt: workflowRun.updated_at,
+    },
+    scenarioRuns: scenarioRuns.map((scenario) => {
+      const item = scenario as Record<string, unknown>;
+      return {
+        id: item.id,
+        scenarioId: item.scenario_id,
+        scenarioName: item.scenario_name,
+        status: item.status,
+        phase: item.phase,
+        error: item.error,
+        journey: compactJourneyResult(item.result),
+      };
+    }),
+    failedTests: testResults
+      .map((test) => test as Record<string, unknown>)
+      .filter((test) => test.status === "failed")
+      .map((test) => {
+        const result = parseJSONValue(test.result_data);
+        const record =
+          result && typeof result === "object"
+            ? (result as Record<string, unknown>)
+            : {};
+        return {
+          id: test.id,
+          scenarioId: test.scenario_id,
+          scenarioName: test.scenario_name,
+          testName: test.test_name,
+          testType: test.test_type,
+          status: test.status,
+          durationMs: test.duration_ms,
+          diagnostic: compactDiagnostic(record.diagnostic),
+        };
+      }),
+  });
 }
 
 export function listWorkflowRevisions(

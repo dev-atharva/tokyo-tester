@@ -2,6 +2,7 @@
 
 import {
   IconApi,
+  IconBrowser,
   IconDatabase,
   IconLoader2,
   IconTemplate,
@@ -35,6 +36,7 @@ const templateIcons = {
   "nginx-smoke": IconWorldWww,
   "mock-api-contract": IconApi,
   "postgres-redis-state": IconDatabase,
+  "browser-checkout-journey": IconBrowser,
 } satisfies Record<WorkflowTemplateId, typeof IconTemplate>;
 
 interface WorkflowTemplateGalleryProps {
@@ -67,7 +69,7 @@ export function WorkflowTemplateGallery({
           </DialogDescription>
         </DialogHeader>
         <ScrollArea className="min-h-0 flex-1">
-          <div className="grid gap-4 p-1 md:grid-cols-3">
+          <div className="grid gap-4 p-1 md:grid-cols-2">
             {WORKFLOW_TEMPLATES.map((template) => {
               const Icon = templateIcons[template.id];
               const pending = pendingTemplateId === template.id;

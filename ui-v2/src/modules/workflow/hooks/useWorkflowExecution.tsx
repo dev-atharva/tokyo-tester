@@ -9,7 +9,9 @@ import {
   validateScenario,
   validateWorkflowGraph,
 } from "@/modules/utils/scenario-translator";
-import { submitWorkflowRun } from "../lib/runner-client";
+import type { RunSecretInput } from "../lib/run-secrets";
+import { authorizeWorkflowRun } from "../lib/runner-client";
+import { validateBrowserJourney } from "../lib/scenario-journey";
 import { useExecutionStore } from "../stores/execution.store.sync";
 import { useRegistrySecretStore } from "../stores/registry-secret-store";
 import { useScenarioStore } from "../stores/scenario.store.sync";
@@ -177,7 +179,20 @@ export function useWorkflowExecution({
       }
 
       for (const scenario of selectedScenarios) {
-        const result = validateScenario(serviceGraph, scenario);
+        const result =
+          scenario.executionModel === "journey"
+            ? (() => {
+                const journey = validateBrowserJourney(scenario, nodes);
+                return {
+                  valid: journey.valid,
+                  errors: journey.issues.map((issue) => ({
+                    field: issue.field,
+                    message: issue.message,
+                  })),
+                  warnings: [],
+                } satisfies ValidationResult;
+              })()
+            : validateScenario(serviceGraph, scenario);
         if (!result.valid) {
           return result;
         }
@@ -189,7 +204,7 @@ export function useWorkflowExecution({
   );
 
   const execute = useCallback(
-    async (scenarioIds?: string[]) => {
+    async (scenarioIds?: string[], runSecrets: RunSecretInput[] = []) => {
       let selectedScenarios: Scenario[];
       try {
         selectedScenarios = selectScenariosForRun(
@@ -241,7 +256,7 @@ export function useWorkflowExecution({
         if (syncService.hasPendingPreRunChanges()) {
           const pendingCount = syncService.getPendingPreRunChanges().length;
           toast.warning("Running with unsynced local changes", {
-            description: `${pendingCount} workflow/scenario change${pendingCount === 1 ? "" : "s"} could not be saved yet. The runner will use the graph currently shown on screen.`,
+            description: `${pendingCount} workflow/scenario change${pendingCount === 1 ? "" : "s"} could not be saved yet. The runner will use the last synchronized workflow definition.`,
             duration: 7000,
           });
         }
@@ -271,17 +286,30 @@ export function useWorkflowExecution({
           workflowName,
           nodes,
           edges,
-          scenarios: selectedScenarios.map((scenario, index) => ({
-            id: scenario.id,
-            scenarioRunId: scenarioRunIds[index],
-            projectId: scenario.projectId,
-            name: scenario.name,
-            description: scenario.description,
-            tests: scenario.tests,
-            testOrder: scenario.testOrder,
-            user_id: scenario.user_id,
-            client_id: scenario.client_id,
-          })),
+          scenarios: selectedScenarios.map((scenario, index) => {
+            const common = {
+              id: scenario.id,
+              scenarioRunId: scenarioRunIds[index],
+              projectId: scenario.projectId,
+              name: scenario.name,
+              description: scenario.description,
+              executionModel: scenario.executionModel,
+              user_id: scenario.user_id,
+              client_id: scenario.client_id,
+            };
+            return scenario.executionModel === "journey"
+              ? {
+                  ...common,
+                  environment: scenario.environment,
+                  steps: scenario.steps,
+                  stepOrder: scenario.stepOrder,
+                }
+              : {
+                  ...common,
+                  tests: scenario.tests,
+                  testOrder: scenario.testOrder,
+                };
+          }),
           userId: selectedScenarios[0]?.user_id ?? "demo-user",
           clientId: selectedScenarios[0]?.client_id,
           registrySecrets: normalizedSecrets,
@@ -290,7 +318,7 @@ export function useWorkflowExecution({
           },
         };
 
-        const submission = await submitWorkflowRun(data);
+        const submission = await authorizeWorkflowRun(data, runSecrets);
         updateQueueInfo(workflowRunId, submission.queue);
         const projectId = selectedScenarios[0]?.projectId ?? "";
         router.push(

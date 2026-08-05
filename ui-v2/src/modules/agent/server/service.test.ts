@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { WorkflowBundle } from "@/modules/workflow/types/react-flow-cots";
 import type { AgentIdentity } from "./auth";
-import { redactSensitive, runBundle } from "./service";
+import { compactRunDiagnostics, redactSensitive, runBundle } from "./service";
 
 const originalFetch = globalThis.fetch;
 afterEach(() => {
@@ -74,5 +74,84 @@ describe("agent service", () => {
       password: "[REDACTED]",
       nested: { registryToken: "[REDACTED]", ok: "visible" },
     });
+  });
+
+  test("keeps v2 execution on the unchanged non-secret runner endpoint", async () => {
+    const paths: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      paths.push(url.pathname);
+      return Response.json(
+        url.pathname.endsWith("/workflow-runs")
+          ? { status: "pending" }
+          : { success: true },
+        { status: url.pathname.endsWith("/workflow-runs") ? 202 : 200 },
+      );
+    }) as typeof fetch;
+    await runBundle(identity, bundle, "legacy-v2-key");
+    expect(paths).toContain("/api/v1/workflow-runs");
+    expect(paths).not.toContain("/api/v1/workflow-runs/authorize");
+  });
+
+  test("compacts browser diagnostics without logs, definitions, or traces bytes", () => {
+    const result = compactRunDiagnostics({
+      workflowRun: {
+        id: "run-1",
+        status: "failed",
+        summary: '{"failedJourneys":1}',
+        logs: '["huge"]',
+      },
+      executionDefinition: { nodes: [{ large: "source" }] },
+      scenarioRuns: [
+        {
+          id: "scenario-run-1",
+          scenario_id: "journey-1",
+          scenario_name: "Login",
+          status: "failed",
+          result: JSON.stringify({
+            schemaVersion: 1,
+            kind: "browser-journey",
+            outcome: "failed",
+            finalLocation: { path: "/login", queryKeys: ["next"] },
+            steps: [
+              {
+                stepId: "fill-password",
+                sequence: 1,
+                name: "Fill password",
+                kind: "action",
+                operation: "fill",
+                outcome: "failed",
+                diagnosticId: "diag-1",
+              },
+            ],
+            diagnostics: [
+              {
+                diagnosticId: "diag-1",
+                code: "visible_timeout",
+                summary: "Element was not visible",
+              },
+            ],
+            evidence: {
+              screenshot: {
+                status: "available",
+                artifact: {
+                  artifactId: "artifact-1",
+                  kind: "screenshot",
+                  contentType: "image/png",
+                },
+              },
+              trace: { status: "available", artifact: { bytes: "zip" } },
+            },
+          }),
+        },
+      ],
+      testResults: [],
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).toContain("fill-password");
+    expect(serialized).toContain("artifact-1");
+    expect(serialized).not.toContain("huge");
+    expect(serialized).not.toContain("source");
+    expect(serialized).not.toContain("zip");
   });
 });

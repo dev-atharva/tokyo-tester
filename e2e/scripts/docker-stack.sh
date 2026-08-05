@@ -40,6 +40,8 @@ trap cleanup EXIT INT TERM
 command -v docker >/dev/null || { printf 'Docker is required.\n' >&2; exit 1; }
 docker info >/dev/null
 docker build --tag tokyo-test-api:latest "$ROOT_DIR/test-api"
+docker build --file "$ROOT_DIR/runner-v2/browser-executor/Dockerfile" \
+  --tag tokyo-tester-browser-executor:1.61.0 "$ROOT_DIR/runner-v2"
 
 compose down --volumes --remove-orphans --timeout 5 >/dev/null 2>&1 || true
 compose up --detach registry

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dev-atharva/cots/pkg/browserjourney"
 	"github.com/dev-atharva/cots/pkg/config"
 	"github.com/dev-atharva/cots/pkg/db"
 	"github.com/dev-atharva/cots/pkg/dto"
@@ -123,6 +124,8 @@ type Handler struct {
 	readinessCheck           func(context.Context) error
 	containerResources       config.ContainerResourceLimits
 	disableTestRetries       bool
+	browserJourneys          browserjourney.Executor
+	browserArtifacts         *browserjourney.FileArtifactSink
 }
 
 type sessionResourceCleaner interface {
@@ -156,6 +159,10 @@ func NewHandler(database db.Database, appCfg config.AppConfig) *Handler {
 	providers.Register("nginx", &predefined.NginxProvider{})
 	providers.Register("mockserver", &predefined.MockServerProvider{})
 
+	artifactSink := &browserjourney.FileArtifactSink{Root: appCfg.BrowserArtifactDir, Retention: time.Duration(appCfg.BrowserArtifactRetentionDays) * 24 * time.Hour}
+	if metadata, ok := database.(browserjourney.ArtifactMetadataStore); ok {
+		artifactSink.Metadata = metadata
+	}
 	return &Handler{
 		sessionManager:           session.NewManager(),
 		providers:                providers,
@@ -172,6 +179,8 @@ func NewHandler(database db.Database, appCfg config.AppConfig) *Handler {
 		cleanupSlots:             make(chan struct{}, appCfg.MaxConcurrentCleanup),
 		containerResources:       appCfg.ContainerResources(),
 		disableTestRetries:       appCfg.DisableTestRetries,
+		browserJourneys:          browserjourney.NewManagedExecutorWithSandbox(appCfg.BrowserExecutorImage, appCfg.ContainerResources(), artifactSink, appCfg.BrowserChromiumSandbox),
+		browserArtifacts:         artifactSink,
 	}
 }
 

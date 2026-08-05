@@ -85,20 +85,24 @@ type WorkflowData struct {
 }
 
 type ScenarioData struct {
-	ID          string          `json:"id"`
-	ProjectID   string          `json:"project_id"`
-	WorkflowID  string          `json:"workflow_id"`
-	UserID      string          `json:"user_id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	TestsConfig json.RawMessage `json:"tests_config"`
-	TestOrder   json.RawMessage `json:"test_order"`
-	Metadata    json.RawMessage `json:"metadata,omitempty"`
-	Version     int             `json:"version"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
-	ClientID    string          `json:"client_id"`
-	IsDeleted   bool            `json:"is_deleted"`
+	ID                string          `json:"id"`
+	ProjectID         string          `json:"project_id"`
+	WorkflowID        string          `json:"workflow_id"`
+	UserID            string          `json:"user_id"`
+	Name              string          `json:"name"`
+	Description       string          `json:"description,omitempty"`
+	ExecutionModel    string          `json:"execution_model"`
+	TestsConfig       json.RawMessage `json:"tests_config"`
+	TestOrder         json.RawMessage `json:"test_order"`
+	EnvironmentConfig json.RawMessage `json:"environment_config,omitempty"`
+	StepsConfig       json.RawMessage `json:"steps_config"`
+	StepOrder         json.RawMessage `json:"step_order"`
+	Metadata          json.RawMessage `json:"metadata,omitempty"`
+	Version           int             `json:"version"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
+	ClientID          string          `json:"client_id"`
+	IsDeleted         bool            `json:"is_deleted"`
 }
 
 type WorkflowRunData struct {

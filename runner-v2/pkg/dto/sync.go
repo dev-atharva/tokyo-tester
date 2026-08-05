@@ -140,20 +140,24 @@ type WorkflowData struct {
 }
 
 type ScenarioData struct {
-	ID          string          `json:"id"`
-	ProjectID   string          `json:"project_id"`
-	WorkflowID  string          `json:"workflow_id"`
-	UserID      string          `json:"user_id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	TestsConfig json.RawMessage `json:"tests_config"`
-	TestOrder   json.RawMessage `json:"test_order"`
-	Metadata    json.RawMessage `json:"metadata,omitempty"`
-	Version     int             `json:"version"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
-	ClientID    string          `json:"client_id"`
-	IsDeleted   bool            `json:"is_deleted"`
+	ID                string          `json:"id"`
+	ProjectID         string          `json:"project_id"`
+	WorkflowID        string          `json:"workflow_id"`
+	UserID            string          `json:"user_id"`
+	Name              string          `json:"name"`
+	Description       string          `json:"description,omitempty"`
+	ExecutionModel    string          `json:"execution_model"`
+	TestsConfig       json.RawMessage `json:"tests_config"`
+	TestOrder         json.RawMessage `json:"test_order"`
+	EnvironmentConfig json.RawMessage `json:"environment_config,omitempty"`
+	StepsConfig       json.RawMessage `json:"steps_config"`
+	StepOrder         json.RawMessage `json:"step_order"`
+	Metadata          json.RawMessage `json:"metadata,omitempty"`
+	Version           int             `json:"version"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
+	ClientID          string          `json:"client_id"`
+	IsDeleted         bool            `json:"is_deleted"`
 }
 
 type WorkflowRunData struct {
@@ -250,20 +254,24 @@ func FromTypesSyncPullResponse(resp *types.SyncPullResponse) *SyncPullResponse {
 	scenarios := make([]ScenarioData, len(resp.Scenarios))
 	for i, sc := range resp.Scenarios {
 		scenarios[i] = ScenarioData{
-			ID:          sc.ID,
-			ProjectID:   sc.ProjectID,
-			WorkflowID:  sc.WorkflowID,
-			UserID:      sc.UserID,
-			Name:        sc.Name,
-			Description: sc.Description,
-			TestsConfig: sc.TestsConfig,
-			TestOrder:   sc.TestOrder,
-			Metadata:    sc.Metadata,
-			Version:     sc.Version,
-			CreatedAt:   sc.CreatedAt,
-			UpdatedAt:   sc.UpdatedAt,
-			ClientID:    sc.ClientID,
-			IsDeleted:   sc.IsDeleted,
+			ID:                sc.ID,
+			ProjectID:         sc.ProjectID,
+			WorkflowID:        sc.WorkflowID,
+			UserID:            sc.UserID,
+			Name:              sc.Name,
+			Description:       sc.Description,
+			ExecutionModel:    sc.ExecutionModel,
+			TestsConfig:       sc.TestsConfig,
+			TestOrder:         sc.TestOrder,
+			EnvironmentConfig: sc.EnvironmentConfig,
+			StepsConfig:       sc.StepsConfig,
+			StepOrder:         sc.StepOrder,
+			Metadata:          sc.Metadata,
+			Version:           sc.Version,
+			CreatedAt:         sc.CreatedAt,
+			UpdatedAt:         sc.UpdatedAt,
+			ClientID:          sc.ClientID,
+			IsDeleted:         sc.IsDeleted,
 		}
 	}
 

@@ -460,7 +460,7 @@ func (h *Handler) persistTestResult(ctx context.Context, persisted *db.Session, 
 	return h.db.UpsertTestResult(ctx, record)
 }
 
-func (h *Handler) persistCheckpoint(ctx context.Context, persistedID string, checkpointIndex int, phase string, finalStatus string, finalSummary map[string]any) error {
+func (h *Handler) persistCheckpoint(ctx context.Context, persistedID string, checkpointIndex int, phase string, finalStatus string, finalSummary any) error {
 	if h.db == nil || persistedID == "" {
 		return nil
 	}

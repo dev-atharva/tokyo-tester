@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/dev-atharva/cots/pkg/browserjourney"
 	"github.com/dev-atharva/cots/pkg/config"
 	"github.com/dev-atharva/cots/pkg/db"
 	"github.com/dev-atharva/cots/pkg/dto"
@@ -14,6 +16,7 @@ import (
 	"github.com/dev-atharva/cots/pkg/logger"
 	"github.com/dev-atharva/cots/pkg/middleware"
 	"github.com/dev-atharva/cots/pkg/orchestrator"
+	"github.com/dev-atharva/cots/pkg/runsecret"
 	"github.com/dev-atharva/cots/pkg/session"
 	"github.com/dev-atharva/cots/pkg/telemetry"
 	"github.com/dev-atharva/cots/pkg/test"
@@ -50,6 +53,7 @@ func (h *Handler) RunWorkflowBundle(w http.ResponseWriter, r *http.Request) {
 		response.Summary.PassedTests += result.Summary.Passed
 		response.Summary.FailedTests += result.Summary.Failed
 		response.Summary.RetriedTests += result.Summary.Retried
+		accumulateJourneySummary(&response.Summary, result.Journey)
 		if result.Success {
 			response.Summary.PassedScenarios++
 		} else {
@@ -61,12 +65,73 @@ func (h *Handler) RunWorkflowBundle(w http.ResponseWriter, r *http.Request) {
 	respondJson(w, http.StatusOK, response)
 }
 
+func accumulateJourneySummary(summary *dto.WorkflowBundleRunSummary, journey *browserjourney.Result) {
+	if summary == nil || journey == nil {
+		return
+	}
+	summary.TotalJourneys++
+	switch journey.Outcome {
+	case "passed":
+		summary.PassedJourneys++
+	case "failed":
+		summary.FailedJourneys++
+	case "interrupted":
+		summary.InterruptedJourneys++
+	}
+	for _, step := range journey.Steps {
+		summary.TotalSteps++
+		switch step.Outcome {
+		case "passed":
+			summary.PassedSteps++
+		case "failed":
+			summary.FailedSteps++
+		case "skipped":
+			summary.SkippedSteps++
+		case "interrupted":
+			summary.InterruptedSteps++
+		}
+	}
+}
+
+func interruptedJourneyResponse(name, scenarioID string, plan *workflowbundle.JourneyPlan, startedAt *time.Time) dto.WorkflowBundleScenarioResponse {
+	started := time.Now().UTC()
+	if startedAt != nil {
+		started = startedAt.UTC()
+	}
+	completed := time.Now().UTC()
+	journey := browserjourney.Result{
+		SchemaVersion: browserjourney.ResultSchemaVersion, Kind: browserjourney.ResultKind,
+		ScenarioID: scenarioID, Outcome: "interrupted", StartedAt: started, CompletedAt: completed,
+		DurationMs: completed.Sub(started).Milliseconds(),
+		Evidence: browserjourney.JourneyEvidence{
+			Screenshot: browserjourney.EvidenceSlot{Status: "unavailable", Reason: "capture-failed"},
+			Trace:      browserjourney.EvidenceSlot{Status: "unavailable", Reason: "capture-failed"},
+		},
+	}
+	if plan != nil {
+		for index, step := range plan.Steps {
+			op := ""
+			if step.Action != nil {
+				op = step.Action.Operation
+			}
+			if step.Assertion != nil {
+				op = step.Assertion.Operation
+			}
+			if step.Control != nil {
+				op = step.Control.Operation
+			}
+			journey.Steps = append(journey.Steps, browserjourney.StepResult{StepID: step.ID, Sequence: index, Name: step.Name, Kind: step.Kind, Operation: op, Outcome: "skipped", SkipReason: "journey-not-started"})
+		}
+	}
+	return dto.WorkflowBundleScenarioResponse{ScenarioName: name, Success: false, Error: "interrupted browser journey was not replayed automatically", Journey: &journey}
+}
+
 func (h *Handler) runWorkflowBundleScenario(
 	ctx context.Context,
 	bundle *workflowbundle.Bundle,
 	scenario workflowbundle.BundleScenario,
 ) dto.WorkflowBundleScenarioResponse {
-	return h.runWorkflowBundleScenarioForRun(ctx, bundle, scenario, nil)
+	return h.runWorkflowBundleScenarioForRun(ctx, bundle, scenario, nil, nil)
 }
 
 func (h *Handler) runWorkflowBundleScenarioForRun(
@@ -74,6 +139,7 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 	bundle *workflowbundle.Bundle,
 	scenario workflowbundle.BundleScenario,
 	execution *dto.ExecutionContextDTO,
+	runSecrets *runsecret.RunSecrets,
 ) (response dto.WorkflowBundleScenarioResponse) {
 	response = dto.WorkflowBundleScenarioResponse{
 		ScenarioName: scenario.Name,
@@ -98,6 +164,17 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 			if ctx.Err() == nil {
 				h.persistSessionFailure(ctx, previous.ID, err, sessionPhaseCleanupFailed)
 			}
+			return response
+		}
+		if translated.ExecutionModel == workflowbundle.ExecutionModelJourney {
+			if previous.Result != "" && json.Unmarshal([]byte(previous.Result), &response) == nil && response.Journey != nil {
+				h.releaseSessionLease(ctx, previous.ID)
+				return response
+			}
+			response = interruptedJourneyResponse(scenario.Name, executionScenarioID(execution), translated.Journey, previous.StartedAt)
+			persistCtx := context.WithoutCancel(ctx)
+			_ = h.persistCheckpoint(persistCtx, previous.ID, 0, sessionPhaseFailed, "failed", response)
+			h.releaseSessionLease(persistCtx, previous.ID)
 			return response
 		}
 		if (previous.Phase == sessionPhaseCleaningUp || previous.Phase == sessionPhaseCleanupFailed) && previous.CheckpointIndex >= len(translated.Tests) {
@@ -210,6 +287,52 @@ func (h *Handler) runWorkflowBundleScenarioForRun(
 		return response
 	}
 	reportWorkflowProgress(ctx, "provision", "All scenario services are ready")
+	if translated.ExecutionModel == workflowbundle.ExecutionModelJourney {
+		if persisted != nil {
+			h.persistProvisionedState(ctx, persisted.ID, orch)
+		}
+		result, executeErr := h.browserJourneys.Execute(ctx, browserjourney.Request{
+			ScenarioID: executionScenarioID(execution), Plan: *translated.Journey,
+			Environment: browserjourney.ProvisionedEnvironment{Attachment: browserjourney.NewNetworkAttachment(orch.NetworkName())},
+			RunSecrets:  runSecrets,
+			Artifact:    browserjourney.ArtifactContext{ProjectID: executionProjectID(execution), WorkflowRunID: executionWorkflowRunID(execution), ScenarioRunID: executionScenarioRunID(execution)},
+		})
+		response.Journey = &result
+		response.Diagnostics = append(response.Diagnostics, result.Diagnostics...)
+		response.Success = result.Outcome == "passed" && executeErr == nil
+		if executeErr != nil {
+			response.Error = executeErr.Error()
+		} else if !response.Success {
+			response.Error = "browser journey failed"
+		}
+		persistCtx := context.WithoutCancel(ctx)
+		if persisted != nil {
+			_ = h.persistCheckpoint(persistCtx, persisted.ID, len(translated.Journey.Steps), sessionPhaseCleaningUp, "", response)
+		}
+		reportWorkflowProgress(ctx, "cleanup", "Cleaning up scenario containers and network")
+		cleanupErr := cleanupSession()
+		if cleanupErr != nil {
+			response.CleanupFailed, response.Success = true, false
+			if response.Error == "" {
+				response.Error = cleanupErr.Error()
+			} else {
+				response.Error += "; cleanup failed: " + cleanupErr.Error()
+			}
+			diagnostic := buildExecutionDiagnostic(executionevent.StageCleanup, cleanupErr, "Tokyo Tester could not completely remove the scenario environment.", executionScenarioID(execution), "", "", nil)
+			response.Diagnostics = append(response.Diagnostics, diagnostic)
+		}
+		if persisted != nil {
+			phase, status := sessionPhaseCompleted, "completed"
+			if cleanupErr != nil {
+				phase, status = sessionPhaseCleanupFailed, "cleanup_failed"
+			} else if !response.Success {
+				phase, status = sessionPhaseFailed, "failed"
+			}
+			_ = h.persistCheckpoint(persistCtx, persisted.ID, len(translated.Journey.Steps), phase, status, response)
+			h.releaseSessionLease(persistCtx, persisted.ID)
+		}
+		return response
+	}
 	if persisted != nil {
 		h.persistProvisionedState(ctx, persisted.ID, orch)
 		if err := h.ensureTestPlan(ctx, persisted.ID, translated.Tests); err != nil {
@@ -498,6 +621,27 @@ func executionScenarioID(execution *dto.ExecutionContextDTO) string {
 		return ""
 	}
 	return execution.ScenarioID
+}
+
+func executionProjectID(execution *dto.ExecutionContextDTO) string {
+	if execution == nil {
+		return ""
+	}
+	return execution.ProjectID
+}
+
+func executionWorkflowRunID(execution *dto.ExecutionContextDTO) string {
+	if execution == nil {
+		return ""
+	}
+	return execution.WorkflowRunID
+}
+
+func executionScenarioRunID(execution *dto.ExecutionContextDTO) string {
+	if execution == nil {
+		return ""
+	}
+	return execution.SessionID
 }
 
 func (h *Handler) cleanupWorkflowBundleSession(ctx context.Context, sessionID string) error {

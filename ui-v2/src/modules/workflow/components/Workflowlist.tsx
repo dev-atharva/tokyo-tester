@@ -77,6 +77,7 @@ import type {
   WorkflowTemplateId,
 } from "../lib/workflow-templates";
 import { useExecutionStore } from "../stores/execution.store.sync";
+import { useRunSecretStore } from "../stores/run-secret-store";
 import { useScenarioStore } from "../stores/scenario.store.sync";
 import { useScenarioRunStore } from "../stores/scenario-run.store.sync";
 import { useTestResultStore } from "../stores/test-result.store";
@@ -210,8 +211,12 @@ export const WorkflowList = () => {
       updateScenario(scenarioId, {
         name: scenario.name,
         description: scenario.description || "",
-        tests: scenario.tests,
-        testOrder: scenario.testOrder,
+        executionModel: scenario.executionModel ?? "legacy-tests",
+        tests: scenario.tests ?? [],
+        testOrder: scenario.testOrder ?? [],
+        environment: scenario.environment,
+        steps: scenario.steps ?? [],
+        stepOrder: scenario.stepOrder ?? [],
       });
     }
 
@@ -405,6 +410,7 @@ export const WorkflowList = () => {
       }
 
       deleteWorkflow(workflowId);
+      useRunSecretStore.getState().clearWorkflow(workflowId);
       setWorkflowPendingDelete(null);
 
       toast.success("Workflow deleted", {

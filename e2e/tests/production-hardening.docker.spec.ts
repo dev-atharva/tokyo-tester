@@ -271,12 +271,16 @@ test.describe.serial("production hardening", () => {
     await workflow.sync();
     await workflow.openRunDialog();
 
-    await page.route("**/api/v1/workflow-runs", async (route) => {
+    await page.route("**/api/v1/workflow-runs/authorize", async (route) => {
       if (route.request().method() !== "POST") {
         await route.continue();
         return;
       }
-      const body = route.request().postDataJSON() as HardeningWorkflowRun;
+      const authorization = route.request().postDataJSON() as {
+        request: HardeningWorkflowRun;
+        runSecrets: Array<{ secretRef: string; value: string }>;
+      };
+      const body = authorization.request;
       const scenario = body.scenarios[0];
       if (!scenario) throw new Error("E2E workflow has no scenario to extend.");
       const delayId = `cancel-delay-${randomUUID()}`;
@@ -289,7 +293,7 @@ test.describe.serial("production hardening", () => {
       });
       scenario.testOrder.push(delayId);
       await route.continue({
-        postData: JSON.stringify(body),
+        postData: JSON.stringify({ ...authorization, request: body }),
         headers: {
           ...route.request().headers(),
           "content-type": "application/json",
@@ -312,7 +316,7 @@ test.describe.serial("production hardening", () => {
       memory: 384 * 1024 * 1024,
       memorySwap: 384 * 1024 * 1024,
       nanoCpus: 350_000_000,
-      pidsLimit: 64,
+      pidsLimit: 128,
     });
 
     await page.getByRole("button", { name: "Cancel run" }).click();

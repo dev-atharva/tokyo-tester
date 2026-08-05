@@ -22,6 +22,8 @@ import type {
   FlowEdge,
   FlowNode,
   Scenario,
+  JourneyEnvironment,
+  ScenarioStep,
   ScenarioTestDefinition,
 } from "../workflow/types/react-flow-cots";
 import { syncService } from "./sync-service";
@@ -219,8 +221,17 @@ export function deserializeScenario(data: ScenarioData): Scenario {
     workflowId: data.workflow_id,
     name: data.name,
     description: data.description ?? "",
+    executionModel: data.execution_model ?? "legacy-tests",
     tests: parseJSON<ScenarioTestDefinition[]>(data.tests_config, []),
     testOrder: parseJSON<string[]>(data.test_order, []),
+    environment: data.environment_config
+      ? parseJSON<JourneyEnvironment | undefined>(
+          data.environment_config,
+          undefined,
+        )
+      : undefined,
+    steps: parseJSON<ScenarioStep[]>(data.steps_config, []),
+    stepOrder: parseJSON<string[]>(data.step_order, []),
     version: data.version,
     created_at: data.created_at,
     updated_at: data.updated_at,

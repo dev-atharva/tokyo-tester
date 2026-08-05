@@ -8,13 +8,61 @@ import {
 import { WORKFLOW_TEMPLATES } from "./workflow-templates";
 
 describe("workflow templates", () => {
-  test("ships three runnable, valid starters", () => {
-    expect(WORKFLOW_TEMPLATES).toHaveLength(3);
+  test("ships four runnable, valid starters", () => {
+    expect(WORKFLOW_TEMPLATES).toHaveLength(4);
     for (const template of WORKFLOW_TEMPLATES) {
       expect(() => validateWorkflowBundle(template.bundle)).not.toThrow();
       expect(template.bundle.scenarios.length).toBeGreaterThan(0);
-      expect(template.bundle.scenarios[0]?.tests.length).toBeGreaterThan(0);
+      const scenario = template.bundle.scenarios[0];
+      expect(
+        scenario?.executionModel === "journey"
+          ? scenario.steps?.length
+          : scenario?.tests.length,
+      ).toBeGreaterThan(0);
     }
+  });
+
+  test("provides a runnable browser checkout journey with a human secret", () => {
+    const template = WORKFLOW_TEMPLATES.find(
+      (candidate) => candidate.id === "browser-checkout-journey",
+    );
+    if (!template) throw new Error("Browser journey template is missing");
+
+    const scenario = template.bundle.scenarios[0];
+    expect(template.bundle.schemaVersion).toBe(3);
+    expect(template.bundle.workflow.nodes[0]?.data.service.env).toContainEqual({
+      id: "browser-fixture-role",
+      key: "APP_ROLE",
+      value: "fault-lab",
+    });
+    expect(scenario).toMatchObject({
+      executionModel: "journey",
+      environment: {
+        driver: "browser",
+        browser: {
+          targetService: "browser_fixture",
+          targetPort: "8080",
+        },
+      },
+      stepOrder: ["open-checkout", "enter-password", "confirm-checkout"],
+    });
+    expect(scenario?.steps?.[1]).toMatchObject({
+      kind: "action",
+      action: {
+        operation: "fill",
+        locator: { strategy: "label", value: "Checkout password" },
+        value: { source: "run-secret", secretRef: "checkout.password" },
+      },
+    });
+
+    const materialized = materializeWorkflowBundle(template.bundle, []);
+    const importedScenario = materialized.scenarios[0];
+    expect(importedScenario?.steps?.map((step) => step.id)).not.toEqual(
+      scenario?.steps?.map((step) => step.id),
+    );
+    expect(importedScenario?.stepOrder).toEqual(
+      importedScenario?.steps?.map((step) => step.id),
+    );
   });
 
   test("materializes templates with unique names and fresh test ids", () => {

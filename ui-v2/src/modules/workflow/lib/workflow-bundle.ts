@@ -8,6 +8,7 @@ import type { Workflow } from "../stores/workflow.store.sync";
 import type {
   FlowEdge,
   FlowNode,
+  ScenarioStep,
   Scenario,
   WorkflowBundle,
   WorkflowBundleScenario,
@@ -19,16 +20,28 @@ import {
 } from "./edge-model";
 
 export const WORKFLOW_BUNDLE_SCHEMA_VERSION = 2;
+export const WORKFLOW_BUNDLE_SCHEMA_VERSION_V3 = 3;
+export const PREFERRED_WORKFLOW_BUNDLE_SCHEMA_VERSION =
+  WORKFLOW_BUNDLE_SCHEMA_VERSION_V3;
 export const WORKFLOW_BUNDLE_KIND = "cots.workflow-bundle";
 
 type ExportableWorkflow = Pick<
   Workflow,
   "name" | "description" | "nodes" | "edges"
 >;
-type ExportableScenario = Pick<
-  Scenario,
-  "name" | "description" | "tests" | "testOrder"
->;
+type ExportableScenario =
+  | Pick<
+      Scenario,
+      | "name"
+      | "description"
+      | "executionModel"
+      | "tests"
+      | "testOrder"
+      | "environment"
+      | "steps"
+      | "stepOrder"
+    >
+  | Pick<Scenario, "name" | "description" | "tests" | "testOrder">;
 
 export interface ImportedWorkflowBundleData {
   workflow: ExportableWorkflow;
@@ -39,8 +52,14 @@ export function createWorkflowBundle(
   workflow: ExportableWorkflow,
   scenarios: ExportableScenario[],
 ): WorkflowBundle {
+  const schemaVersion = scenarios.some(
+    (scenario) =>
+      "executionModel" in scenario && scenario.executionModel === "journey",
+  )
+    ? WORKFLOW_BUNDLE_SCHEMA_VERSION_V3
+    : WORKFLOW_BUNDLE_SCHEMA_VERSION;
   const bundle: WorkflowBundle = {
-    schemaVersion: WORKFLOW_BUNDLE_SCHEMA_VERSION,
+    schemaVersion,
     kind: WORKFLOW_BUNDLE_KIND,
     workflow: {
       name: workflow.name,
@@ -48,12 +67,35 @@ export function createWorkflowBundle(
       nodes: sanitizeNodesForBundle(workflow.nodes),
       edges: sanitizeEdgesForBundle(workflow.edges),
     },
-    scenarios: scenarios.map((scenario) => ({
-      name: scenario.name,
-      description: scenario.description || "",
-      tests: cloneValue(scenario.tests),
-      testOrder: [...scenario.testOrder],
-    })),
+    scenarios: scenarios.map((scenario) => {
+      const executionModel =
+        "executionModel" in scenario ? scenario.executionModel : "legacy-tests";
+      if (schemaVersion === WORKFLOW_BUNDLE_SCHEMA_VERSION_V3) {
+        if (executionModel === "journey" && "environment" in scenario) {
+          return {
+            name: scenario.name,
+            description: scenario.description || "",
+            executionModel,
+            environment: cloneValue(scenario.environment),
+            steps: cloneValue(scenario.steps),
+            stepOrder: [...scenario.stepOrder],
+          } as WorkflowBundleScenario;
+        }
+        return {
+          name: scenario.name,
+          description: scenario.description || "",
+          executionModel: "legacy-tests" as const,
+          tests: cloneValue(scenario.tests),
+          testOrder: [...scenario.testOrder],
+        };
+      }
+      return {
+        name: scenario.name,
+        description: scenario.description || "",
+        tests: cloneValue(scenario.tests),
+        testOrder: [...scenario.testOrder],
+      };
+    }),
   };
 
   validateWorkflowBundle(bundle);
@@ -82,7 +124,11 @@ export function validateWorkflowBundle(
 
   const bundle = value as Partial<WorkflowBundle>;
 
-  if (bundle.schemaVersion !== 1 && bundle.schemaVersion !== 2) {
+  if (
+    bundle.schemaVersion !== 1 &&
+    bundle.schemaVersion !== 2 &&
+    bundle.schemaVersion !== 3
+  ) {
     throw new Error(
       `Unsupported workflow bundle schema version: ${String(bundle.schemaVersion)}.`,
     );
@@ -140,18 +186,24 @@ export function validateWorkflowBundle(
   );
 
   bundle.scenarios.forEach((scenario, index) => {
-    validateBundleScenario(scenario, index);
-    const scenarioValidation = validateScenario(graph, {
-      id: `bundle-scenario-${index}`,
-      name: scenario.name,
-      tests: scenario.tests,
-      testOrder: scenario.testOrder,
-    });
+    const executionModel =
+      bundle.schemaVersion === 3 ? scenario.executionModel : "legacy-tests";
+    if (executionModel === "journey") {
+      validateJourneyBundleScenario(scenario, index, graph.services);
+    } else {
+      validateLegacyBundleScenario(scenario, index, bundle.schemaVersion === 3);
+      const scenarioValidation = validateScenario(graph, {
+        id: `bundle-scenario-${index}`,
+        name: scenario.name,
+        tests: scenario.tests,
+        testOrder: scenario.testOrder,
+      });
 
-    if (!scenarioValidation.valid) {
-      throw new Error(
-        scenarioValidation.errors.map((error) => error.message).join("; "),
-      );
+      if (!scenarioValidation.valid) {
+        throw new Error(
+          scenarioValidation.errors.map((error) => error.message).join("; "),
+        );
+      }
     }
   });
 }
@@ -181,7 +233,10 @@ export function materializeWorkflowBundle(
 function normalizeWorkflowBundle(bundle: WorkflowBundle): WorkflowBundle {
   return {
     ...bundle,
-    schemaVersion: WORKFLOW_BUNDLE_SCHEMA_VERSION,
+    schemaVersion:
+      bundle.schemaVersion === 1
+        ? WORKFLOW_BUNDLE_SCHEMA_VERSION
+        : bundle.schemaVersion,
     workflow: {
       ...bundle.workflow,
       edges: normalizeEdges(
@@ -189,6 +244,25 @@ function normalizeWorkflowBundle(bundle: WorkflowBundle): WorkflowBundle {
         bundle.schemaVersion === 1,
       ),
     },
+    scenarios: bundle.scenarios.map((scenario) => {
+      const executionModel =
+        bundle.schemaVersion === 3 ? scenario.executionModel : "legacy-tests";
+      return executionModel === "journey"
+        ? ({
+            ...scenario,
+            executionModel,
+            steps: cloneValue(scenario.steps || []),
+            stepOrder: [...(scenario.stepOrder || [])],
+          } as WorkflowBundleScenario)
+        : {
+            ...scenario,
+            executionModel: "legacy-tests",
+            tests: cloneValue(scenario.tests),
+            testOrder: [...scenario.testOrder],
+            steps: [],
+            stepOrder: [],
+          };
+    }),
   };
 }
 
@@ -227,9 +301,10 @@ export function createClonedWorkflowBundle(
   };
 }
 
-function validateBundleScenario(
+function validateLegacyBundleScenario(
   scenario: Partial<WorkflowBundleScenario>,
   index: number,
+  requireExplicitModel: boolean,
 ) {
   if (!scenario || typeof scenario !== "object") {
     throw new Error(`Scenario ${index + 1} must be an object.`);
@@ -237,6 +312,22 @@ function validateBundleScenario(
 
   if (!scenario.name?.trim()) {
     throw new Error(`Scenario ${index + 1} must include a name.`);
+  }
+
+  if (requireExplicitModel && scenario.executionModel !== "legacy-tests") {
+    throw new Error(
+      `Scenario "${scenario.name}" must declare executionModel "legacy-tests".`,
+    );
+  }
+
+  if (
+    scenario.environment !== undefined ||
+    scenario.steps !== undefined ||
+    scenario.stepOrder !== undefined
+  ) {
+    throw new Error(
+      `Legacy scenario "${scenario.name}" must not include journey fields.`,
+    );
   }
 
   if (!Array.isArray(scenario.tests) || scenario.tests.length === 0) {
@@ -295,9 +386,149 @@ function validateBundleScenario(
   }
 }
 
+function validateJourneyBundleScenario(
+  scenario: Partial<WorkflowBundleScenario>,
+  index: number,
+  services: Array<{ name: string; ports?: string[] }>,
+) {
+  if (!scenario.name?.trim()) {
+    throw new Error(`Scenario ${index + 1} must include a name.`);
+  }
+  if (scenario.executionModel !== "journey") {
+    throw new Error(
+      `Scenario "${scenario.name}" must declare executionModel "journey".`,
+    );
+  }
+  if ("tests" in scenario || "testOrder" in scenario) {
+    throw new Error(
+      `Journey scenario "${scenario.name}" must not include tests or testOrder.`,
+    );
+  }
+  const environment = scenario.environment;
+  if (
+    environment?.driver !== "browser" ||
+    !environment.browser.targetService.trim() ||
+    !environment.browser.targetPort.trim()
+  ) {
+    throw new Error(
+      `Journey scenario "${scenario.name}" must include a browser target service and port.`,
+    );
+  }
+  const target = services.find(
+    (service) => service.name === environment.browser.targetService,
+  );
+  if (!target) {
+    throw new Error(
+      `Journey scenario "${scenario.name}" references unknown browser target service "${environment.browser.targetService}".`,
+    );
+  }
+  if (
+    !target.ports?.some(
+      (mapping) => mapping.split(":").at(-1) === environment.browser.targetPort,
+    )
+  ) {
+    throw new Error(
+      `Journey scenario "${scenario.name}" browser target does not expose port "${environment.browser.targetPort}".`,
+    );
+  }
+  if (!Array.isArray(scenario.steps) || scenario.steps.length === 0) {
+    throw new Error(
+      `Journey scenario "${scenario.name}" must include at least one step.`,
+    );
+  }
+  if (!Array.isArray(scenario.stepOrder)) {
+    throw new Error(
+      `Journey scenario "${scenario.name}" must include a stepOrder array.`,
+    );
+  }
+  const stepIds = scenario.steps.map((step) => step.id);
+  if (new Set(stepIds).size !== stepIds.length) {
+    throw new Error(
+      `Journey scenario "${scenario.name}" contains duplicate step ids.`,
+    );
+  }
+  if (
+    scenario.stepOrder.length !== stepIds.length ||
+    new Set(scenario.stepOrder).size !== scenario.stepOrder.length ||
+    scenario.stepOrder.some((stepId) => !stepIds.includes(stepId))
+  ) {
+    throw new Error(
+      `Journey scenario "${scenario.name}" stepOrder must include every step exactly once.`,
+    );
+  }
+  scenario.steps.forEach((step) => validateScenarioStep(step, scenario.name!));
+}
+
+function validateScenarioStep(step: ScenarioStep, scenarioName: string) {
+  if (!step.id.trim() || !step.name.trim()) {
+    throw new Error(
+      `Journey scenario "${scenarioName}" contains a step without an id or name.`,
+    );
+  }
+  if (step.timeoutMs !== undefined && step.timeoutMs < 0) {
+    throw new Error(`Journey step "${step.name}" has an invalid timeout.`);
+  }
+  const config =
+    step.kind === "action"
+      ? step.action
+      : step.kind === "assertion"
+        ? step.assertion
+        : step.control;
+  if ("path" in config && !config.path.startsWith("/")) {
+    throw new Error(
+      `Journey step "${step.name}" path must start with a slash.`,
+    );
+  }
+  if ("locator" in config) {
+    const locator = config.locator;
+    const valid =
+      locator.strategy === "role"
+        ? Boolean(locator.role.trim() && locator.name.trim())
+        : Boolean(locator.value.trim());
+    if (!valid) {
+      throw new Error(`Journey step "${step.name}" has an invalid locator.`);
+    }
+  }
+  if (
+    step.kind === "action" &&
+    step.action.operation === "fill" &&
+    step.action.value.source === "run-secret" &&
+    !step.action.value.secretRef.trim()
+  ) {
+    throw new Error(
+      `Journey step "${step.name}" run-secret value requires secretRef.`,
+    );
+  }
+  if (
+    step.kind === "control" &&
+    (step.control.operation !== "delay" || step.control.durationMs < 0)
+  ) {
+    throw new Error(`Journey step "${step.name}" has an invalid delay.`);
+  }
+}
+
 function cloneScenarioForImport(
   scenario: WorkflowBundleScenario,
 ): WorkflowBundleScenario {
+  if (scenario.executionModel === "journey") {
+    const idMap = new Map<string, string>();
+    for (const step of scenario.steps || []) {
+      idMap.set(step.id, generateId());
+    }
+    return {
+      name: scenario.name,
+      description: scenario.description || "",
+      executionModel: "journey",
+      environment: cloneValue(scenario.environment),
+      steps: (scenario.steps || []).map((step) => ({
+        ...cloneValue(step),
+        id: idMap.get(step.id) || generateId(),
+      })),
+      stepOrder: (scenario.stepOrder || [])
+        .map((id) => idMap.get(id))
+        .filter((id): id is string => Boolean(id)),
+    } as WorkflowBundleScenario;
+  }
   const idMap = new Map<string, string>();
   for (const test of scenario.tests) {
     idMap.set(test.id, generateId());
@@ -315,10 +546,13 @@ function cloneScenarioForImport(
   return {
     name: scenario.name,
     description: scenario.description || "",
+    executionModel: "legacy-tests",
     tests,
     testOrder: scenario.testOrder
       .map((id) => idMap.get(id))
       .filter((id): id is string => Boolean(id)),
+    steps: [],
+    stepOrder: [],
   };
 }
 

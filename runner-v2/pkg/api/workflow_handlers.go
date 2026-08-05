@@ -15,6 +15,7 @@ import (
 	"github.com/dev-atharva/cots/pkg/db"
 	apperrors "github.com/dev-atharva/cots/pkg/errors"
 	"github.com/dev-atharva/cots/pkg/logger"
+	"github.com/dev-atharva/cots/pkg/runsecret"
 	"github.com/dev-atharva/cots/pkg/workflowbundle"
 	"github.com/dev-atharva/cots/pkg/workflowrun"
 	"github.com/go-chi/chi/v5"
@@ -34,6 +35,9 @@ func (h *Handler) SubmitWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	}
 	job, created, err := h.workflowService.Submit(r.Context(), &request)
 	if err != nil {
+		if respondRunSecretResolutionError(w, err) {
+			return
+		}
 		var admissionErr *db.WorkflowAdmissionError
 		if errors.As(err, &admissionErr) {
 			w.Header().Set("Retry-After", strconv.Itoa(maxIntAPI(int(admissionErr.RetryAfter.Seconds()), 1)))
@@ -59,6 +63,73 @@ func (h *Handler) SubmitWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		"created":            created,
 		"queue":              queue,
 	})
+}
+
+func (h *Handler) AuthorizeWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	if h.workflowService == nil {
+		apperrors.RespondInternalError(w, "workflow worker is not enabled")
+		return
+	}
+	var input struct {
+		Request    workflowrun.Request `json:"request"`
+		RunSecrets []struct {
+			SecretRef string `json:"secretRef"`
+			Value     string `json:"value"`
+		} `json:"runSecrets"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 10<<20))
+	if err := decoder.Decode(&input); err != nil {
+		apperrors.ResponseBadRequest(w, "invalid workflow run authorization")
+		return
+	}
+	supplied := make([]runsecret.SuppliedValue, len(input.RunSecrets))
+	for index := range input.RunSecrets {
+		supplied[index] = runsecret.SuppliedValue{SecretRef: input.RunSecrets[index].SecretRef, Value: []byte(input.RunSecrets[index].Value)}
+		input.RunSecrets[index].Value = ""
+	}
+	defer func() {
+		for index := range supplied {
+			runsecret.Clear(supplied[index].Value)
+		}
+	}()
+	job, created, err := h.workflowService.AuthorizeAndSubmit(r.Context(), &input.Request, supplied)
+	if err != nil {
+		if respondRunSecretResolutionError(w, err) {
+			return
+		}
+		var admissionErr *db.WorkflowAdmissionError
+		if errors.As(err, &admissionErr) {
+			w.Header().Set("Retry-After", strconv.Itoa(maxIntAPI(int(admissionErr.RetryAfter.Seconds()), 1)))
+			status := http.StatusTooManyRequests
+			if admissionErr.Scope == "server" {
+				status = http.StatusServiceUnavailable
+			}
+			respondJson(w, status, map[string]any{"error": admissionErr.Error(), "code": "queue_limit", "scope": admissionErr.Scope, "limit": admissionErr.Limit})
+			return
+		}
+		if strings.Contains(err.Error(), "different payload") {
+			respondJson(w, http.StatusConflict, map[string]string{"error": err.Error(), "code": apperrors.ErrInvalidRequest.String()})
+			return
+		}
+		apperrors.ResponseBadRequest(w, err.Error())
+		return
+	}
+	queue, _ := h.workflowService.QueueInfo(r.Context(), input.Request.WorkflowRunID)
+	respondJson(w, http.StatusAccepted, map[string]any{
+		"workflowRunId": input.Request.WorkflowRunID, "workflowRevisionId": input.Request.WorkflowRevisionID,
+		"status": job.Status, "created": created, "queue": queue,
+	})
+}
+
+func respondRunSecretResolutionError(w http.ResponseWriter, err error) bool {
+	var resolution *runsecret.ResolutionError
+	if !runsecret.AsResolutionError(err, &resolution) {
+		return false
+	}
+	respondJson(w, http.StatusBadRequest, map[string]any{
+		"error": resolution.Error(), "code": resolution.Code, "requiredSecretRefs": resolution.References,
+	})
+	return true
 }
 
 func (h *Handler) ListWorkflowRevisions(w http.ResponseWriter, r *http.Request) {
@@ -287,6 +358,39 @@ func (h *Handler) GetWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) GetBrowserJourneyArtifact(w http.ResponseWriter, r *http.Request) {
+	if h.browserArtifacts == nil {
+		apperrors.RespondNotFound(w, "browser journey artifact")
+		return
+	}
+	runID, projectID := chi.URLParam(r, "workflowRunID"), r.URL.Query().Get("projectId")
+	if projectID == "" {
+		apperrors.ResponseBadRequest(w, "projectId is required")
+		return
+	}
+	run, err := h.db.GetWorkflowRun(r.Context(), runID)
+	if err != nil || run.ProjectID != projectID {
+		apperrors.RespondNotFound(w, "browser journey artifact")
+		return
+	}
+	record, file, err := h.browserArtifacts.OpenAuthorized(r.Context(), chi.URLParam(r, "artifactID"), projectID, runID)
+	if err != nil {
+		apperrors.RespondNotFound(w, "browser journey artifact")
+		return
+	}
+	defer file.Close()
+	filename := "browser-failure.png"
+	if record.Kind == "trace" {
+		filename = "browser-trace.zip"
+	}
+	w.Header().Set("Content-Type", record.ContentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Header().Set("Content-Length", strconv.FormatInt(record.SizeBytes, 10))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, no-store")
+	_, _ = io.Copy(w, file)
+}
+
 func (h *Handler) executionDefinitionForRun(ctx context.Context, run *db.WorkflowRun) any {
 	store, ok := h.db.(db.WorkflowRevisionStore)
 	if !ok || run == nil || run.Metadata == "" {
@@ -322,12 +426,24 @@ func (h *Handler) executionDefinitionForRun(ctx context.Context, run *db.Workflo
 		}
 		var tests []workflowbundle.ScenarioTestDefinition
 		var testOrder []string
+		var environment *workflowbundle.JourneyEnvironment
+		var steps []workflowbundle.ScenarioStep
+		var stepOrder []string
 		_ = json.Unmarshal([]byte(scenario.TestsConfig), &tests)
 		_ = json.Unmarshal([]byte(scenario.TestOrder), &testOrder)
-		scenarios = append(scenarios, map[string]any{
+		_ = json.Unmarshal([]byte(scenario.EnvironmentConfig), &environment)
+		_ = json.Unmarshal([]byte(scenario.StepsConfig), &steps)
+		_ = json.Unmarshal([]byte(scenario.StepOrder), &stepOrder)
+		definition := map[string]any{
 			"id": scenario.ID, "name": scenario.Name, "description": scenario.Description,
-			"tests": tests, "testOrder": testOrder,
-		})
+			"executionModel": scenario.ExecutionModel,
+		}
+		if scenario.ExecutionModel == workflowbundle.ExecutionModelJourney {
+			definition["environment"], definition["steps"], definition["stepOrder"] = environment, steps, stepOrder
+		} else {
+			definition["tests"], definition["testOrder"] = tests, testOrder
+		}
+		scenarios = append(scenarios, definition)
 	}
 	return map[string]any{
 		"workflowRevisionId": revision.ID, "revisionNumber": revision.RevisionNumber,

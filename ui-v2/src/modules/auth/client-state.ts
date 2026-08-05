@@ -4,6 +4,7 @@ import { del } from "idb-keyval";
 import { setCurrentSessionProjectId } from "../projects/session-project";
 import { syncService } from "../sync/sync-service";
 import { useRegistrySecretStore } from "../workflow/stores/registry-secret-store";
+import { useRunSecretStore } from "../workflow/stores/run-secret-store";
 import { setCurrentSessionUserId } from "./session-user";
 
 const PERSISTED_KEYS = [
@@ -26,6 +27,7 @@ export async function clearProjectScopedClientState() {
   syncService.clearQueue();
   setCurrentSessionProjectId(null);
   useRegistrySecretStore.getState().clearAll();
+  useRunSecretStore.getState().clearAll();
   await Promise.all(PERSISTED_KEYS.map((key) => del(key)));
 }
 
@@ -39,6 +41,7 @@ export async function clearUserScopedClientState() {
   setCurrentSessionUserId(null);
   setCurrentSessionProjectId(null);
   useRegistrySecretStore.getState().clearAll();
+  useRunSecretStore.getState().clearAll();
 
   if (typeof window === "undefined") {
     return;

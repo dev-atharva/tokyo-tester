@@ -13,6 +13,7 @@ func rejectUnknownBundleFields(raw []byte) error {
 	if err := rejectUnknown(root, "/", "schemaVersion", "kind", "workflow", "scenarios"); err != nil {
 		return err
 	}
+	schemaVersion, _ := root["schemaVersion"].(float64)
 	workflow, _ := root["workflow"].(map[string]any)
 	if workflow != nil {
 		if err := rejectUnknown(workflow, "/workflow", "name", "description", "nodes", "edges"); err != nil {
@@ -86,8 +87,55 @@ func rejectUnknownBundleFields(raw []byte) error {
 	for scenarioIndex, item := range asJSONArray(root["scenarios"]) {
 		scenario, _ := item.(map[string]any)
 		path := fmt.Sprintf("/scenarios/%d", scenarioIndex)
-		if err := rejectUnknown(scenario, path, "name", "description", "tests", "testOrder"); err != nil {
+		allowedScenarioFields := []string{"name", "description", "tests", "testOrder"}
+		if int(schemaVersion) == SchemaVersionV3 {
+			allowedScenarioFields = append(allowedScenarioFields, "executionModel", "environment", "steps", "stepOrder")
+		}
+		if err := rejectUnknown(scenario, path, allowedScenarioFields...); err != nil {
 			return err
+		}
+		if environment, _ := scenario["environment"].(map[string]any); environment != nil {
+			if err := rejectUnknown(environment, path+"/environment", "driver", "browser"); err != nil {
+				return err
+			}
+			if browser, _ := environment["browser"].(map[string]any); browser != nil {
+				if err := rejectUnknown(browser, path+"/environment/browser", "targetService", "targetPort"); err != nil {
+					return err
+				}
+			}
+		}
+		for stepIndex, value := range asJSONArray(scenario["steps"]) {
+			step, _ := value.(map[string]any)
+			stepPath := fmt.Sprintf("%s/steps/%d", path, stepIndex)
+			if err := rejectUnknown(step, stepPath, "id", "name", "kind", "timeoutMs", "action", "assertion", "control"); err != nil {
+				return err
+			}
+			if action, _ := step["action"].(map[string]any); action != nil {
+				if err := rejectUnknown(action, stepPath+"/action", "operation", "path", "locator", "value"); err != nil {
+					return err
+				}
+				if err := rejectUnknownLocator(action["locator"], stepPath+"/action/locator"); err != nil {
+					return err
+				}
+				if stepValue, _ := action["value"].(map[string]any); stepValue != nil {
+					if err := rejectUnknown(stepValue, stepPath+"/action/value", "source", "value", "secretRef"); err != nil {
+						return err
+					}
+				}
+			}
+			if assertion, _ := step["assertion"].(map[string]any); assertion != nil {
+				if err := rejectUnknown(assertion, stepPath+"/assertion", "operation", "path", "query", "locator"); err != nil {
+					return err
+				}
+				if err := rejectUnknownLocator(assertion["locator"], stepPath+"/assertion/locator"); err != nil {
+					return err
+				}
+			}
+			if control, _ := step["control"].(map[string]any); control != nil {
+				if err := rejectUnknown(control, stepPath+"/control", "operation", "durationMs"); err != nil {
+					return err
+				}
+			}
 		}
 		for testIndex, value := range asJSONArray(scenario["tests"]) {
 			test, _ := value.(map[string]any)
@@ -128,6 +176,14 @@ func rejectUnknownBundleFields(raw []byte) error {
 		}
 	}
 	return nil
+}
+
+func rejectUnknownLocator(value any, path string) error {
+	locator, _ := value.(map[string]any)
+	if locator == nil {
+		return nil
+	}
+	return rejectUnknown(locator, path, "strategy", "role", "name", "value", "exact")
 }
 
 func rejectUnknown(object map[string]any, path string, allowed ...string) error {

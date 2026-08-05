@@ -123,6 +123,34 @@ func (s *Service) ProcessBatch(ctx context.Context, req *types.SyncBatchRequest)
 	return response, nil
 }
 
+func normalizeScenarioExecutionModel(value string) string {
+	if value == "" {
+		return "legacy-tests"
+	}
+	return value
+}
+
+func normalizeScenarioJSON(value json.RawMessage) string {
+	if len(value) == 0 || string(value) == "null" {
+		return "[]"
+	}
+	return string(value)
+}
+
+func normalizeScenarioEnvironmentJSON(value json.RawMessage) string {
+	if len(value) == 0 {
+		return "null"
+	}
+	return string(value)
+}
+
+func normalizeStoredScenarioJSON(value, fallback string) json.RawMessage {
+	if value == "" {
+		value = fallback
+	}
+	return json.RawMessage(value)
+}
+
 // processChange dispatches the change to the correct handler
 // (legacy kept for compatiblity)
 func (s Service) processChange(ctx context.Context, change *types.SyncChange, response *types.SyncBatchResponse, userID string) error {
@@ -291,20 +319,24 @@ func (s *Service) processScenarioChange(ctx context.Context, change *types.SyncC
 		}
 
 		scenario := &db.Scenario{
-			ID:          scenarioData.ID,
-			ProjectID:   scenarioData.ProjectID,
-			WorkflowID:  scenarioData.WorkflowID,
-			Name:        scenarioData.Name,
-			Description: scenarioData.Description,
-			TestsConfig: string(scenarioData.TestsConfig),
-			TestOrder:   string(scenarioData.TestOrder),
-			Metadata:    string(scenarioData.Metadata),
-			Version:     scenarioData.Version,
-			CreatedAt:   scenarioData.CreatedAt,
-			UpdatedAt:   scenarioData.UpdatedAt,
-			ClientID:    scenarioData.ClientID,
-			UserID:      userID,
-			IsDeleted:   scenarioData.IsDeleted,
+			ID:                scenarioData.ID,
+			ProjectID:         scenarioData.ProjectID,
+			WorkflowID:        scenarioData.WorkflowID,
+			Name:              scenarioData.Name,
+			Description:       scenarioData.Description,
+			ExecutionModel:    normalizeScenarioExecutionModel(scenarioData.ExecutionModel),
+			TestsConfig:       string(scenarioData.TestsConfig),
+			TestOrder:         string(scenarioData.TestOrder),
+			EnvironmentConfig: normalizeScenarioEnvironmentJSON(scenarioData.EnvironmentConfig),
+			StepsConfig:       normalizeScenarioJSON(scenarioData.StepsConfig),
+			StepOrder:         normalizeScenarioJSON(scenarioData.StepOrder),
+			Metadata:          string(scenarioData.Metadata),
+			Version:           scenarioData.Version,
+			CreatedAt:         scenarioData.CreatedAt,
+			UpdatedAt:         scenarioData.UpdatedAt,
+			ClientID:          scenarioData.ClientID,
+			UserID:            userID,
+			IsDeleted:         scenarioData.IsDeleted,
 		}
 
 		return s.db.UpsertScenario(ctx, scenario)
@@ -325,20 +357,24 @@ func (s *Service) processScenarioChangeInTx(ctx context.Context, tx db.Tx, chang
 
 		now := time.Now().UTC()
 		scenario := &db.Scenario{
-			ID:          scenarioData.ID,
-			ProjectID:   scenarioData.ProjectID,
-			WorkflowID:  scenarioData.WorkflowID,
-			Name:        scenarioData.Name,
-			Description: scenarioData.Description,
-			TestsConfig: string(scenarioData.TestsConfig),
-			TestOrder:   string(scenarioData.TestOrder),
-			Metadata:    string(scenarioData.Metadata),
-			Version:     1,
-			CreatedAt:   scenarioData.CreatedAt,
-			UpdatedAt:   now,
-			ClientID:    scenarioData.ClientID,
-			UserID:      userID,
-			IsDeleted:   scenarioData.IsDeleted,
+			ID:                scenarioData.ID,
+			ProjectID:         scenarioData.ProjectID,
+			WorkflowID:        scenarioData.WorkflowID,
+			Name:              scenarioData.Name,
+			Description:       scenarioData.Description,
+			ExecutionModel:    normalizeScenarioExecutionModel(scenarioData.ExecutionModel),
+			TestsConfig:       string(scenarioData.TestsConfig),
+			TestOrder:         string(scenarioData.TestOrder),
+			EnvironmentConfig: normalizeScenarioEnvironmentJSON(scenarioData.EnvironmentConfig),
+			StepsConfig:       normalizeScenarioJSON(scenarioData.StepsConfig),
+			StepOrder:         normalizeScenarioJSON(scenarioData.StepOrder),
+			Metadata:          string(scenarioData.Metadata),
+			Version:           1,
+			CreatedAt:         scenarioData.CreatedAt,
+			UpdatedAt:         now,
+			ClientID:          scenarioData.ClientID,
+			UserID:            userID,
+			IsDeleted:         scenarioData.IsDeleted,
 		}
 
 		if change.ChangeType == "insert" {
@@ -945,20 +981,24 @@ func (s *Service) PullChanges(ctx context.Context, userID string, projectID stri
 
 	for _, scenario := range scenarios {
 		response.Scenarios = append(response.Scenarios, types.ScenarioData{
-			ID:          scenario.ID,
-			ProjectID:   scenario.ProjectID,
-			WorkflowID:  scenario.WorkflowID,
-			UserID:      scenario.UserID,
-			Name:        scenario.Name,
-			Description: scenario.Description,
-			TestsConfig: json.RawMessage(scenario.TestsConfig),
-			TestOrder:   json.RawMessage(scenario.TestOrder),
-			Metadata:    json.RawMessage(scenario.Metadata),
-			Version:     scenario.Version,
-			CreatedAt:   scenario.CreatedAt,
-			UpdatedAt:   scenario.UpdatedAt,
-			ClientID:    scenario.ClientID,
-			IsDeleted:   scenario.IsDeleted,
+			ID:                scenario.ID,
+			ProjectID:         scenario.ProjectID,
+			WorkflowID:        scenario.WorkflowID,
+			UserID:            scenario.UserID,
+			Name:              scenario.Name,
+			Description:       scenario.Description,
+			ExecutionModel:    scenario.ExecutionModel,
+			TestsConfig:       json.RawMessage(scenario.TestsConfig),
+			TestOrder:         json.RawMessage(scenario.TestOrder),
+			EnvironmentConfig: normalizeStoredScenarioJSON(scenario.EnvironmentConfig, "null"),
+			StepsConfig:       normalizeStoredScenarioJSON(scenario.StepsConfig, "[]"),
+			StepOrder:         normalizeStoredScenarioJSON(scenario.StepOrder, "[]"),
+			Metadata:          json.RawMessage(scenario.Metadata),
+			Version:           scenario.Version,
+			CreatedAt:         scenario.CreatedAt,
+			UpdatedAt:         scenario.UpdatedAt,
+			ClientID:          scenario.ClientID,
+			IsDeleted:         scenario.IsDeleted,
 		})
 	}
 

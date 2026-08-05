@@ -25,3 +25,5 @@ Use this rubric before import or execution. Warnings do not replace `tokyo_valid
 3. Validate the bundle with `tokyo_validate_workflow` and retain its normalized bundle plus validation receipt.
 4. Edit only the smallest relevant part for validation errors.
 5. Present the normalized bundle and request approval before import or run; pass it unchanged with its receipt.
+6. For `human_input_required`, hand the URL to the human and poll the intent without requesting secret values or vault state.
+7. Repair from compact diagnostics; request an available PNG only when visual evidence materially helps, and never request a trace through MCP.

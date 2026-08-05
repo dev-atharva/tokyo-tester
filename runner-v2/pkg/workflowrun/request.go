@@ -24,15 +24,19 @@ type Request struct {
 }
 
 type Scenario struct {
-	ID            string                                  `json:"id"`
-	ScenarioRunID string                                  `json:"scenarioRunId"`
-	ProjectID     string                                  `json:"projectId"`
-	Name          string                                  `json:"name"`
-	Description   string                                  `json:"description,omitempty"`
-	Tests         []workflowbundle.ScenarioTestDefinition `json:"tests"`
-	TestOrder     []string                                `json:"testOrder"`
-	UserID        string                                  `json:"user_id,omitempty"`
-	ClientID      string                                  `json:"client_id,omitempty"`
+	ID             string                                  `json:"id"`
+	ScenarioRunID  string                                  `json:"scenarioRunId"`
+	ProjectID      string                                  `json:"projectId"`
+	Name           string                                  `json:"name"`
+	Description    string                                  `json:"description,omitempty"`
+	ExecutionModel string                                  `json:"executionModel,omitempty"`
+	Tests          []workflowbundle.ScenarioTestDefinition `json:"tests,omitempty"`
+	TestOrder      []string                                `json:"testOrder,omitempty"`
+	Environment    *workflowbundle.JourneyEnvironment      `json:"environment,omitempty"`
+	Steps          []workflowbundle.ScenarioStep           `json:"steps,omitempty"`
+	StepOrder      []string                                `json:"stepOrder,omitempty"`
+	UserID         string                                  `json:"user_id,omitempty"`
+	ClientID       string                                  `json:"client_id,omitempty"`
 }
 
 type ExecutionOptions struct {
@@ -77,14 +81,24 @@ func (r *Request) Bundle() (*workflowbundle.Bundle, error) {
 		}
 	}
 	scenarios := make([]workflowbundle.BundleScenario, 0, len(r.Scenarios))
+	schemaVersion := workflowbundle.SchemaVersion
 	for _, scenario := range r.Scenarios {
+		executionModel := scenario.ExecutionModel
+		if executionModel == "" {
+			executionModel = workflowbundle.ExecutionModelLegacyTests
+		}
+		if executionModel == workflowbundle.ExecutionModelJourney {
+			schemaVersion = workflowbundle.SchemaVersionV3
+		}
 		scenarios = append(scenarios, workflowbundle.BundleScenario{
 			Name: scenario.Name, Description: scenario.Description,
-			Tests: scenario.Tests, TestOrder: scenario.TestOrder,
+			ExecutionModel: executionModel,
+			Tests:          scenario.Tests, TestOrder: scenario.TestOrder,
+			Environment: scenario.Environment, Steps: scenario.Steps, StepOrder: scenario.StepOrder,
 		})
 	}
 	bundle := &workflowbundle.Bundle{
-		SchemaVersion: workflowbundle.SchemaVersion,
+		SchemaVersion: schemaVersion,
 		Kind:          workflowbundle.BundleKind,
 		Workflow: workflowbundle.Workflow{
 			Name: r.WorkflowName, Nodes: nodes, Edges: r.Edges,

@@ -6,11 +6,15 @@ import type {
 import type {
   FlowEdge,
   FlowNode,
+  JourneyEnvironment,
+  ScenarioExecutionModel,
+  ScenarioStep,
   ScenarioTestDefinition,
   WorkflowLogEvent,
   WorkflowRunInput,
   WorkflowRunStatus,
 } from "../types/react-flow-cots";
+import type { RunSecretInput } from "./run-secrets";
 
 type Fetcher = (
   input: RequestInfo | URL,
@@ -52,6 +56,27 @@ export async function submitWorkflowRun(
     const body = await response.text().catch(() => "");
     if (body) message = body;
   }
+  throw new Error(message);
+}
+
+export async function authorizeWorkflowRun(
+  input: WorkflowRunInput,
+  runSecrets: RunSecretInput[],
+  fetcher: Fetcher = fetch,
+): Promise<WorkflowRunSubmission> {
+  const response = await fetcher("/api/v1/workflow-runs/authorize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ request: input, runSecrets }),
+  });
+  if (response.status === 202) {
+    return (await response.json()) as WorkflowRunSubmission;
+  }
+  let message = `Runner returned ${response.status}`;
+  try {
+    const payload = (await response.json()) as { error?: string };
+    if (payload.error) message = payload.error;
+  } catch {}
   throw new Error(message);
 }
 
@@ -132,9 +157,22 @@ export interface WorkflowExecutionDefinition {
     id: string;
     name: string;
     description?: string;
-    tests: ScenarioTestDefinition[];
-    testOrder: string[];
+    executionModel: ScenarioExecutionModel;
+    tests?: ScenarioTestDefinition[];
+    testOrder?: string[];
+    environment?: JourneyEnvironment;
+    steps?: ScenarioStep[];
+    stepOrder?: string[];
   }>;
+}
+
+export function browserJourneyArtifactUrl(
+  workflowRunId: string,
+  artifactId: string,
+  projectId: string,
+): string {
+  const query = new URLSearchParams({ projectId });
+  return `/api/v1/workflow-runs/${encodeURIComponent(workflowRunId)}/artifacts/${encodeURIComponent(artifactId)}?${query.toString()}`;
 }
 
 export interface WorkflowLogPage {

@@ -10,7 +10,7 @@ import (
 func TestAgentCapabilitiesEndpoint(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	NewRouter(&Handler{}, nil, false).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/workflow-bundles/capabilities", nil))
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"schemaVersion":2`) {
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"schemaVersion":3`) || !strings.Contains(recorder.Body.String(), `"acceptedSchemaVersions":[2,3]`) {
 		t.Fatalf("unexpected response: %d %s", recorder.Code, recorder.Body.String())
 	}
 }

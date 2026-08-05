@@ -102,6 +102,65 @@ export const mysqlAgentTokens = mysqlTable("agent_token", {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
+export const mysqlRunIntents = mysqlTable(
+  "workflow_run_intent",
+  {
+    id: varchar("id", { length: 255 }).primaryKey(),
+    principalId: varchar("principalId", { length: 255 }).notNull(),
+    userId: varchar("userId", { length: 255 })
+      .notNull()
+      .references(() => mysqlUsers.id, { onDelete: "cascade" }),
+    projectId: varchar("projectId", { length: 255 })
+      .notNull()
+      .references(() => mysqlProjects.id, { onDelete: "cascade" }),
+    workflowId: varchar("workflowId", { length: 255 }).notNull(),
+    operation: varchar("operation", {
+      length: 32,
+      enum: ["bundle", "existing"],
+    }).notNull(),
+    state: varchar("state", {
+      length: 32,
+      enum: [
+        "awaiting-human",
+        "submitting",
+        "submitted",
+        "cancelled",
+        "expired",
+      ],
+    })
+      .notNull()
+      .default("awaiting-human"),
+    requestHash: varchar("requestHash", { length: 64 }).notNull(),
+    idempotencyKey: varchar("idempotencyKey", { length: 200 }).notNull(),
+    payload: text("payload").notNull(),
+    requiredSecretRefs: text("requiredSecretRefs").notNull(),
+    selectionSummary: text("selectionSummary").notNull(),
+    workflowRunId: varchar("workflowRunId", { length: 255 }),
+    claimId: varchar("claimId", { length: 255 }),
+    createdAt: timestamp("createdAt", { mode: "date" })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    expiresAt: timestamp("expiresAt", { mode: "date" }).notNull(),
+    updatedAt: timestamp("updatedAt", { mode: "date" })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("workflow_run_intent_request_idx").on(
+      table.principalId,
+      table.projectId,
+      table.operation,
+      table.idempotencyKey,
+    ),
+    index("workflow_run_intent_human_idx").on(
+      table.userId,
+      table.projectId,
+      table.id,
+    ),
+    index("workflow_run_intent_expiry_idx").on(table.state, table.expiresAt),
+  ],
+);
+
 export const mysqlAccounts = mysqlTable(
   "account",
   {

@@ -168,11 +168,109 @@ describe("workflow bundle", () => {
     expect(cloned.workflow.name).toBe("Smoke Tests Copy 2");
   });
 
+  test("parses a version 3 browser journey beside legacy tests", () => {
+    const journeyNodes = structuredClone(nodes);
+    if (journeyNodes[0]) {
+      journeyNodes[0].data.service.ports = [
+        { id: "port-8080", hostPort: "", containerPort: "8080" },
+      ];
+    }
+    const parsed = parseWorkflowBundle(
+      JSON.stringify({
+        schemaVersion: 3,
+        kind: "cots.workflow-bundle",
+        workflow: { name: "mixed", nodes: journeyNodes, edges },
+        scenarios: [
+          {
+            name: "legacy",
+            executionModel: "legacy-tests",
+            tests,
+            testOrder: ["test-1", "test-2"],
+          },
+          {
+            name: "sign in",
+            executionModel: "journey",
+            environment: {
+              driver: "browser",
+              browser: { targetService: "api", targetPort: "8080" },
+            },
+            steps: [
+              {
+                id: "open",
+                name: "open login",
+                kind: "action",
+                action: { operation: "navigate", path: "/login" },
+              },
+              {
+                id: "visible",
+                name: "show login",
+                kind: "assertion",
+                assertion: {
+                  operation: "visible",
+                  locator: { strategy: "role", role: "heading", name: "Login" },
+                },
+              },
+            ],
+            stepOrder: ["open", "visible"],
+          },
+        ],
+      }),
+    );
+
+    expect(parsed.schemaVersion).toBe(3);
+    expect(parsed.scenarios[0]?.executionModel).toBe("legacy-tests");
+    expect(parsed.scenarios[1]?.executionModel).toBe("journey");
+    expect(parsed.scenarios[1]?.steps).toHaveLength(2);
+  });
+
+  test("exports a browser journey as v3 without legacy test fields", () => {
+    const journeyNodes = structuredClone(nodes);
+    if (journeyNodes[0]) {
+      journeyNodes[0].data.service.ports = [
+        { id: "port-8080", hostPort: "", containerPort: "8080" },
+      ];
+    }
+    const bundle = createWorkflowBundle(
+      { name: "Browser", description: "", nodes: journeyNodes, edges },
+      [
+        {
+          name: "sign in",
+          description: "",
+          executionModel: "journey",
+          tests: [],
+          testOrder: [],
+          environment: {
+            driver: "browser",
+            browser: { targetService: "api", targetPort: "8080" },
+          },
+          steps: [
+            {
+              id: "password",
+              name: "fill password",
+              kind: "action",
+              action: {
+                operation: "fill",
+                locator: { strategy: "label", value: "Password" },
+                value: { source: "run-secret", secretRef: "LOGIN_PASSWORD" },
+              },
+            },
+          ],
+          stepOrder: ["password"],
+        },
+      ],
+    );
+
+    expect(bundle.schemaVersion).toBe(3);
+    expect(bundle.scenarios[0]?.executionModel).toBe("journey");
+    expect("tests" in (bundle.scenarios[0] ?? {})).toBe(false);
+    expect("testOrder" in (bundle.scenarios[0] ?? {})).toBe(false);
+  });
+
   test("rejects unsupported schema versions", () => {
     expect(() =>
       parseWorkflowBundle(
         JSON.stringify({
-          schemaVersion: 3,
+          schemaVersion: 4,
           kind: "cots.workflow-bundle",
           workflow: { name: "bad", nodes, edges },
           scenarios: [

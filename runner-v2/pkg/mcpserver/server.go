@@ -39,8 +39,11 @@ var resourceDocs = map[string]struct {
 4. Call tokyo_review_workflow_plan with compact summaries before authoring complex or multi-repo bundles.
 5. Validate every bundle with tokyo_validate_workflow before import or run.
 6. Use the returned normalized bundle and validationReceipt unchanged. Any edit requires validation again.
+7. Use schemaVersion 3 and an explicit journey executionModel for browser workflows; v2 remains valid for legacy tests.
+8. A secret-bearing run returns human_input_required with a 15-minute handoff. Poll its runIntentId; never ask for or submit a value.
+9. Request a failure screenshot only when its non-secret PNG artifactId appears in diagnostics. Playwright traces are UI-only.
 
-Do not send source files, raw manifests, logs, or secrets to MCP.`),
+AI clients may configure a run-secret secretRef name, but must never request or send its value. Do not send source files, raw manifests, logs, or secrets to MCP.`),
 	},
 	"tokyo://scenario-patterns": {
 		name:     "Tokyo Tester scenario patterns",
@@ -52,6 +55,8 @@ Do not send source files, raw manifests, logs, or secrets to MCP.`),
 - Pair application actions with direct database, document, cache, or queue assertions for important side effects.
 - Include async completion checks for workers and brokers.
 - Include negative or validation scenarios only when behavior is evidenced by routes, specs, or tests.
+- Use a browser journey for a user-visible UI entrypoint. Target the provisioned UI service container port and use role/name, label, visible text, or testId locators.
+- Assert URL/path after navigation and visible content when the workflow remains on the current page.
 
 Use stable endpoint paths, topics, schemas, and expected values from repository evidence or user answers.`),
 	},
@@ -306,15 +311,21 @@ func tools() []map[string]any {
 		}, []string{"repositories", "serviceInventory", "dependencyMap", "scenarioMatrix"}), true, false, true),
 		tool("tokyo_validate_workflow", "Authoritatively validate and normalize a workflow bundle. Call before import or run.", objectSchema(map[string]any{"bundle": bundle}, []string{"bundle"}), true, false, true),
 		tool("tokyo_import_workflow", "Import an exactly validated workflow into the authorized project. Requires the unexpired validationReceipt returned for this bundle, user approval, and a stable idempotency key.", objectSchema(map[string]any{"bundle": bundle, "validationReceipt": validationReceiptSchema(), "idempotencyKey": map[string]any{"type": "string", "minLength": 8, "description": "Stable key reused only for retrying the same import."}}, []string{"bundle", "validationReceipt", "idempotencyKey"}), false, true, true),
-		tool("tokyo_run_workflow", "Import and execute an exactly validated workflow in the authorized project. Requires the unexpired validationReceipt returned for this bundle, workflow write/run permission, user approval, and a stable idempotency key.", objectSchema(map[string]any{"bundle": bundle, "validationReceipt": validationReceiptSchema(), "scenarioNames": stringArray, "idempotencyKey": map[string]any{"type": "string", "minLength": 8, "description": "Stable key reused only for retrying the same import-and-run."}}, []string{"bundle", "validationReceipt", "idempotencyKey"}), false, true, true),
-		tool("tokyo_run_existing_workflow", "Execute selected scenarios from a persisted workflow without modifying it. Omit scenarioIds only when the user approves running all scenarios.", objectSchema(map[string]any{"workflowId": stringSchema("Persisted workflow id."), "scenarioIds": stringArray, "idempotencyKey": map[string]any{"type": "string", "minLength": 8, "description": "Stable key reused only for retrying the same run."}}, []string{"workflowId", "idempotencyKey"}), false, true, true),
+		tool("tokyo_run_workflow", "Import and execute an exactly validated workflow in the authorized project. Requires the unexpired validationReceipt, workflow write/run permission, user approval, and a stable idempotency key. Secret-bearing selections return a secret-free 15-minute human run intent instead of starting immediately.", objectSchema(map[string]any{"bundle": bundle, "validationReceipt": validationReceiptSchema(), "scenarioNames": stringArray, "idempotencyKey": map[string]any{"type": "string", "minLength": 8, "description": "Stable key reused only for retrying the same import-and-run."}}, []string{"bundle", "validationReceipt", "idempotencyKey"}), false, true, true),
+		tool("tokyo_run_existing_workflow", "Execute selected scenarios from a persisted workflow without modifying it. Omit scenarioIds only when the user approves running all scenarios. Secret-bearing selections return a secret-free 15-minute human run intent instead of starting immediately.", objectSchema(map[string]any{"workflowId": stringSchema("Persisted workflow id."), "scenarioIds": stringArray, "idempotencyKey": map[string]any{"type": "string", "minLength": 8, "description": "Stable key reused only for retrying the same run."}}, []string{"workflowId", "idempotencyKey"}), false, true, true),
+		tool("tokyo_get_run_intent", "Poll a human run-intent handoff. Returns only state, reference names, expiry, bound selection, and eventual workflow run id; it never reports secret values or session-vault availability.", objectSchema(map[string]any{"runIntentId": stringSchema("Opaque run-intent id returned by a run tool.")}, []string{"runIntentId"}), true, false, true),
 		tool("tokyo_get_run", "Poll durable workflow run status and test results.", objectSchema(map[string]any{"workflowRunId": stringSchema("Workflow run id returned by a run tool.")}, []string{"workflowRunId"}), true, false, true),
-		tool("tokyo_get_run_diagnostics", "Get redacted workflow, scenario, and test failure diagnostics for repairing a workflow.", objectSchema(map[string]any{"workflowRunId": stringSchema("Workflow run id returned by a run tool.")}, []string{"workflowRunId"}), true, false, true),
+		tool("tokyo_get_run_diagnostics", "Get compact redacted workflow, legacy-test, browser-journey, step, location, and evidence-status diagnostics for repairing a workflow.", objectSchema(map[string]any{"workflowRunId": stringSchema("Workflow run id returned by a run tool.")}, []string{"workflowRunId"}), true, false, true),
+		mediaTool("tokyo_get_run_screenshot", "Read one explicitly requested, authorized, non-secret PNG failure screenshot. Use only an artifactId returned by diagnostics. Playwright traces and secret-bearing evidence are never returned.", objectSchema(map[string]any{"workflowRunId": stringSchema("Workflow run id that owns the screenshot."), "artifactId": stringSchema("Opaque available screenshot artifact id returned by diagnostics.")}, []string{"workflowRunId", "artifactId"})),
 	}
 }
 
 func tool(name, description string, schema map[string]any, readOnly, destructive, idempotent bool) map[string]any {
 	return map[string]any{"name": name, "description": description, "inputSchema": schema, "outputSchema": genericToolOutputSchema(), "annotations": map[string]any{"readOnlyHint": readOnly, "destructiveHint": destructive, "idempotentHint": idempotent, "openWorldHint": true}}
+}
+
+func mediaTool(name, description string, schema map[string]any) map[string]any {
+	return map[string]any{"name": name, "description": description, "inputSchema": schema, "annotations": map[string]any{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true}}
 }
 
 func objectSchema(properties map[string]any, required []string) map[string]any {
@@ -419,12 +430,19 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request, request rpcReq
 		}
 		body = runBody
 		idempotency, _ = params.Arguments["idempotencyKey"].(string)
+	case "tokyo_get_run_intent":
+		intentID, _ := params.Arguments["runIntentId"].(string)
+		path = "/api/v1/agent/run-intents/" + url.PathEscape(intentID)
 	case "tokyo_get_run", "tokyo_get_run_diagnostics":
 		runID, _ := params.Arguments["workflowRunId"].(string)
 		path = "/api/v1/agent/runs/" + url.PathEscape(runID)
 		if params.Name == "tokyo_get_run_diagnostics" {
 			path += "/diagnostics"
 		}
+	case "tokyo_get_run_screenshot":
+		runID, _ := params.Arguments["workflowRunId"].(string)
+		artifactID, _ := params.Arguments["artifactId"].(string)
+		path = "/api/v1/agent/runs/" + url.PathEscape(runID) + "/artifacts/" + url.PathEscape(artifactID)
 	default:
 		s.writeRPC(w, request.ID, nil, &rpcError{Code: -32602, Message: "Unknown tool"})
 		return
@@ -432,6 +450,21 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request, request rpcReq
 	status, payload, err := s.callApp(r.Context(), assertion, method, path, body, idempotency)
 	if err != nil {
 		s.writeToolResult(w, request.ID, map[string]any{"error": "Tokyo Tester application is unavailable. Retry after the service is healthy."}, true)
+		return
+	}
+	if params.Name == "tokyo_get_run_screenshot" {
+		if status < 200 || status >= 300 {
+			var failure any
+			if json.Unmarshal(payload, &failure) != nil {
+				failure = map[string]any{"error": "Screenshot artifact is unavailable."}
+			}
+			s.writeToolResult(w, request.ID, failure, true)
+			return
+		}
+		s.writeRPC(w, request.ID, map[string]any{
+			"content": []any{map[string]any{"type": "image", "data": base64.StdEncoding.EncodeToString(payload), "mimeType": "image/png"}},
+			"isError": false,
+		}, nil)
 		return
 	}
 	var structured any
@@ -471,7 +504,8 @@ func validateToolArguments(name string, args map[string]any) string {
 		"tokyo_validate_workflow":         {"bundle"}, "tokyo_import_workflow": {"bundle", "validationReceipt", "idempotencyKey"},
 		"tokyo_run_workflow":          {"bundle", "validationReceipt", "scenarioNames", "idempotencyKey"},
 		"tokyo_run_existing_workflow": {"workflowId", "scenarioIds", "idempotencyKey"},
-		"tokyo_get_run":               {"workflowRunId"}, "tokyo_get_run_diagnostics": {"workflowRunId"},
+		"tokyo_get_run_intent":        {"runIntentId"}, "tokyo_get_run": {"workflowRunId"}, "tokyo_get_run_diagnostics": {"workflowRunId"},
+		"tokyo_get_run_screenshot": {"workflowRunId", "artifactId"},
 	}
 	keys, known := allowed[name]
 	if !known {
@@ -529,6 +563,13 @@ func validateToolArguments(name string, args map[string]any) string {
 		}
 	case "tokyo_get_run", "tokyo_get_run_diagnostics":
 		return requireString("workflowRunId")
+	case "tokyo_get_run_intent":
+		return requireString("runIntentId")
+	case "tokyo_get_run_screenshot":
+		if message := requireString("workflowRunId"); message != "" {
+			return message
+		}
+		return requireString("artifactId")
 	}
 	if name == "tokyo_create_workflow_revision" {
 		if value, exists := args["message"]; exists {

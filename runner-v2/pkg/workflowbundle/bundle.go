@@ -14,9 +14,14 @@ import (
 )
 
 const (
-	SchemaVersion       = 2
-	legacySchemaVersion = 1
-	BundleKind          = "cots.workflow-bundle"
+	SchemaVersion          = 2
+	SchemaVersionV3        = 3
+	PreferredSchemaVersion = SchemaVersionV3
+	legacySchemaVersion    = 1
+	BundleKind             = "cots.workflow-bundle"
+
+	ExecutionModelLegacyTests = "legacy-tests"
+	ExecutionModelJourney     = "journey"
 )
 
 type Bundle struct {
@@ -24,6 +29,18 @@ type Bundle struct {
 	Kind          string           `json:"kind"`
 	Workflow      Workflow         `json:"workflow"`
 	Scenarios     []BundleScenario `json:"scenarios"`
+}
+
+func (b Bundle) MarshalJSON() ([]byte, error) {
+	type bundleAlias Bundle
+	normalized := b
+	if normalized.SchemaVersion == SchemaVersion {
+		normalized.Scenarios = append([]BundleScenario(nil), b.Scenarios...)
+		for index := range normalized.Scenarios {
+			normalized.Scenarios[index].ExecutionModel = ""
+		}
+	}
+	return json.Marshal(bundleAlias(normalized))
 }
 
 type Workflow struct {
@@ -121,10 +138,72 @@ type FlowEdgeData struct {
 }
 
 type BundleScenario struct {
-	Name        string                   `json:"name"`
-	Description string                   `json:"description,omitempty"`
-	Tests       []ScenarioTestDefinition `json:"tests"`
-	TestOrder   []string                 `json:"testOrder"`
+	Name           string                   `json:"name"`
+	Description    string                   `json:"description,omitempty"`
+	ExecutionModel string                   `json:"executionModel,omitempty"`
+	Tests          []ScenarioTestDefinition `json:"tests,omitempty"`
+	TestOrder      []string                 `json:"testOrder,omitempty"`
+	Environment    *JourneyEnvironment      `json:"environment,omitempty"`
+	Steps          []ScenarioStep           `json:"steps,omitempty"`
+	StepOrder      []string                 `json:"stepOrder,omitempty"`
+}
+
+type JourneyEnvironment struct {
+	Driver  string             `json:"driver"`
+	Browser BrowserEnvironment `json:"browser"`
+}
+
+type BrowserEnvironment struct {
+	TargetService string `json:"targetService"`
+	TargetPort    string `json:"targetPort"`
+}
+
+type ScenarioStep struct {
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Kind      string         `json:"kind"`
+	TimeoutMs int            `json:"timeoutMs,omitempty"`
+	Action    *StepAction    `json:"action,omitempty"`
+	Assertion *StepAssertion `json:"assertion,omitempty"`
+	Control   *StepControl   `json:"control,omitempty"`
+}
+
+type StepAction struct {
+	Operation string          `json:"operation"`
+	Path      string          `json:"path,omitempty"`
+	Locator   *BrowserLocator `json:"locator,omitempty"`
+	Value     *StepValue      `json:"value,omitempty"`
+}
+
+type StepAssertion struct {
+	Operation string            `json:"operation"`
+	Path      string            `json:"path,omitempty"`
+	Query     map[string]string `json:"query,omitempty"`
+	Locator   *BrowserLocator   `json:"locator,omitempty"`
+}
+
+type StepControl struct {
+	Operation  string `json:"operation"`
+	DurationMs int    `json:"durationMs"`
+}
+
+type BrowserLocator struct {
+	Strategy string `json:"strategy"`
+	Role     string `json:"role,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Value    string `json:"value,omitempty"`
+	Exact    *bool  `json:"exact,omitempty"`
+}
+
+type StepValue struct {
+	Source    string `json:"source"`
+	Value     string `json:"value,omitempty"`
+	SecretRef string `json:"secretRef,omitempty"`
+}
+
+type JourneyPlan struct {
+	Environment JourneyEnvironment `json:"environment"`
+	Steps       []ScenarioStep     `json:"steps"`
 }
 
 type ScenarioTestDefinition struct {
@@ -226,8 +305,10 @@ type DelayConfig struct {
 }
 
 type TranslationResult struct {
-	Services []config.ServiceConfig
-	Tests    []config.TestConfig
+	ExecutionModel string
+	Services       []config.ServiceConfig
+	Tests          []config.TestConfig
+	Journey        *JourneyPlan
 }
 
 type workflowServiceGraph struct {
@@ -258,10 +339,18 @@ func Decode(reader io.Reader) (*Bundle, error) {
 }
 
 func (b *Bundle) normalize() error {
-	if b.SchemaVersion != legacySchemaVersion && b.SchemaVersion != SchemaVersion {
+	if b.SchemaVersion != legacySchemaVersion && b.SchemaVersion != SchemaVersion && b.SchemaVersion != SchemaVersionV3 {
 		return fmt.Errorf("unsupported workflow bundle schema version: %d", b.SchemaVersion)
 	}
 	legacyBundle := b.SchemaVersion == legacySchemaVersion
+	if legacyBundle {
+		b.SchemaVersion = SchemaVersion
+	}
+	for index := range b.Scenarios {
+		if b.SchemaVersion <= SchemaVersion {
+			b.Scenarios[index].ExecutionModel = ExecutionModelLegacyTests
+		}
+	}
 	for index := range b.Workflow.Edges {
 		edge := &b.Workflow.Edges[index]
 		legacyEdge := edge.Data == nil
@@ -286,7 +375,6 @@ func (b *Bundle) normalize() error {
 			edge.Data.NeedsReview = true
 		}
 	}
-	b.SchemaVersion = SchemaVersion
 	return nil
 }
 
@@ -302,7 +390,7 @@ func (b *Bundle) Validate() error {
 	if err := b.normalize(); err != nil {
 		return err
 	}
-	if b.SchemaVersion != SchemaVersion {
+	if b.SchemaVersion != SchemaVersion && b.SchemaVersion != SchemaVersionV3 {
 		return fmt.Errorf("unsupported workflow bundle schema version: %d", b.SchemaVersion)
 	}
 	if b.Kind != BundleKind {
@@ -344,7 +432,12 @@ func (b *Bundle) TranslateScenario(scenario BundleScenario) (*TranslationResult,
 		return nil, err
 	}
 
-	requiredServices := expandScenarioServiceSubset(graph, scenario.Tests)
+	requiredServices := make(map[string]bool)
+	if scenario.ExecutionModel == ExecutionModelJourney {
+		requiredServices = expandServiceSubset(graph, []string{scenario.Environment.Browser.TargetService})
+	} else {
+		requiredServices = expandScenarioServiceSubset(graph, scenario.Tests)
+	}
 	services := make([]config.ServiceConfig, 0, len(graph.services))
 	for _, service := range graph.services {
 		if requiredServices[service.Name] {
@@ -352,10 +445,16 @@ func (b *Bundle) TranslateScenario(scenario BundleScenario) (*TranslationResult,
 		}
 	}
 
-	return &TranslationResult{
-		Services: services,
-		Tests:    translateScenarioTests(scenario, requiredServices),
-	}, nil
+	result := &TranslationResult{ExecutionModel: scenario.ExecutionModel, Services: services}
+	if scenario.ExecutionModel == ExecutionModelJourney {
+		result.Journey = &JourneyPlan{
+			Environment: *scenario.Environment,
+			Steps:       orderedScenarioSteps(scenario),
+		}
+		return result, nil
+	}
+	result.Tests = translateScenarioTests(scenario, requiredServices)
+	return result, nil
 }
 
 func validateWorkflowGraph(nodes []FlowNode, edges []FlowEdge) error {
@@ -431,6 +530,18 @@ func validateWorkflowGraph(nodes []FlowNode, edges []FlowEdge) error {
 func validateScenario(graph workflowServiceGraph, scenario BundleScenario, index int) error {
 	if strings.TrimSpace(scenario.Name) == "" {
 		return fmt.Errorf("scenario %d must include a name", index+1)
+	}
+	if scenario.ExecutionModel == ExecutionModelJourney {
+		if scenario.Tests != nil || scenario.TestOrder != nil {
+			return fmt.Errorf("journey scenario %q must not include tests or testOrder", scenario.Name)
+		}
+		return validateJourneyScenario(graph, scenario)
+	}
+	if scenario.ExecutionModel != ExecutionModelLegacyTests {
+		return fmt.Errorf("scenario %q has unsupported executionModel %q", scenario.Name, scenario.ExecutionModel)
+	}
+	if scenario.Environment != nil || scenario.Steps != nil || scenario.StepOrder != nil {
+		return fmt.Errorf("legacy-tests scenario %q must not include environment, steps, or stepOrder", scenario.Name)
 	}
 	if len(scenario.Tests) == 0 {
 		return fmt.Errorf("scenario %q must contain at least one test", scenario.Name)
@@ -513,6 +624,185 @@ func validateScenario(graph workflowServiceGraph, scenario BundleScenario, index
 		}
 	}
 
+	return nil
+}
+
+func validateJourneyScenario(graph workflowServiceGraph, scenario BundleScenario) error {
+	if scenario.Environment == nil {
+		return fmt.Errorf("journey scenario %q must include an environment", scenario.Name)
+	}
+	if scenario.Environment.Driver != "browser" {
+		return fmt.Errorf("journey scenario %q has unsupported environment driver %q", scenario.Name, scenario.Environment.Driver)
+	}
+	targetService := strings.TrimSpace(scenario.Environment.Browser.TargetService)
+	targetPort := strings.TrimSpace(scenario.Environment.Browser.TargetPort)
+	if targetService == "" || targetPort == "" {
+		return fmt.Errorf("journey scenario %q browser environment requires targetService and targetPort", scenario.Name)
+	}
+	serviceFound := false
+	portFound := false
+	for _, service := range graph.services {
+		if service.Name != targetService {
+			continue
+		}
+		serviceFound = true
+		for _, mapping := range service.Ports {
+			parts := strings.Split(mapping, ":")
+			if parts[len(parts)-1] == targetPort {
+				portFound = true
+				break
+			}
+		}
+		break
+	}
+	if !serviceFound {
+		return fmt.Errorf("journey scenario %q references unknown browser target service %q", scenario.Name, targetService)
+	}
+	if !portFound {
+		return fmt.Errorf("journey scenario %q browser target service %q does not expose container port %q", scenario.Name, targetService, targetPort)
+	}
+	if len(scenario.Steps) == 0 {
+		return fmt.Errorf("journey scenario %q must contain at least one step", scenario.Name)
+	}
+
+	stepIDs := make(map[string]struct{}, len(scenario.Steps))
+	for _, step := range scenario.Steps {
+		if strings.TrimSpace(step.ID) == "" || strings.TrimSpace(step.Name) == "" {
+			return fmt.Errorf("journey scenario %q contains a step without an id or name", scenario.Name)
+		}
+		if _, duplicate := stepIDs[step.ID]; duplicate {
+			return fmt.Errorf("journey scenario %q contains duplicate step id %q", scenario.Name, step.ID)
+		}
+		stepIDs[step.ID] = struct{}{}
+		if step.TimeoutMs < 0 {
+			return fmt.Errorf("journey step %q timeoutMs must not be negative", step.Name)
+		}
+		if err := validateScenarioStep(step); err != nil {
+			return err
+		}
+	}
+	if len(scenario.StepOrder) != len(scenario.Steps) {
+		return fmt.Errorf("journey scenario %q stepOrder must include every step exactly once", scenario.Name)
+	}
+	seen := make(map[string]struct{}, len(scenario.StepOrder))
+	for _, stepID := range scenario.StepOrder {
+		if _, duplicate := seen[stepID]; duplicate {
+			return fmt.Errorf("journey scenario %q contains duplicate stepOrder id %q", scenario.Name, stepID)
+		}
+		seen[stepID] = struct{}{}
+		if _, exists := stepIDs[stepID]; !exists {
+			return fmt.Errorf("journey scenario %q stepOrder references unknown step %q", scenario.Name, stepID)
+		}
+	}
+	return nil
+}
+
+func validateScenarioStep(step ScenarioStep) error {
+	configured := 0
+	if step.Action != nil {
+		configured++
+	}
+	if step.Assertion != nil {
+		configured++
+	}
+	if step.Control != nil {
+		configured++
+	}
+	if configured != 1 {
+		return fmt.Errorf("journey step %q must include exactly one action, assertion, or control config", step.Name)
+	}
+	switch step.Kind {
+	case "action":
+		if step.Action == nil {
+			return fmt.Errorf("journey action step %q must include action config", step.Name)
+		}
+		return validateStepAction(step.Name, *step.Action)
+	case "assertion":
+		if step.Assertion == nil {
+			return fmt.Errorf("journey assertion step %q must include assertion config", step.Name)
+		}
+		return validateStepAssertion(step.Name, *step.Assertion)
+	case "control":
+		if step.Control == nil || step.Control.Operation != "delay" || step.Control.DurationMs < 0 {
+			return fmt.Errorf("journey control step %q must configure a non-negative delay", step.Name)
+		}
+		return nil
+	default:
+		return fmt.Errorf("journey step %q has unsupported kind %q", step.Name, step.Kind)
+	}
+}
+
+func validateStepAction(stepName string, action StepAction) error {
+	switch action.Operation {
+	case "navigate":
+		if !strings.HasPrefix(action.Path, "/") || action.Locator != nil || action.Value != nil {
+			return fmt.Errorf("journey navigate step %q requires a relative path and no locator or value", stepName)
+		}
+	case "click":
+		if action.Locator == nil || action.Path != "" || action.Value != nil {
+			return fmt.Errorf("journey click step %q requires only a locator", stepName)
+		}
+		return validateBrowserLocator(stepName, *action.Locator)
+	case "fill":
+		if action.Locator == nil || action.Value == nil || action.Path != "" {
+			return fmt.Errorf("journey fill step %q requires a locator and value", stepName)
+		}
+		if err := validateBrowserLocator(stepName, *action.Locator); err != nil {
+			return err
+		}
+		return validateStepValue(stepName, *action.Value)
+	default:
+		return fmt.Errorf("journey action step %q has unsupported operation %q", stepName, action.Operation)
+	}
+	return nil
+}
+
+func validateStepAssertion(stepName string, assertion StepAssertion) error {
+	switch assertion.Operation {
+	case "url":
+		if !strings.HasPrefix(assertion.Path, "/") || assertion.Locator != nil {
+			return fmt.Errorf("journey URL assertion %q requires a relative path and no locator", stepName)
+		}
+	case "visible":
+		if assertion.Locator == nil || assertion.Path != "" || assertion.Query != nil {
+			return fmt.Errorf("journey visible assertion %q requires only a locator", stepName)
+		}
+		return validateBrowserLocator(stepName, *assertion.Locator)
+	default:
+		return fmt.Errorf("journey assertion step %q has unsupported operation %q", stepName, assertion.Operation)
+	}
+	return nil
+}
+
+func validateBrowserLocator(stepName string, locator BrowserLocator) error {
+	switch locator.Strategy {
+	case "role":
+		if strings.TrimSpace(locator.Role) == "" || strings.TrimSpace(locator.Name) == "" || locator.Value != "" {
+			return fmt.Errorf("journey step %q role locator requires role and name", stepName)
+		}
+	case "label", "text", "testId":
+		if strings.TrimSpace(locator.Value) == "" || locator.Role != "" || locator.Name != "" {
+			return fmt.Errorf("journey step %q %s locator requires value", stepName, locator.Strategy)
+		}
+	default:
+		return fmt.Errorf("journey step %q has unsupported locator strategy %q", stepName, locator.Strategy)
+	}
+	return nil
+}
+
+func validateStepValue(stepName string, value StepValue) error {
+	switch value.Source {
+	case "literal":
+		if value.SecretRef != "" {
+			return fmt.Errorf("journey step %q literal value must not include secretRef", stepName)
+		}
+	case "run-secret":
+		if strings.TrimSpace(value.SecretRef) == "" || value.Value != "" {
+			return fmt.Errorf("journey step %q run-secret value requires only secretRef", stepName)
+		}
+	default:
+		return fmt.Errorf("journey step %q has unsupported value source %q", stepName, value.Source)
+	}
 	return nil
 }
 
@@ -975,6 +1265,14 @@ func expandScenarioServiceSubset(
 	graph workflowServiceGraph,
 	tests []ScenarioTestDefinition,
 ) map[string]bool {
+	serviceNames := make([]string, 0)
+	for _, test := range tests {
+		serviceNames = append(serviceNames, test.TargetServices...)
+	}
+	return expandServiceSubset(graph, serviceNames)
+}
+
+func expandServiceSubset(graph workflowServiceGraph, serviceNames []string) map[string]bool {
 	required := make(map[string]bool)
 	var visit func(string)
 	visit = func(serviceName string) {
@@ -986,12 +1284,22 @@ func expandScenarioServiceSubset(
 			visit(dependency)
 		}
 	}
-	for _, test := range tests {
-		for _, serviceName := range test.TargetServices {
-			visit(serviceName)
-		}
+	for _, serviceName := range serviceNames {
+		visit(serviceName)
 	}
 	return required
+}
+
+func orderedScenarioSteps(scenario BundleScenario) []ScenarioStep {
+	stepsByID := make(map[string]ScenarioStep, len(scenario.Steps))
+	for _, step := range scenario.Steps {
+		stepsByID[step.ID] = step
+	}
+	ordered := make([]ScenarioStep, 0, len(scenario.Steps))
+	for _, stepID := range scenario.StepOrder {
+		ordered = append(ordered, stepsByID[stepID])
+	}
+	return ordered
 }
 
 func translateScenarioTests(

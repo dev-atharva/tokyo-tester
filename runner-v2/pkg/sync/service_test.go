@@ -37,20 +37,24 @@ func TestProcessBatchSupportsScenarioEntities(t *testing.T) {
 	}
 
 	scenarioPayload := types.ScenarioData{
-		ID:          "scenario-1",
-		ProjectID:   "project-1",
-		WorkflowID:  workflowPayload.ID,
-		UserID:      "user-1",
-		Name:        "Happy Path",
-		Description: "scenario description",
-		TestsConfig: rawJSON(t, []map[string]any{{"id": "test-1", "name": "health"}}),
-		TestOrder:   rawJSON(t, []string{"test-1"}),
-		Metadata:    rawJSON(t, map[string]any{"color": "blue"}),
-		Version:     1,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-		ClientID:    "client-1",
-		IsDeleted:   false,
+		ID:                "scenario-1",
+		ProjectID:         "project-1",
+		WorkflowID:        workflowPayload.ID,
+		UserID:            "user-1",
+		Name:              "Happy Path",
+		Description:       "scenario description",
+		ExecutionModel:    "journey",
+		TestsConfig:       rawJSON(t, []map[string]any{}),
+		TestOrder:         rawJSON(t, []string{}),
+		EnvironmentConfig: rawJSON(t, map[string]any{"driver": "browser", "browser": map[string]any{"targetService": "web", "targetPort": "3000"}}),
+		StepsConfig:       rawJSON(t, []map[string]any{{"id": "open", "name": "open", "kind": "action"}}),
+		StepOrder:         rawJSON(t, []string{"open"}),
+		Metadata:          rawJSON(t, map[string]any{"color": "blue"}),
+		Version:           1,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+		ClientID:          "client-1",
+		IsDeleted:         false,
 	}
 
 	workflowRunPayload := types.WorkflowRunData{
@@ -146,7 +150,7 @@ func TestProcessBatchSupportsScenarioEntities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetScenario returned error: %v", err)
 	}
-	if scenario.WorkflowID != workflowPayload.ID || scenario.Name != scenarioPayload.Name {
+	if scenario.WorkflowID != workflowPayload.ID || scenario.Name != scenarioPayload.Name || scenario.ExecutionModel != "journey" || scenario.StepOrder != `["open"]` {
 		t.Fatalf("unexpected scenario persisted: %+v", scenario)
 	}
 
@@ -251,19 +255,23 @@ func TestPullChangesIncludesScenariosAndWorkflowRuns(t *testing.T) {
 	}
 
 	scenario := &db.Scenario{
-		ID:          "scenario-2",
-		ProjectID:   "project-1",
-		WorkflowID:  workflow.ID,
-		Name:        "Failure Path",
-		Description: "scenario",
-		TestsConfig: `[{"id":"test-2"}]`,
-		TestOrder:   `["test-2"]`,
-		Metadata:    `{"priority":"high"}`,
-		Version:     1,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-		ClientID:    "client-1",
-		UserID:      "user-1",
+		ID:                "scenario-2",
+		ProjectID:         "project-1",
+		WorkflowID:        workflow.ID,
+		Name:              "Failure Path",
+		Description:       "scenario",
+		ExecutionModel:    "journey",
+		TestsConfig:       `[{"id":"test-2"}]`,
+		TestOrder:         `["test-2"]`,
+		EnvironmentConfig: `{"driver":"browser","browser":{"targetService":"web","targetPort":"3000"}}`,
+		StepsConfig:       `[{"id":"visible"}]`,
+		StepOrder:         `["visible"]`,
+		Metadata:          `{"priority":"high"}`,
+		Version:           1,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+		ClientID:          "client-1",
+		UserID:            "user-1",
 	}
 	if err := database.UpsertScenario(context.Background(), scenario); err != nil {
 		t.Fatalf("UpsertScenario returned error: %v", err)
@@ -347,7 +355,7 @@ func TestPullChangesIncludesScenariosAndWorkflowRuns(t *testing.T) {
 			len(resp.Workflows), len(resp.Scenarios), len(resp.WorkflowRuns), len(resp.Sessions), len(resp.TestResults))
 	}
 
-	if resp.Scenarios[0].ID != scenario.ID || resp.Scenarios[0].WorkflowID != workflow.ID {
+	if resp.Scenarios[0].ID != scenario.ID || resp.Scenarios[0].WorkflowID != workflow.ID || resp.Scenarios[0].ExecutionModel != "journey" || string(resp.Scenarios[0].StepOrder) != `["visible"]` {
 		t.Fatalf("unexpected scenario pull payload: %+v", resp.Scenarios[0])
 	}
 	if resp.WorkflowRuns[0].ID != workflowRun.ID || resp.WorkflowRuns[0].Status != workflowRun.Status {

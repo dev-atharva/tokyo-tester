@@ -64,20 +64,61 @@ func workflowBundleToolSchema() map[string]any {
 			"delayConfig":    configs["delayConfig"],
 		},
 	}
+	locator := map[string]any{
+		"oneOf": []any{
+			map[string]any{"type": "object", "required": []string{"strategy", "role", "name"}, "additionalProperties": false, "properties": map[string]any{"strategy": map[string]any{"type": "string", "const": "role"}, "role": stringValue("ARIA role."), "name": stringValue("Accessible name."), "exact": map[string]any{"type": "boolean"}}},
+			map[string]any{"type": "object", "required": []string{"strategy", "value"}, "additionalProperties": false, "properties": map[string]any{"strategy": map[string]any{"type": "string", "enum": []string{"label", "text", "testId"}}, "value": stringValue("Label, visible text, or test id."), "exact": map[string]any{"type": "boolean"}}},
+		},
+	}
+	stepValue := map[string]any{
+		"oneOf": []any{
+			map[string]any{"type": "object", "required": []string{"source", "value"}, "additionalProperties": false, "properties": map[string]any{"source": map[string]any{"type": "string", "const": "literal"}, "value": map[string]any{"type": "string"}}},
+			map[string]any{"type": "object", "required": []string{"source", "secretRef"}, "additionalProperties": false, "properties": map[string]any{"source": map[string]any{"type": "string", "const": "run-secret"}, "secretRef": stringValue("Reference name only. Runtime secret values are human-supplied and must never be sent through MCP.")}},
+		},
+	}
+	stepBase := func(kind string, configName string, config map[string]any) map[string]any {
+		return map[string]any{
+			"type": "object", "required": []string{"id", "name", "kind", configName}, "additionalProperties": false,
+			"properties": map[string]any{"id": stringValue("Stable unique step id."), "name": stringValue("Behavior-oriented step name."), "kind": map[string]any{"type": "string", "const": kind}, "timeoutMs": map[string]any{"type": "integer", "minimum": 0, "maximum": 300000}, configName: config},
+		}
+	}
+	action := map[string]any{"oneOf": []any{
+		map[string]any{"type": "object", "required": []string{"operation", "path"}, "additionalProperties": false, "properties": map[string]any{"operation": map[string]any{"type": "string", "const": "navigate"}, "path": map[string]any{"type": "string", "pattern": "^/"}}},
+		map[string]any{"type": "object", "required": []string{"operation", "locator", "value"}, "additionalProperties": false, "properties": map[string]any{"operation": map[string]any{"type": "string", "const": "fill"}, "locator": locator, "value": stepValue}},
+		map[string]any{"type": "object", "required": []string{"operation", "locator"}, "additionalProperties": false, "properties": map[string]any{"operation": map[string]any{"type": "string", "const": "click"}, "locator": locator}},
+	}}
+	assertion := map[string]any{"oneOf": []any{
+		map[string]any{"type": "object", "required": []string{"operation", "path"}, "additionalProperties": false, "properties": map[string]any{"operation": map[string]any{"type": "string", "const": "url"}, "path": map[string]any{"type": "string", "pattern": "^/"}, "query": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}}},
+		map[string]any{"type": "object", "required": []string{"operation", "locator"}, "additionalProperties": false, "properties": map[string]any{"operation": map[string]any{"type": "string", "const": "visible"}, "locator": locator}},
+	}}
+	control := map[string]any{"type": "object", "required": []string{"operation", "durationMs"}, "additionalProperties": false, "properties": map[string]any{"operation": map[string]any{"type": "string", "const": "delay"}, "durationMs": map[string]any{"type": "integer", "minimum": 0, "maximum": 86400000}}}
+	journeyStep := map[string]any{"oneOf": []any{stepBase("action", "action", action), stepBase("assertion", "assertion", assertion), stepBase("control", "control", control)}}
+	legacyScenario := map[string]any{
+		"type": "object", "required": []string{"name", "tests", "testOrder"}, "additionalProperties": false,
+		"properties": map[string]any{"name": stringValue("Unique behavior-oriented scenario name."), "description": map[string]any{"type": "string"}, "executionModel": map[string]any{"type": "string", "const": "legacy-tests"}, "tests": map[string]any{"type": "array", "minItems": 1, "items": test}, "testOrder": map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string", "minLength": 1}}},
+	}
+	journeyScenario := map[string]any{
+		"type": "object", "required": []string{"name", "executionModel", "environment", "steps", "stepOrder"}, "additionalProperties": false,
+		"properties": map[string]any{
+			"name": stringValue("Unique behavior-oriented scenario name."), "description": map[string]any{"type": "string"}, "executionModel": map[string]any{"type": "string", "const": "journey"},
+			"environment": map[string]any{"type": "object", "required": []string{"driver", "browser"}, "additionalProperties": false, "properties": map[string]any{"driver": map[string]any{"type": "string", "const": "browser"}, "browser": map[string]any{"type": "object", "required": []string{"targetService", "targetPort"}, "additionalProperties": false, "properties": map[string]any{"targetService": stringValue("Sanitized UI service label."), "targetPort": stringValue("UI service container port.")}}}},
+			"steps":       map[string]any{"type": "array", "minItems": 1, "items": journeyStep}, "stepOrder": map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "items": map[string]any{"type": "string", "minLength": 1}},
+		},
+	}
 	return map[string]any{
 		"type":                 "object",
-		"description":          "Complete schemaVersion 2 cots.workflow-bundle. Use only repository-evidenced values and no production secrets.",
+		"description":          "Complete schemaVersion 2 or 3 cots.workflow-bundle. Use v3 for browser journeys, repository-evidenced values, and secretRef names only.",
 		"required":             []string{"schemaVersion", "kind", "workflow", "scenarios"},
 		"additionalProperties": false,
 		"properties": map[string]any{
-			"schemaVersion": map[string]any{"type": "integer", "const": 2, "description": "Workflow bundle schema version."},
+			"schemaVersion": map[string]any{"type": "integer", "enum": []int{2, 3}, "description": "Use 2 for legacy-only bundles and 3 when any scenario is a journey."},
 			"kind":          map[string]any{"type": "string", "const": "cots.workflow-bundle", "description": "Workflow bundle kind."},
 			"workflow": map[string]any{"type": "object", "required": []string{"name", "nodes", "edges"}, "additionalProperties": false, "properties": map[string]any{
 				"name": stringValue("Workflow name."), "description": map[string]any{"type": "string"},
 				"nodes": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "object", "required": []string{"id", "data"}, "properties": map[string]any{"id": stringValue("Stable unique node id."), "data": map[string]any{"type": "object", "required": []string{"label", "service"}, "properties": map[string]any{"label": stringValue("Unique human label; its sanitized value is used by tests."), "service": service}}}}},
 				"edges": map[string]any{"type": "array", "items": map[string]any{"type": "object", "required": []string{"source", "target", "data"}, "properties": map[string]any{"id": map[string]any{"type": "string"}, "source": stringValue("Existing source node id."), "target": stringValue("Existing target node id."), "data": map[string]any{"type": "object", "required": []string{"relation", "readiness"}, "additionalProperties": false, "properties": map[string]any{"relation": map[string]any{"type": "string", "enum": []string{"calls", "reads", "writes", "publishes", "consumes"}}, "readiness": map[string]any{"type": "string", "enum": []string{"none", "source_requires_target", "target_requires_source"}}, "label": map[string]any{"type": "string"}, "description": map[string]any{"type": "string"}, "protocol": map[string]any{"type": "string"}, "needsReview": map[string]any{"type": "boolean"}}}}}},
 			}},
-			"scenarios": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "object", "required": []string{"name", "tests", "testOrder"}, "additionalProperties": false, "properties": map[string]any{"name": stringValue("Unique behavior-oriented scenario name."), "description": map[string]any{"type": "string"}, "tests": map[string]any{"type": "array", "minItems": 1, "items": test}, "testOrder": map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string", "minLength": 1}}}}},
+			"scenarios": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"oneOf": []any{legacyScenario, journeyScenario}}},
 		},
 	}
 }

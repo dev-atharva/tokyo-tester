@@ -47,6 +47,7 @@ type Evidence struct {
 }
 
 type Diagnostic struct {
+	DiagnosticID string               `json:"diagnosticId,omitempty"`
 	Code         string               `json:"code"`
 	Source       DiagnosticSource     `json:"source"`
 	Confidence   DiagnosticConfidence `json:"confidence"`
@@ -55,6 +56,8 @@ type Diagnostic struct {
 	ScenarioID   string               `json:"scenarioId,omitempty"`
 	TestID       string               `json:"testId,omitempty"`
 	TestName     string               `json:"testName,omitempty"`
+	StepID       string               `json:"stepId,omitempty"`
+	StepName     string               `json:"stepName,omitempty"`
 	ServiceNames []string             `json:"serviceNames,omitempty"`
 	Evidence     []Evidence           `json:"evidence,omitempty"`
 }
@@ -69,6 +72,11 @@ type Activity struct {
 	ServiceNames []string    `json:"serviceNames,omitempty"`
 	TestID       string      `json:"testId,omitempty"`
 	TestName     string      `json:"testName,omitempty"`
+	StepID       string      `json:"stepId,omitempty"`
+	StepName     string      `json:"stepName,omitempty"`
+	Sequence     int         `json:"sequence,omitempty"`
+	StepKind     string      `json:"stepKind,omitempty"`
+	Operation    string      `json:"operation,omitempty"`
 	Attempt      int         `json:"attempt,omitempty"`
 	MaxAttempts  int         `json:"maxAttempts,omitempty"`
 	RetryReason  string      `json:"retryReason,omitempty"`

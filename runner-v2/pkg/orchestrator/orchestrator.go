@@ -228,6 +228,18 @@ func (o *Orchestrator) RuntimeSnapshot() map[string]*types.ServiceRuntime {
 	return o.registry.Snapshot()
 }
 
+// NetworkName returns the runner-owned workflow network only after it has been
+// provisioned. Callers should immediately wrap it as a browserjourney network
+// attachment rather than retaining Docker topology in domain state.
+func (o *Orchestrator) NetworkName() string {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.network == nil {
+		return ""
+	}
+	return o.network.Name
+}
+
 func (o *Orchestrator) ContainerIDs() map[string]string {
 	snapshot := o.registry.Snapshot()
 	ids := make(map[string]string, len(snapshot))

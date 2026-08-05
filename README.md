@@ -63,6 +63,7 @@ The supported production deployment for this release is a dedicated Linux Docker
 
 - `make prod-check` validates the host, secrets, socket access, Compose definition, and writable volumes
 - `make prod` builds the standalone UI image, migrates both databases, starts the single-server stack, and waits for readiness
+- `make prod-browser-demo` also builds the repository's local checkout fixture so the Browser checkout journey template can run without an external UI image
 - `make prod-verify` checks public/private health, runs a minimal Docker workflow, and checks for leaked managed resources
 - `make prod-backup` creates one checksummed, transactionally consistent dump of both MySQL databases
 - MySQL is the supported default for the runner and UI; workflow MySQL service nodes are separate from this app database setting

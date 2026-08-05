@@ -38,6 +38,7 @@ import {
   shouldPollExecutionFallback,
 } from "../../lib/realtime-events";
 import { cancelWorkflowRun } from "../../lib/runner-client";
+import { validateBrowserJourney } from "../../lib/scenario-journey";
 import { createDefaultServiceNode } from "../../lib/workflow-defaults";
 import { getServiceRemovalImpact } from "../../lib/workflow-presentation";
 import { useExecutionStore } from "../../stores/execution.store.sync";
@@ -250,8 +251,13 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   );
   const guidedValidationErrors = useMemo(() => {
     const serviceGraph = translateWorkflowGraphToServiceGraph(nodes, edges);
-    const errors = runnableScenarios.flatMap(
-      (scenario) => validateScenario(serviceGraph, scenario).errors,
+    const errors = runnableScenarios.flatMap((scenario) =>
+      scenario.executionModel === "journey"
+        ? validateBrowserJourney(scenario, nodes).issues.map((issue) => ({
+            field: issue.field,
+            message: issue.message,
+          }))
+        : validateScenario(serviceGraph, scenario).errors,
     );
     return Array.from(
       new Map(errors.map((error) => [error.message, error])).values(),
@@ -278,13 +284,15 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
       }),
     [displayedValidationErrors.length, edges, nodes.length, runnableScenarios],
   );
-  const hasRunnableTest = runnableScenarios.some(
-    (scenario) => scenario.tests.length > 0,
+  const hasRunnableScenario = runnableScenarios.some((scenario) =>
+    scenario.executionModel === "journey"
+      ? scenario.steps.length > 0
+      : scenario.tests.length > 0,
   );
   const canLaunchWorkflow =
     canRun &&
     canExecute &&
-    hasRunnableTest &&
+    hasRunnableScenario &&
     displayedValidationErrors.length === 0 &&
     queueSize === 0;
   const runDisabledReason = useMemo(() => {
@@ -297,8 +305,8 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
     if (runnableScenarios.length === 0) {
       return "Create at least one scenario before running.";
     }
-    if (!hasRunnableTest) {
-      return "Add at least one test step to a scenario before running.";
+    if (!hasRunnableScenario) {
+      return "Add at least one scenario step before running.";
     }
     if (displayedValidationErrors.length > 0) {
       return `Resolve ${displayedValidationErrors.length} validation issue${displayedValidationErrors.length === 1 ? "" : "s"} before running.`;
@@ -307,7 +315,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   }, [
     canRun,
     displayedValidationErrors.length,
-    hasRunnableTest,
+    hasRunnableScenario,
     isExecuting,
     nodes.length,
     queueSize,

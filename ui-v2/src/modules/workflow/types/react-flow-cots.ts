@@ -312,8 +312,12 @@ export interface WorkflowBundleWorkflow {
 export interface WorkflowBundleScenario {
   name: string;
   description?: string;
+  executionModel?: ScenarioExecutionModel;
   tests: ScenarioTestDefinition[];
   testOrder: string[];
+  environment?: JourneyEnvironment;
+  steps?: ScenarioStep[];
+  stepOrder?: string[];
 }
 
 export interface WorkflowBundle {
@@ -329,8 +333,12 @@ export interface Scenario {
   workflowId: string;
   name: string;
   description?: string;
+  executionModel: ScenarioExecutionModel;
   tests: ScenarioTestDefinition[];
   testOrder: string[];
+  environment?: JourneyEnvironment;
+  steps: ScenarioStep[];
+  stepOrder: string[];
   version: number;
   created_at: string;
   updated_at: string;
@@ -338,6 +346,62 @@ export interface Scenario {
   client_id: string;
   is_deleted: boolean;
 }
+
+export type ScenarioExecutionModel = "legacy-tests" | "journey";
+
+export interface JourneyEnvironment {
+  driver: "browser";
+  browser: {
+    targetService: string;
+    targetPort: string;
+  };
+}
+
+export type BrowserLocator =
+  | {
+      strategy: "role";
+      role: string;
+      name: string;
+      exact?: boolean;
+    }
+  | {
+      strategy: "label" | "text" | "testId";
+      value: string;
+      exact?: boolean;
+    };
+
+export type ScenarioStepValue =
+  | { source: "literal"; value: string }
+  | { source: "run-secret"; secretRef: string };
+
+interface ScenarioStepBase {
+  id: string;
+  name: string;
+  timeoutMs?: number;
+}
+
+export type ScenarioStep =
+  | (ScenarioStepBase & {
+      kind: "action";
+      action:
+        | { operation: "navigate"; path: string }
+        | {
+            operation: "fill";
+            locator: BrowserLocator;
+            value: ScenarioStepValue;
+          }
+        | { operation: "click"; locator: BrowserLocator };
+    })
+  | (ScenarioStepBase & {
+      kind: "assertion";
+      assertion:
+        | { operation: "url"; path: string; query?: Record<string, string> }
+        | { operation: "visible"; locator: BrowserLocator };
+    })
+  | (ScenarioStepBase & {
+      kind: "control";
+      control: { operation: "delay"; durationMs: number };
+    });
 
 export type WorkflowRunStatus =
   | "pending"
@@ -450,16 +514,15 @@ export interface WorkflowRunInput {
   scenarios: Array<
     Pick<
       Scenario,
-      | "id"
-      | "name"
-      | "description"
-      | "tests"
-      | "testOrder"
-      | "projectId"
-      | "user_id"
-      | "client_id"
+      "id" | "name" | "description" | "projectId" | "user_id" | "client_id"
     > & {
       scenarioRunId: string;
+      executionModel?: ScenarioExecutionModel;
+      tests?: ScenarioTestDefinition[];
+      testOrder?: string[];
+      environment?: JourneyEnvironment;
+      steps?: ScenarioStep[];
+      stepOrder?: string[];
     }
   >;
   userId?: string;
@@ -550,7 +613,14 @@ export interface WorkflowLogEvent {
     | "execution"
     | "cleanup"
     | "aggregation";
-  kind?: "lifecycle" | "network" | "service" | "test" | "diagnostic";
+  kind?:
+    | "lifecycle"
+    | "network"
+    | "service"
+    | "test"
+    | "journey"
+    | "step"
+    | "diagnostic";
   activityStatus?:
     | "started"
     | "ready"
@@ -558,12 +628,18 @@ export interface WorkflowLogEvent {
     | "retrying"
     | "passed"
     | "failed"
+    | "interrupted"
     | "completed";
   serviceId?: string;
   serviceName?: string;
   serviceNames?: string[];
   testId?: string;
   testName?: string;
+  stepId?: string;
+  stepName?: string;
+  stepSequence?: number;
+  stepKind?: ScenarioStep["kind"];
+  operation?: string;
   attempt?: number;
   maxAttempts?: number;
   retryReason?: string;
@@ -582,6 +658,7 @@ export type ExecutionDiagnosticSource =
   | "undetermined";
 
 export interface ExecutionDiagnostic {
+  diagnosticId?: string;
   code: string;
   source: ExecutionDiagnosticSource;
   confidence: "certain" | "likely" | "unknown";
@@ -596,6 +673,8 @@ export interface ExecutionDiagnostic {
   scenarioId?: string;
   testId?: string;
   testName?: string;
+  stepId?: string;
+  stepName?: string;
   serviceNames?: string[];
   evidence?: Array<{
     kind: "runner_error" | "container_log" | "test_result" | "lifecycle_event";

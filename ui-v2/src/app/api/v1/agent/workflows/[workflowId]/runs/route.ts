@@ -1,6 +1,14 @@
 import type { NextRequest } from "next/server";
 import { requiredIdempotencyKey, withAgent } from "@/modules/agent/server/http";
-import { runExistingWorkflow } from "@/modules/agent/server/service";
+import {
+  createRunIntent,
+  existingRunIntentDetails,
+  publicRunIntent,
+} from "@/modules/agent/server/run-intents";
+import {
+  runExistingWorkflow,
+  selectExistingWorkflowScenarios,
+} from "@/modules/agent/server/service";
 
 export const dynamic = "force-dynamic";
 export async function POST(
@@ -29,6 +37,37 @@ export async function POST(
       );
     }
     try {
+      const existing = await selectExistingWorkflowScenarios(
+        identity,
+        workflowId,
+        body.scenarioIds,
+      );
+      const details = existingRunIntentDetails(
+        existing.workflow,
+        existing.scenarios,
+      );
+      if (details.requiredSecretRefs.length > 0) {
+        const intent = await createRunIntent({
+          identity,
+          workflowId,
+          idempotencyKey: key,
+          payload: {
+            operation: "existing",
+            workflowId,
+            ...(body.scenarioIds ? { scenarioIds: body.scenarioIds } : {}),
+            expectedWorkflowVersion: existing.workflow.version,
+            expectedScenarioVersions: Object.fromEntries(
+              existing.scenarios.map((scenario) => [
+                scenario.id,
+                scenario.version,
+              ]),
+            ),
+          },
+          requiredSecretRefs: details.requiredSecretRefs,
+          selectionSummary: details.selectionSummary,
+        });
+        return Response.json(publicRunIntent(intent));
+      }
       const run = await runExistingWorkflow(
         identity,
         workflowId,
